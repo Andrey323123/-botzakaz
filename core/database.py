@@ -6,9 +6,9 @@ from datetime import datetime, timedelta
 import os
 from sqlalchemy import create_engine
 
-# Используем SQLite для Railway
+# Используем aiosqlite для асинхронного SQLite
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///botzakaz.db")
-engine = create_async_engine(DATABASE_URL, echo=False)
+engine = create_async_engine(DATABASE_URL, echo=False, connect_args={"check_same_thread": False})
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 # Синхронный движок для создания таблиц
