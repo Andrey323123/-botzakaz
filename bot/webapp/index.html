@@ -14,7 +14,7 @@
         <div class="loading-logo">
             <i class="fab fa-telegram fa-3x"></i>
         </div>
-        <div class="loading-text">Botfs23 Chat</div>
+        <div class="loading-text">Botfs23 Chat (S3)</div>
         <div class="loading-subtext" id="loading-subtext">Инициализация приложения...</div>
         <div class="loading-spinner"></div>
     </div>
@@ -28,7 +28,7 @@
                     <i class="fas fa-bars"></i>
                 </button>
                 <div class="chat-info">
-                    <div class="chat-title" id="chat-title">Botfs23 Chat</div>
+                    <div class="chat-title" id="chat-title">Основной чат (S3)</div>
                     <div class="chat-status">онлайн: <span id="online-count">0</span></div>
                 </div>
             </div>
@@ -38,7 +38,7 @@
                 </button>
                 <button class="header-btn" id="btn-jump" title="Перейти к непрочитанным">
                     <i class="fas fa-arrow-down"></i>
-                    <span class="unread-badge" id="unread-badge">0</span>
+                    <span class="unread-badge" id="unread-badge" style="display: none;">0</span>
                 </button>
                 <button class="header-btn" id="btn-admin" title="Админ панель">
                     <i class="fas fa-user-shield"></i>
@@ -71,23 +71,12 @@
                 <div class="section-item active" data-section="main">
                     <i class="fas fa-comments"></i>
                     <span class="section-name">Основной чат</span>
-                    <span class="section-unread" id="main-unread"></span>
+                    <span class="section-unread" id="main-unread" style="display: none;">0</span>
                 </div>
                 <div class="section-item" data-section="news">
                     <i class="fas fa-newspaper"></i>
                     <span class="section-name">Новости</span>
-                    <span class="section-unread" id="news-unread"></span>
-                </div>
-                <div class="section-item" data-section="rules">
-                    <i class="fas fa-book"></i>
-                    <span class="section-name">Правила</span>
-                    <span class="section-locked"><i class="fas fa-lock"></i></span>
-                    <span class="section-unread" id="rules-unread"></span>
-                </div>
-                <div class="section-item" data-section="announcements">
-                    <i class="fas fa-bullhorn"></i>
-                    <span class="section-name">Объявления</span>
-                    <span class="section-unread" id="announcements-unread"></span>
+                    <span class="section-unread" id="news-unread" style="display: none;">0</span>
                 </div>
             </div>
            
@@ -96,12 +85,12 @@
                 <div class="menu-item active" data-view="chat">
                     <i class="fas fa-comments"></i>
                     <span>Чат</span>
-                    <span class="menu-badge" id="chat-badge"></span>
+                    <span class="menu-badge" id="chat-badge" style="display: none;"></span>
                 </div>
                 <div class="menu-item" data-view="users">
                     <i class="fas fa-users"></i>
                     <span>Участники</span>
-                    <span class="menu-badge" id="users-badge"></span>
+                    <span class="menu-badge" id="users-badge" style="display: none;"></span>
                 </div>
                 <div class="menu-item" data-view="admin">
                     <i class="fas fa-user-shield"></i>
@@ -120,9 +109,9 @@
             <div class="sidebar-footer">
                 <div class="online-users">
                     <i class="fas fa-circle online-dot"></i>
-                    <span id="sidebar-online-count">0</span> онлайн
+                    <span id="sidebar-online-count">0/0</span> онлайн
                 </div>
-                <div class="app-version">v1.0</div>
+                <div class="app-version">v1.0 (S3)</div>
             </div>
         </div>
 
@@ -142,7 +131,7 @@
                 </div>
                
                 <!-- Превью файлов -->
-                <div class="file-preview" id="file-preview">
+                <div class="file-preview" id="file-preview" style="display: none;">
                     <div id="file-preview-container"></div>
                     <div class="file-preview-actions">
                         <button class="btn-admin-action danger" id="btn-cancel-files">Отмена</button>
@@ -156,15 +145,9 @@
                         <i class="fas fa-paperclip"></i>
                     </button>
                    
-                    <div class="attach-menu" id="attach-menu">
+                    <div class="attach-menu" id="attach-menu" style="display: none;">
                         <div class="attach-item" data-type="photo">
                             <i class="fas fa-image"></i><span>Фото</span>
-                        </div>
-                        <div class="attach-item" data-type="video">
-                            <i class="fas fa-video"></i><span>Видео</span>
-                        </div>
-                        <div class="attach-item" data-type="audio">
-                            <i class="fas fa-microphone"></i><span>Голосовое</span>
                         </div>
                         <div class="attach-item" data-type="document">
                             <i class="fas fa-file"></i><span>Документ</span>
@@ -180,14 +163,14 @@
                         </div>
                     </div>
                    
-                    <button class="btn-send" id="send-button">
+                    <button class="btn-send" id="send-button" disabled>
                         <i class="fas fa-paper-plane"></i>
                     </button>
                 </div>
             </div>
 
             <!-- Список пользователей -->
-            <div class="users-container" id="users-view">
+            <div class="users-container" id="users-view" style="display: none;">
                 <div class="users-header">
                     <h2><i class="fas fa-users"></i> Участники</h2>
                     <div class="users-search">
@@ -201,7 +184,7 @@
             </div>
 
             <!-- Админ панель -->
-            <div class="admin-container" id="admin-view">
+            <div class="admin-container" id="admin-view" style="display: none;">
                 <div class="admin-header">
                     <h2><i class="fas fa-user-shield"></i> Админ панель</h2>
                     <p>Управление чатом и пользователями</p>
@@ -212,38 +195,24 @@
                         <div class="admin-users-list" id="admin-users-list"></div>
                     </div>
                     <div class="admin-section">
-                        <h3><i class="fas fa-key"></i> Приглашения</h3>
-                        <button class="btn-admin-action primary large" id="btn-create-invite">
-                            <i class="fas fa-plus"></i> Создать приглашение
-                        </button>
-                        <div class="invites-list" id="invites-list"></div>
-                    </div>
-                    <div class="admin-section">
-                        <h3><i class="fas fa-cogs"></i> Управление разделами</h3>
-                        <div class="sections-admin-list">
-                            <div class="permission-item">
-                                <span>Основной чат</span>
-                                <select class="permission-select" data-section="main">
-                                    <option value="all">Все</option>
-                                    <option value="moderators">Модераторы+</option>
-                                    <option value="admins">Только админы</option>
-                                </select>
+                        <h3><i class="fas fa-cloud"></i> S3 Статус</h3>
+                        <div class="s3-status-info" id="s3-status-panel">
+                            <div class="info-item">
+                                <strong>Статус:</strong> <span class="settings-status" id="s3-status">Не проверено</span>
                             </div>
-                            <div class="permission-item">
-                                <span>Новости</span>
-                                <select class="permission-select" data-section="news">
-                                    <option value="all">Все</option>
-                                    <option value="moderators">Модераторы+</option>
-                                    <option value="admins">Только админы</option>
-                                </select>
+                            <div class="info-item">
+                                <strong>Бакет:</strong> <code>telegram-chat-files</code>
                             </div>
+                            <button class="btn-admin-action primary" onclick="checkS3Connection()">
+                                <i class="fas fa-sync"></i> Проверить S3
+                            </button>
                         </div>
                     </div>
                 </div>
             </div>
 
             <!-- Настройки -->
-            <div class="settings-container" id="settings-view">
+            <div class="settings-container" id="settings-view" style="display: none;">
                 <div class="settings-header">
                     <h2><i class="fas fa-cog"></i> Настройки</h2>
                 </div>
@@ -274,11 +243,16 @@
                             <i class="fas fa-trash"></i> Очистить кэш
                         </button>
                     </div>
+                    <div class="settings-item">
+                        <button class="btn-admin-action" onclick="exportS3Data()">
+                            <i class="fas fa-download"></i> Экспорт данных S3
+                        </button>
+                    </div>
                 </div>
             </div>
 
             <!-- Профиль -->
-            <div class="profile-container" id="profile-view">
+            <div class="profile-container" id="profile-view" style="display: none;">
                 <div class="profile-header">
                     <h2><i class="fas fa-user"></i> Профиль</h2>
                 </div>
@@ -306,7 +280,7 @@
         </div>
 
         <!-- Прогресс загрузки -->
-        <div class="upload-progress" id="upload-progress">
+        <div class="upload-progress" id="upload-progress" style="display: none;">
             <div id="upload-text">Загрузка файла...</div>
             <div class="progress-bar-container">
                 <div id="progress-bar-fill" class="progress-bar-fill"></div>
@@ -316,12 +290,10 @@
     </div>
 
     <!-- Emoji Picker -->
-    <div class="emoji-picker" id="emoji-picker">
+    <div class="emoji-picker" id="emoji-picker" style="display: none;">
         <div class="emoji-categories">
             <button class="emoji-category active" data-category="smileys">😀</button>
             <button class="emoji-category" data-category="animals">🐶</button>
-            <button class="emoji-category" data-category="food">🍎</button>
-            <button class="emoji-category" data-category="travel">✈️</button>
             <button class="emoji-category" data-category="objects">💡</button>
             <button class="emoji-category" data-category="symbols">❤️</button>
         </div>
@@ -351,7 +323,10 @@
                 const app = document.getElementById('app');
                 
                 if (loadingScreen) loadingScreen.classList.add('hidden');
-                if (app) app.style.display = 'flex';
+                if (app) {
+                    app.style.display = 'flex';
+                    app.classList.add('active');
+                }
                 
                 // Инициализация приложения
                 if (typeof initApp === 'function') {
