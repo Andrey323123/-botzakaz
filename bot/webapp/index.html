@@ -7,7 +7,6 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
-    <link rel="manifest" href="manifest.json">
 </head>
 <body>
     <!-- Экран загрузки -->
@@ -22,7 +21,7 @@
 
     <!-- Главное приложение -->
     <div id="app" style="display: none;">
-        <!-- Header Telegram -->
+        <!-- Header -->
         <div class="header">
             <div class="header-left">
                 <button class="btn-menu" id="btn-menu">
@@ -41,7 +40,7 @@
                     <i class="fas fa-arrow-down"></i>
                     <span class="unread-badge" id="unread-badge">0</span>
                 </button>
-                <button class="header-btn" id="btn-admin" title="Админ панель" style="display: none;">
+                <button class="header-btn" id="btn-admin" title="Админ панель">
                     <i class="fas fa-user-shield"></i>
                 </button>
                 <button class="header-btn" id="btn-users" title="Список участников">
@@ -50,7 +49,7 @@
             </div>
         </div>
 
-        <!-- Sidebar Telegram -->
+        <!-- Sidebar -->
         <div class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <div class="user-profile">
@@ -58,7 +57,7 @@
                         <i class="fas fa-user" id="user-avatar-icon"></i>
                     </div>
                     <div class="user-info">
-                        <div class="user-name" id="user-name">Загрузка...</div>
+                        <div class="user-name" id="user-name">Гость</div>
                         <div class="user-role" id="user-role">участник</div>
                     </div>
                 </div>
@@ -69,23 +68,23 @@
            
             <!-- Список разделов -->
             <div class="sections-list">
-                <div class="section-item active" onclick="switchSection('main')">
+                <div class="section-item active" data-section="main">
                     <i class="fas fa-comments"></i>
                     <span class="section-name">Основной чат</span>
                     <span class="section-unread" id="main-unread"></span>
                 </div>
-                <div class="section-item" onclick="switchSection('news')">
+                <div class="section-item" data-section="news">
                     <i class="fas fa-newspaper"></i>
                     <span class="section-name">Новости</span>
                     <span class="section-unread" id="news-unread"></span>
                 </div>
-                <div class="section-item" onclick="switchSection('rules')">
+                <div class="section-item" data-section="rules">
                     <i class="fas fa-book"></i>
                     <span class="section-name">Правила</span>
                     <span class="section-locked"><i class="fas fa-lock"></i></span>
                     <span class="section-unread" id="rules-unread"></span>
                 </div>
-                <div class="section-item" onclick="switchSection('announcements')">
+                <div class="section-item" data-section="announcements">
                     <i class="fas fa-bullhorn"></i>
                     <span class="section-name">Объявления</span>
                     <span class="section-unread" id="announcements-unread"></span>
@@ -94,25 +93,25 @@
            
             <!-- Меню навигации -->
             <div class="sidebar-menu">
-                <div class="menu-item active" onclick="showChat()">
+                <div class="menu-item active" data-view="chat">
                     <i class="fas fa-comments"></i>
                     <span>Чат</span>
                     <span class="menu-badge" id="chat-badge"></span>
                 </div>
-                <div class="menu-item" onclick="showUsersList()">
+                <div class="menu-item" data-view="users">
                     <i class="fas fa-users"></i>
                     <span>Участники</span>
                     <span class="menu-badge" id="users-badge"></span>
                 </div>
-                <div class="menu-item" onclick="showAdminPanel()" id="admin-menu-item" style="display: none;">
+                <div class="menu-item" data-view="admin">
                     <i class="fas fa-user-shield"></i>
                     <span>Админка</span>
                 </div>
-                <div class="menu-item" onclick="showSettings()">
+                <div class="menu-item" data-view="settings">
                     <i class="fas fa-cog"></i>
                     <span>Настройки</span>
                 </div>
-                <div class="menu-item" onclick="showProfile()">
+                <div class="menu-item" data-view="profile">
                     <i class="fas fa-user"></i>
                     <span>Профиль</span>
                 </div>
@@ -123,11 +122,11 @@
                     <i class="fas fa-circle online-dot"></i>
                     <span id="sidebar-online-count">0</span> онлайн
                 </div>
-                <div class="app-version">v4.0</div>
+                <div class="app-version">v1.0</div>
             </div>
         </div>
 
-        <!-- Overlay для сайдбара -->
+        <!-- Overlay -->
         <div class="overlay" id="overlay"></div>
 
         <!-- Основной контент -->
@@ -142,38 +141,38 @@
                     </div>
                 </div>
                
-                <!-- Превью прикреплённых файлов -->
-                <div class="file-preview" id="file-preview" style="display: none;">
+                <!-- Превью файлов -->
+                <div class="file-preview" id="file-preview">
                     <div id="file-preview-container"></div>
                     <div class="file-preview-actions">
-                        <button onclick="clearAttachments()" class="btn-admin-action danger">Отмена</button>
-                        <button onclick="sendMessageWithFiles()" class="btn-admin-action primary">Отправить</button>
+                        <button class="btn-admin-action danger" id="btn-cancel-files">Отмена</button>
+                        <button class="btn-admin-action primary" id="btn-send-files">Отправить</button>
                     </div>
                 </div>
                
-                <!-- Поле ввода сообщения -->
+                <!-- Поле ввода -->
                 <div class="message-input-area">
                     <button class="btn-attach" id="btn-attach">
                         <i class="fas fa-paperclip"></i>
                     </button>
                    
                     <div class="attach-menu" id="attach-menu">
-                        <div class="attach-item" onclick="attachFile('photo')">
+                        <div class="attach-item" data-type="photo">
                             <i class="fas fa-image"></i><span>Фото</span>
                         </div>
-                        <div class="attach-item" onclick="attachFile('video')">
+                        <div class="attach-item" data-type="video">
                             <i class="fas fa-video"></i><span>Видео</span>
                         </div>
-                        <div class="attach-item" onclick="attachFile('voice')">
+                        <div class="attach-item" data-type="audio">
                             <i class="fas fa-microphone"></i><span>Голосовое</span>
                         </div>
-                        <div class="attach-item" onclick="attachFile('document')">
+                        <div class="attach-item" data-type="document">
                             <i class="fas fa-file"></i><span>Документ</span>
                         </div>
                     </div>
                    
                     <div class="input-wrapper">
-                        <textarea id="message-input" placeholder="Сообщение..." rows="1"></textarea>
+                        <textarea id="message-input" placeholder="Введите сообщение..." rows="1"></textarea>
                         <div class="input-actions">
                             <button class="btn-emoji" id="btn-emoji">
                                 <i class="far fa-smile"></i>
@@ -181,7 +180,7 @@
                         </div>
                     </div>
                    
-                    <button class="btn-send" id="send-button" onclick="sendMessage()">
+                    <button class="btn-send" id="send-button">
                         <i class="fas fa-paper-plane"></i>
                     </button>
                 </div>
@@ -214,7 +213,7 @@
                     </div>
                     <div class="admin-section">
                         <h3><i class="fas fa-key"></i> Приглашения</h3>
-                        <button class="btn-admin-action primary large" onclick="createInvite()">
+                        <button class="btn-admin-action primary large" id="btn-create-invite">
                             <i class="fas fa-plus"></i> Создать приглашение
                         </button>
                         <div class="invites-list" id="invites-list"></div>
@@ -224,7 +223,7 @@
                         <div class="sections-admin-list">
                             <div class="permission-item">
                                 <span>Основной чат</span>
-                                <select class="permission-select" id="main-permission-select" onchange="updateSectionPermission('main', 'write', this.value)">
+                                <select class="permission-select" data-section="main">
                                     <option value="all">Все</option>
                                     <option value="moderators">Модераторы+</option>
                                     <option value="admins">Только админы</option>
@@ -232,27 +231,13 @@
                             </div>
                             <div class="permission-item">
                                 <span>Новости</span>
-                                <select class="permission-select" id="news-permission-select" onchange="updateSectionPermission('news', 'write', this.value)">
-                                    <option value="all">Все</option>
-                                    <option value="moderators">Модераторы+</option>
-                                    <option value="admins">Только админы</option>
-                                </select>
-                            </div>
-                            <div class="permission-item">
-                                <span>Объявления</span>
-                                <select class="permission-select" id="announcements-permission-select" onchange="updateSectionPermission('announcements', 'write', this.value)">
+                                <select class="permission-select" data-section="news">
                                     <option value="all">Все</option>
                                     <option value="moderators">Модераторы+</option>
                                     <option value="admins">Только админы</option>
                                 </select>
                             </div>
                         </div>
-                    </div>
-                    <div class="admin-section">
-                        <h3><i class="fas fa-trash"></i> Очистка</h3>
-                        <button class="btn-admin-action danger" onclick="clearAllMessages()">
-                            <i class="fas fa-trash"></i> Очистить все сообщения
-                        </button>
                     </div>
                 </div>
             </div>
@@ -266,30 +251,26 @@
                     <div class="settings-item">
                         <span class="settings-label">Темная тема</span>
                         <label class="settings-toggle">
-                            <input type="checkbox" id="theme-toggle" onchange="toggleTheme()">
+                            <input type="checkbox" id="theme-toggle">
                             <span class="settings-toggle-slider"></span>
                         </label>
-                    </div>
-                    <div class="settings-item">
-                        <span class="settings-label">S3 Хранилище (Selectel)</span>
-                        <span class="settings-status" id="s3-status">Проверка...</span>
                     </div>
                     <div class="settings-item">
                         <span class="settings-label">Уведомления</span>
                         <label class="settings-toggle">
-                            <input type="checkbox" id="notifications-toggle" checked onchange="toggleNotifications()">
+                            <input type="checkbox" id="notifications-toggle" checked>
                             <span class="settings-toggle-slider"></span>
                         </label>
                     </div>
                     <div class="settings-item">
-                        <span class="settings-label">Звуки сообщений</span>
+                        <span class="settings-label">Звуки</span>
                         <label class="settings-toggle">
-                            <input type="checkbox" id="sounds-toggle" checked onchange="toggleSounds()">
+                            <input type="checkbox" id="sounds-toggle" checked>
                             <span class="settings-toggle-slider"></span>
                         </label>
                     </div>
                     <div class="settings-item">
-                        <button class="btn-admin-action primary" onclick="clearLocalStorage()">
+                        <button class="btn-admin-action primary" id="btn-clear-cache">
                             <i class="fas fa-trash"></i> Очистить кэш
                         </button>
                     </div>
@@ -305,61 +286,57 @@
                     <div class="user-avatar-large" id="profile-avatar">
                         <i class="fas fa-user fa-3x"></i>
                     </div>
-                    <h2 id="profile-name">Имя пользователя</h2>
+                    <h2 id="profile-name">Гость</h2>
                     <div class="profile-details">
                         <div class="profile-detail">
                             <span class="detail-label">Username:</span>
-                            <span class="detail-value" id="profile-username">@username</span>
+                            <span class="detail-value" id="profile-username">не установлен</span>
                         </div>
                         <div class="profile-detail">
                             <span class="detail-label">ID:</span>
-                            <span class="detail-value" id="profile-id">123456</span>
+                            <span class="detail-value" id="profile-id">000000</span>
                         </div>
                         <div class="profile-detail">
                             <span class="detail-label">Роль:</span>
                             <span class="detail-value" id="profile-role">участник</span>
                         </div>
-                        <div class="profile-detail">
-                            <span class="detail-label">Сообщений:</span>
-                            <span class="detail-value" id="profile-messages">0</span>
-                        </div>
-                        <div class="profile-detail">
-                            <span class="detail-label">В сети:</span>
-                            <span class="detail-value" id="profile-online">только что</span>
-                        </div>
-                    </div>
-                    <div class="profile-actions">
-                        <button class="btn-admin-action primary" onclick="editProfile()">
-                            <i class="fas fa-edit"></i> Изменить профиль
-                        </button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Прогресс загрузки файлов -->
+        <!-- Прогресс загрузки -->
         <div class="upload-progress" id="upload-progress">
-            <div>Загрузка файла...</div>
+            <div id="upload-text">Загрузка файла...</div>
             <div class="progress-bar-container">
-                <div id="progress-bar-fill" class="progress-bar-fill" style="width: 0%;"></div>
+                <div id="progress-bar-fill" class="progress-bar-fill"></div>
             </div>
             <div id="progress-text">0%</div>
         </div>
-
-        <!-- Кнопка смены темы -->
-        <button class="theme-toggle" id="theme-toggle-btn" onclick="toggleThemeManual()">
-            <i class="fas fa-moon" id="theme-icon"></i>
-        </button>
     </div>
 
-    <!-- AWS SDK + Основной скрипт -->
-    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1494.0.min.js"></script>
+    <!-- Emoji Picker -->
+    <div class="emoji-picker" id="emoji-picker">
+        <div class="emoji-categories">
+            <button class="emoji-category active" data-category="smileys">😀</button>
+            <button class="emoji-category" data-category="animals">🐶</button>
+            <button class="emoji-category" data-category="food">🍎</button>
+            <button class="emoji-category" data-category="travel">✈️</button>
+            <button class="emoji-category" data-category="objects">💡</button>
+            <button class="emoji-category" data-category="symbols">❤️</button>
+        </div>
+        <div class="emoji-grid" id="emoji-grid">
+            <!-- Emojis will be inserted here -->
+        </div>
+    </div>
+
+    <!-- Основной скрипт -->
     <script src="script.js"></script>
 
     <script>
         // Инициализация при загрузке
         document.addEventListener('DOMContentLoaded', function() {
-            // Установка высоты для мобильных устройств
+            // Устанавливаем высоту для мобильных устройств
             function setVh() {
                 let vh = window.innerHeight * 0.01;
                 document.documentElement.style.setProperty('--vh', `${vh}px`);
@@ -368,33 +345,20 @@
             setVh();
             window.addEventListener('resize', setVh);
             
-            // Задержка для показа загрузки
+            // Запускаем приложение
             setTimeout(() => {
                 const loadingScreen = document.getElementById('loading-screen');
                 const app = document.getElementById('app');
                 
-                if (loadingScreen) {
-                    loadingScreen.classList.add('hidden');
-                }
-                if (app) {
-                    app.style.display = 'flex';
-                }
+                if (loadingScreen) loadingScreen.classList.add('hidden');
+                if (app) app.style.display = 'flex';
                 
                 // Инициализация приложения
                 if (typeof initApp === 'function') {
                     initApp();
                 }
-            }, 1000);
+            }, 800);
         });
-        
-        // Поддержка PWA
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js').catch(err => {
-                    console.log('Service Worker не зарегистрирован:', err);
-                });
-            });
-        }
     </script>
 </body>
 </html>
