@@ -116,6 +116,10 @@ if not BOT_TOKEN:
     logger.error("❌ BOT_TOKEN не найден!")
     exit(1)
 
+# ОТЛАДКА: логируем информацию о токене (без полного показа)
+logger.info(f"🔑 Токен бота получен, первые 10 символов: {BOT_TOKEN[:10]}...")
+logger.info(f"📏 Длина токена: {len(BOT_TOKEN)} символов")
+
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
@@ -124,6 +128,9 @@ dp = Dispatcher(bot, storage=storage)
 async def cmd_start(message: types.Message):
     """Обработчик команды /start"""
     try:
+        # ОТЛАДКА: логируем получение команды
+        logger.info(f"📩 Получена команда /start от пользователя: {message.from_user.id} (@{message.from_user.username})")
+        
         # Регистрируем пользователя
         user_data = {
             'id': message.from_user.id,
@@ -132,6 +139,7 @@ async def cmd_start(message: types.Message):
             'last_name': message.from_user.last_name
         }
         user = await db.get_or_create_user(user_data)
+        logger.info(f"👤 Пользователь зарегистрирован в БД: {user.id}")
         
         # Используем фиксированный домен Railway
         domain = "https://botzakaz-production-ba19.up.railway.app"
@@ -140,6 +148,8 @@ async def cmd_start(message: types.Message):
         webapp_url = f"{domain}/index.html?user_id={message.from_user.id}&first_name={message.from_user.first_name}"
         if message.from_user.username:
             webapp_url += f"&username={message.from_user.username}"
+        
+        logger.info(f"🌐 Создан URL веб-приложения: {webapp_url}")
         
         # Создаем клавиатуру
         keyboard = InlineKeyboardMarkup(row_width=1)
@@ -158,16 +168,19 @@ async def cmd_start(message: types.Message):
 📱 **Нажмите кнопку ниже, чтобы открыть веб-приложение:**
 """
         
+        # ОТЛАДКА: логируем отправку ответа
+        logger.info(f"📤 Отправляю ответ пользователю {message.from_user.id}")
         await message.answer(welcome_text, reply_markup=keyboard, parse_mode='Markdown')
-        logger.info(f"Пользователь {message.from_user.id} начал работу с ботом")
+        logger.info(f"✅ Ответ отправлен пользователю {message.from_user.id}")
         
     except Exception as e:
-        logger.error(f"Error in /start: {e}")
+        logger.error(f"❌ Ошибка в /start: {e}", exc_info=True)
         await message.answer("❌ Произошла ошибка. Попробуйте позже.")
 
 @dp.message_handler(commands=['chat'])
 async def cmd_chat(message: types.Message):
     """Открыть чат"""
+    logger.info(f"📩 Получена команда /chat от пользователя: {message.from_user.id}")
     domain = "https://botzakaz-production-ba19.up.railway.app"
     webapp_url = f"{domain}/index.html?user_id={message.from_user.id}"
     
@@ -179,10 +192,12 @@ async def cmd_chat(message: types.Message):
         )
     )
     await message.answer("Нажмите кнопку, чтобы открыть чат:", reply_markup=keyboard)
+    logger.info(f"✅ Ответ на /chat отправлен пользователю {message.from_user.id}")
 
 @dp.message_handler(commands=['help'])
 async def cmd_help(message: types.Message):
     """Помощь"""
+    logger.info(f"📩 Получена команда /help от пользователя: {message.from_user.id}")
     help_text = """
 🤖 **Команды бота:**
 
@@ -197,10 +212,25 @@ async def cmd_help(message: types.Message):
 • Профили пользователей
 """
     await message.answer(help_text, parse_mode='Markdown')
+    logger.info(f"✅ Ответ на /help отправлен пользователю {message.from_user.id}")
 
 async def on_startup(dp):
     """Действия при запуске"""
     logger.info("🤖 Бот запускается...")
+    
+    # ОТЛАДКА: проверяем подключение к Telegram API
+    try:
+        logger.info("🔍 Проверяю подключение к Telegram API...")
+        me = await bot.get_me()
+        logger.info(f"✅ Подключение к Telegram API успешно!")
+        logger.info(f"🤖 Информация о боте: @{me.username} (id: {me.id}, имя: {me.first_name})")
+    except Exception as e:
+        logger.error(f"❌ Не удалось подключиться к Telegram API: {e}", exc_info=True)
+        logger.error("⚠️  Возможные причины:")
+        logger.error("  1. Неправильный токен бота")
+        logger.error("  2. Проблемы с интернет-соединением")
+        logger.error("  3. Бот заблокирован или удален")
+        return
     
     # Инициализация базы данных
     try:
@@ -213,14 +243,12 @@ async def on_startup(dp):
         await db.init_db()
         logger.info("✅ База данных инициализирована")
     except Exception as e:
-        logger.error(f"❌ Ошибка инициализации БД: {e}")
+        logger.error(f"❌ Ошибка инициализации БД: {e}", exc_info=True)
     
-    # Информация о боте
-    me = await bot.get_me()
-    logger.info(f"✅ Бот @{me.username} успешно запущен!")
     logger.info("📱 Используйте команду /start для начала работы")
     logger.info(f"🌐 Веб-приложение: https://botzakaz-production-ba19.up.railway.app")
     logger.info(f"🔗 Инициализация БД: https://botzakaz-production-ba19.up.railway.app/init-db")
+    logger.info("🎉 Бот готов к работе!")
 
 async def on_shutdown(dp):
     """Действия при завершении работы"""
@@ -239,16 +267,22 @@ def run_bot():
         exit(1)
     
     print(f"\n🔑 Токен бота: {'✅ Найден' if BOT_TOKEN else '❌ Не найден'}")
+    print(f"📏 Длина токена: {len(BOT_TOKEN)} символов")
     print(f"🌐 Домен: https://botzakaz-production-ba19.up.railway.app")
-    print("🤖 Запуск бота...\n")
+    print("\n🤖 Запуск бота...")
+    print("="*50)
     
-    # Запуск поллинга
-    executor.start_polling(
-        dp, 
-        skip_updates=True,
-        on_startup=on_startup,
-        on_shutdown=on_shutdown
-    )
+    try:
+        # Запуск поллинга
+        executor.start_polling(
+            dp, 
+            skip_updates=True,
+            on_startup=on_startup,
+            on_shutdown=on_shutdown
+        )
+    except Exception as e:
+        logger.error(f"❌ Критическая ошибка при запуске бота: {e}", exc_info=True)
+        print(f"\n❌ Бот не запущен: {e}")
 
 # Если файл запускается напрямую (не через gunicorn)
 if __name__ == '__main__':
@@ -258,4 +292,5 @@ if __name__ == '__main__':
     
     # Запускаем Flask app (для gunicorn)
     port = int(os.getenv("PORT", 8080))
+    logger.info(f"🌐 Flask app запускается на порту {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
