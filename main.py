@@ -8,7 +8,6 @@ from aiogram.utils import executor
 import core.database as db
 from flask import Flask, jsonify, request
 from threading import Thread
-import json
 from datetime import datetime
 
 # Настройка логирования
@@ -40,7 +39,9 @@ def get_messages():
         offset = int(request.args.get('offset', 0))
         
         # Запускаем асинхронную функцию
-        messages = asyncio.run(db.get_messages(limit, offset))
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        messages = loop.run_until_complete(db.get_messages(limit, offset))
         
         messages_data = []
         for message in messages:
@@ -69,7 +70,9 @@ def send_message():
             return jsonify({'status': 'error', 'message': 'Invalid request'}), 400
         
         # Сохраняем сообщение
-        message = asyncio.run(db.add_message(
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        message = loop.run_until_complete(db.add_message(
             user_id=data['user_id'],
             message_type=data['message_type'],
             content=data.get('content'),
@@ -86,7 +89,10 @@ def send_message():
 def get_users():
     """Получить список пользователей"""
     try:
-        users = asyncio.run(db.get_users())
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        users = loop.run_until_complete(db.get_users())
+        
         users_data = []
         for user in users:
             users_data.append({
@@ -101,6 +107,34 @@ def get_users():
         return jsonify({'status': 'success', 'users': users_data})
     except Exception as e:
         logger.error(f"API error in get_users: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@flask_app.route('/api/user/<int:user_id>', methods=['GET'])
+def get_user(user_id):
+    """Получить информацию о пользователе"""
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        user = loop.run_until_complete(db.get_or_create_user({
+            'id': user_id,
+            'username': None,
+            'first_name': None,
+            'last_name': None
+        }))
+        
+        return jsonify({
+            'status': 'success',
+            'user': {
+                'id': user.id,
+                'user_id': user.user_id,
+                'username': user.username,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'photo_url': user.photo_url
+            }
+        })
+    except Exception as e:
+        logger.error(f"API error in get_user: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 def run_flask():
@@ -134,7 +168,9 @@ async def cmd_start(message: types.Message):
         domain = os.getenv("RAILWAY_STATIC_URL", f"http://localhost:{PORT}")
         
         # Создаем URL для веб-приложения
-        webapp_url = f"{domain}/index.html?user_id={message.from_user.id}"
+        webapp_url = f"{domain}/index.html?user_id={message.from_user.id}&first_name={message.from_user.first_name}"
+        if message.from_user.username:
+            webapp_url += f"&username={message.from_user.username}"
         
         # Создаем клавиатуру
         keyboard = InlineKeyboardMarkup(row_width=1)
@@ -145,12 +181,16 @@ async def cmd_start(message: types.Message):
             )
         )
         
-        await message.answer(
-            f"👋 Привет, {message.from_user.first_name}!\n"
-            f"Добро пожаловать в групповой чат!\n\n"
-            f"Нажмите кнопку ниже, чтобы открыть веб-приложение:",
-            reply_markup=keyboard
-        )
+        welcome_text = f"""
+👋 Привет, {message.from_user.first_name}!
+
+Добро пожаловать в групповой чат Telegram!
+
+📱 **Нажмите кнопку ниже, чтобы открыть веб-приложение:**
+"""
+        
+        await message.answer(welcome_text, reply_markup=keyboard, parse_mode='Markdown')
+        logger.info(f"Пользователь {message.from_user.id} начал работу с ботом")
         
     except Exception as e:
         logger.error(f"Error in /start: {e}")
@@ -176,51 +216,106 @@ async def cmd_help(message: types.Message):
     """Помощь"""
     help_text = """
 🤖 **Команды бота:**
-/start - Начать работу
-/chat - Открыть чат
-/help - Помощь
 
-📱 **Мини-приложение:**
-• Групповой чат
-• Отправка сообщений
-• Упоминания пользователей
-• Профили
-    """
+/start - Начать работу с ботом
+/chat - Открыть чат
+/help - Показать эту справку
+
+📱 **Мини-приложение чата:**
+• Групповой чат в стиле Telegram
+• Отправка текста, фото, голосовых сообщений
+• Упоминания пользователей (@username)
+• Профили пользователей
+• Настройки чата
+"""
     await message.answer(help_text, parse_mode='Markdown')
+
+@dp.message_handler(commands=['stats'])
+async def cmd_stats(message: types.Message):
+    """Статистика чата"""
+    try:
+        users = await db.get_users()
+        messages = await db.get_messages(limit=1000)
+        
+        stats_text = f"""
+📊 **Статистика чата:**
+
+👥 Пользователей: {len(users)}
+💬 Сообщений: {len(messages)}
+"""
+        await message.answer(stats_text, parse_mode='Markdown')
+        
+    except Exception as e:
+        logger.error(f"Error in /stats: {e}")
+        await message.answer("❌ Не удалось получить статистику.")
+
+@dp.message_handler(content_types=types.ContentType.TEXT)
+async def handle_text(message: types.Message):
+    """Обработка текстовых сообщений"""
+    if message.text.startswith('/'):
+        # Если команда не распознана
+        await message.answer("🤔 Неизвестная команда. Используйте /help для списка команд.")
+    else:
+        # Можно добавить функционал отправки сообщений через бота
+        await message.answer("💡 Для общения в чате используйте мини-приложение через команду /chat")
 
 async def on_startup(dp):
     """Действия при запуске"""
     logger.info("🤖 Бот запускается...")
     
-    # Инициализация БД
+    # Инициализация базы данных
     try:
         await db.init_db()
         logger.info("✅ База данных инициализирована")
     except Exception as e:
-        logger.error(f"❌ Ошибка БД: {e}")
+        logger.error(f"❌ Ошибка инициализации БД: {e}")
     
-    # Запускаем Flask в отдельном потоке
-    flask_thread = Thread(target=run_flask, daemon=True)
-    flask_thread.start()
-    logger.info(f"🌐 API сервер запущен на порту {PORT}")
+    # Запуск Flask сервера
+    try:
+        logger.info(f"🌐 Запуск API сервера на порту {PORT}...")
+        flask_thread = Thread(target=run_flask, daemon=True)
+        flask_thread.start()
+        logger.info("✅ API сервер запущен")
+    except Exception as e:
+        logger.error(f"❌ Ошибка запуска API сервера: {e}")
+    
+    # Информация о боте
+    me = await bot.get_me()
+    logger.info(f"✅ Бот @{me.username} успешно запущен!")
+    logger.info("📱 Используйте команду /start для начала работы")
 
 async def on_shutdown(dp):
-    """Действия при завершении"""
-    logger.info("👋 Завершение работы...")
+    """Действия при завершении работы"""
+    logger.info("👋 Завершение работы бота...")
 
 def main():
-    """Основная функция"""
+    """Основная функция запуска"""
     print("\n" + "="*50)
     print("🚀 Telegram Bot with Mini App")
     print("="*50)
     
-    # Запускаем бота
+    # Проверяем наличие BOT_TOKEN
+    if not BOT_TOKEN:
+        print("\n❌ BOT_TOKEN не найден в переменных окружения!")
+        print("📝 Установите BOT_TOKEN в Railway Dashboard")
+        exit(1)
+    
+    print(f"\n🔑 Токен бота: {'✅ Найден' if BOT_TOKEN else '❌ Не найден'}")
+    print(f"🌐 Порт API: {PORT}")
+    print("🤖 Бот запускается...\n")
+    
+    # Запуск поллинга
     executor.start_polling(
-        dp,
+        dp, 
         skip_updates=True,
         on_startup=on_startup,
         on_shutdown=on_shutdown
     )
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n\n👋 Завершено пользователем")
+    except Exception as e:
+        logger.error(f"Критическая ошибка: {e}")
