@@ -1,4 +1,4 @@
-// telegram-chat-extended.js
+// telegram-chat-extended.js - ОБЪЕДИНЕННАЯ ВЕРСИЯ
 
 // Telegram WebApp initialization
 let tg = window.Telegram.WebApp;
@@ -10,7 +10,7 @@ let lastMessageId = 0;
 let chatId = 'main_chat';
 let messageInterval = null;
 
-// НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ РАСШИРЕННОГО ФУНКЦИОНАЛА
+// РАСШИРЕННЫЙ ФУНКЦИОНАЛ
 let sections = {
     main: { id: 'main', name: 'Основной чат', write: 'all', unread: 0 },
     news: { id: 'news', name: 'Новости', write: 'all', unread: 0 },
@@ -23,7 +23,6 @@ let unreadMessages = 0;
 let pendingInvites = [];
 let isAdmin = false;
 let isMainAdmin = false;
-let lastReadMessages = {};
 
 // Эмодзи для выбора
 const emojiCategories = {
@@ -57,24 +56,8 @@ function initApp() {
         tg.BackButton.onClick(handleBackButton);
         
         // Устанавливаем тему из Telegram
-        if (tg.colorScheme === 'dark') {
-            document.body.classList.add('dark-theme');
-            updateThemeButtons('dark');
-        } else {
-            document.body.classList.remove('dark-theme');
-            updateThemeButtons('light');
-        }
-        
-        // Слушаем изменение темы
-        tg.onEvent('themeChanged', () => {
-            if (tg.colorScheme === 'dark') {
-                document.body.classList.add('dark-theme');
-                updateThemeButtons('dark');
-            } else {
-                document.body.classList.remove('dark-theme');
-                updateThemeButtons('light');
-            }
-        });
+        updateTheme();
+        tg.onEvent('themeChanged', updateTheme);
         
         // Получаем данные пользователя из Telegram
         const user = tg.initDataUnsafe?.user;
@@ -99,37 +82,15 @@ function initApp() {
         // Проверяем роль пользователя
         checkUserRole();
         
-        // Устанавливаем фото пользователя если есть
-        if (currentUser.photo_url) {
-            const avatarImg = document.getElementById('user-avatar-img');
-            if (avatarImg) {
-                avatarImg.src = currentUser.photo_url;
-                avatarImg.style.display = 'block';
-                const avatarIcon = document.getElementById('user-avatar-icon');
-                if (avatarIcon) avatarIcon.style.display = 'none';
-            }
-        }
-        
-        // Инициализируем UI
-        updateUserUI();
-        
-        // Загружаем данные из localStorage
-        loadDataFromStorage();
-        
-        // Загружаем пользователей
-        loadUsers();
+        // Инициализируем интерфейс
+        initUI();
         
         // Настраиваем обработчики событий
         setupEventListeners();
         
-        // Обновляем UI
-        updateUI();
-        
-        // Показываем текущий раздел
-        showSection('main');
-        
-        // Начинаем "опрос" сообщений (для демо)
-        startMessagePolling();
+        // Загружаем данные
+        loadDataFromStorage();
+        startPolling();
         
         console.log("✅ Расширенное приложение инициализировано");
         
@@ -137,6 +98,29 @@ function initApp() {
         console.error('Ошибка инициализации:', error);
         showError('Ошибка инициализации приложения');
     }
+}
+
+// Инициализация UI
+function initUI() {
+    // Устанавливаем фото пользователя если есть
+    if (currentUser.photo_url) {
+        const avatarImg = document.getElementById('user-avatar-img');
+        if (avatarImg) {
+            avatarImg.src = currentUser.photo_url;
+            avatarImg.style.display = 'block';
+            const avatarIcon = document.getElementById('user-avatar-icon');
+            if (avatarIcon) avatarIcon.style.display = 'none';
+        }
+    }
+    
+    // Обновляем информацию о пользователе
+    updateUserInfo();
+    
+    // Загружаем участников
+    loadUsers();
+    
+    // Показываем текущий раздел
+    showSection('main');
 }
 
 // НОВАЯ ФУНКЦИЯ: Проверка роли пользователя
@@ -221,24 +205,6 @@ function loadDataFromStorage() {
         }
     });
     
-    // Если нет данных для текущего раздела, создаем приветственное сообщение
-    if (!window.chatData || !window.chatData[currentSection]) {
-        const welcomeMessage = {
-            id: 1,
-            user_id: 'system',
-            user: { first_name: 'Система', user_id: 'system' },
-            message_type: 'text',
-            content: `👋 Добро пожаловать в раздел "${sections[currentSection].name}"!`,
-            timestamp: Date.now(),
-            read: true,
-            section: currentSection
-        };
-        
-        if (!window.chatData) window.chatData = {};
-        window.chatData[currentSection] = [welcomeMessage];
-        saveMessagesToStorage(currentSection);
-    }
-    
     // Загружаем приглашения
     const savedInvites = localStorage.getItem('telegram_chat_invites');
     if (savedInvites) {
@@ -256,7 +222,27 @@ function displayCurrentSectionMessages() {
     
     container.innerHTML = '';
     
-    if (!window.chatData || !window.chatData[currentSection] || window.chatData[currentSection].length === 0) {
+    if (!window.chatData || !window.chatData[currentSection]) {
+        // Создаем приветственное сообщение
+        const welcomeMessage = {
+            id: 1,
+            user_id: 'system',
+            user: { first_name: 'Система', user_id: 'system' },
+            message_type: 'text',
+            content: `👋 Добро пожаловать в раздел "${sections[currentSection].name}"!`,
+            timestamp: Date.now(),
+            read: true,
+            section: currentSection
+        };
+        
+        if (!window.chatData) window.chatData = {};
+        window.chatData[currentSection] = [welcomeMessage];
+        saveMessagesToStorage(currentSection);
+    }
+    
+    const messages = window.chatData[currentSection] || [];
+    
+    if (messages.length === 0) {
         container.innerHTML = `
             <div class="empty-chat">
                 <i class="fas fa-comments"></i>
@@ -266,17 +252,12 @@ function displayCurrentSectionMessages() {
         return;
     }
     
-    const messages = window.chatData[currentSection];
-    
     messages.forEach(message => {
         const messageElement = createMessageElement(message);
         container.appendChild(messageElement);
     });
     
     scrollToBottom();
-    
-    // Обновляем счетчик непрочитанных после отображения
-    updateSectionUnreadCount();
 }
 
 // НОВАЯ ФУНКЦИЯ: Переключение разделов
@@ -288,9 +269,11 @@ function switchSection(sectionId) {
         const lastMessage = window.chatData[currentSection][window.chatData[currentSection].length - 1];
         if (lastMessage) {
             localStorage.setItem(`last_read_${currentSection}_${currentUserId}`, lastMessage.id);
-            sections[currentSection].unread = 0;
         }
     }
+    
+    // Сбрасываем непрочитанные для текущего раздела
+    sections[currentSection].unread = 0;
     
     // Переключаемся на новый раздел
     currentSection = sectionId;
@@ -363,20 +346,28 @@ function updateActiveSection() {
     }
 }
 
-// Обновление UI пользователя
-function updateUserUI() {
+// Обновление информации о пользователе
+function updateUserInfo() {
     if (!currentUser) return;
     
     const userName = currentUser.first_name + (currentUser.last_name ? ' ' + currentUser.last_name : '');
     const username = currentUser.username ? '@' + currentUser.username : 'без username';
     
-    document.getElementById('user-name').textContent = userName;
-    document.getElementById('user-username').textContent = username;
+    // Обновляем везде где нужно
+    const elements = {
+        'user-name': userName,
+        'profile-name': userName,
+        'user-username': username,
+        'profile-username': username,
+        'profile-id': currentUser.user_id
+    };
     
-    // Обновляем дату вступления
-    const joinedDate = new Date();
+    Object.entries(elements).forEach(([id, value]) => {
+        const element = document.getElementById(id);
+        if (element) element.textContent = value;
+    });
     
-    // Обновляем количество сообщений
+    // Обновляем статистику сообщений
     let totalMessages = 0;
     Object.keys(sections).forEach(sectionId => {
         if (window.chatData && window.chatData[sectionId]) {
@@ -384,8 +375,10 @@ function updateUserUI() {
         }
     });
     
-    // Обновляем онлайн пользователей
-    updateOnlineUsers();
+    const messageCountElement = document.getElementById('user-message-count');
+    if (messageCountElement) {
+        messageCountElement.textContent = totalMessages;
+    }
 }
 
 // Сохранение сообщений в localStorage
@@ -405,7 +398,7 @@ function saveInvites() {
     localStorage.setItem('telegram_chat_invites', JSON.stringify(pendingInvites));
 }
 
-// Создание элемента сообщения (ОБНОВЛЕННАЯ)
+// Создание элемента сообщения с реакциями
 function createMessageElement(message) {
     const isOutgoing = message.user_id == currentUserId;
     const isSystem = message.user_id === 'system';
@@ -573,7 +566,7 @@ function createMessageElement(message) {
     return messageDiv;
 }
 
-// Отправка сообщения (ОБНОВЛЕННАЯ)
+// Отправка сообщения
 async function sendMessage() {
     const input = document.getElementById('message-input');
     const text = input.value.trim();
@@ -624,7 +617,6 @@ async function sendMessage() {
         
         // Очищаем поле ввода
         input.value = '';
-        input.style.height = 'auto';
         hideSendingIndicator();
         
         // Прокручиваем вниз
@@ -632,7 +624,7 @@ async function sendMessage() {
         input.focus();
         
         // Обновляем статистику
-        updateUserUI();
+        updateUserInfo();
         
         console.log("✅ Сообщение отправлено:", newMessage);
         
@@ -643,7 +635,7 @@ async function sendMessage() {
     }
 }
 
-// Загрузка пользователей (ОБНОВЛЕННАЯ)
+// Загрузка пользователей
 function loadUsers() {
     // Начинаем с текущего пользователя
     usersCache = {
@@ -705,7 +697,7 @@ function loadUsers() {
     updateOnlineUsers();
 }
 
-// Отображение пользователей (ОБНОВЛЕННАЯ)
+// Отображение пользователей
 function displayUsers() {
     const container = document.getElementById('users-list');
     if (!container) return;
@@ -801,7 +793,7 @@ function displayUsers() {
     }
 }
 
-// Создание элемента пользователя (ОБНОВЛЕННАЯ)
+// Создание элемента пользователя
 function createUserElement(user) {
     const userElement = document.createElement('div');
     userElement.className = 'user-item';
@@ -839,7 +831,7 @@ function updateOnlineUsers() {
     document.getElementById('sidebar-online-count').textContent = onlineCount;
 }
 
-// Показать профиль пользователя (ОБНОВЛЕННАЯ)
+// Показать профиль пользователя
 function showUserProfile(userId) {
     const user = usersCache[userId];
     if (!user) return;
@@ -981,226 +973,6 @@ function showAdminPanel() {
     // Показываем кнопку назад
     tg.BackButton.show();
     tg.BackButton.onClick(() => showSection(currentSection));
-}
-
-// Поиск сообщений
-function toggleSearch() {
-    const searchBar = document.getElementById('search-bar');
-    searchBar.classList.toggle('active');
-    
-    if (searchBar.classList.contains('active')) {
-        document.getElementById('search-input').focus();
-    } else {
-        document.getElementById('search-input').value = '';
-        showChat();
-    }
-}
-
-async function searchMessages(query) {
-    if (!query.trim()) return;
-    
-    // Поиск во всех разделах
-    let results = [];
-    Object.keys(sections).forEach(sectionId => {
-        if (window.chatData && window.chatData[sectionId]) {
-            const sectionResults = window.chatData[sectionId].filter(msg => 
-                msg.content && msg.content.toLowerCase().includes(query.toLowerCase())
-            ).map(msg => ({...msg, section: sectionId}));
-            
-            results = results.concat(sectionResults);
-        }
-    });
-    
-    const container = document.getElementById('messages-container');
-    
-    if (results.length === 0) {
-        container.innerHTML = `
-            <div class="empty-search">
-                <i class="fas fa-search"></i>
-                <p>По запросу "${query}" ничего не найдено</p>
-                <button onclick="showChat()" class="btn-back">Вернуться в чат</button>
-            </div>
-        `;
-        return;
-    }
-    
-    container.innerHTML = '';
-    
-    const searchHeader = document.createElement('div');
-    searchHeader.className = 'search-results-header';
-    searchHeader.innerHTML = `
-        <div class="search-results-info">
-            <i class="fas fa-search"></i>
-            <span>Найдено ${results.length} сообщений по запросу "${query}"</span>
-        </div>
-        <button onclick="showChat()" class="btn-back-search">
-            <i class="fas fa-arrow-left"></i> Назад
-        </button>
-    `;
-    container.appendChild(searchHeader);
-    
-    results.forEach(message => {
-        const messageElement = createMessageElement(message);
-        container.appendChild(messageElement);
-    });
-}
-
-// Прикрепление файлов
-function toggleAttachMenu() {
-    const attachMenu = document.getElementById('attach-menu');
-    attachMenu.classList.toggle('active');
-}
-
-function attachFile(type) {
-    switch(type) {
-        case 'photo':
-            // Используем Telegram CloudStorage для загрузки фото
-            if (tg.platform !== 'unknown') {
-                tg.showPopup({
-                    title: 'Отправка фото',
-                    message: 'Выберите фото из галереи Telegram',
-                    buttons: [{ type: 'close', text: 'OK' }]
-                });
-            } else {
-                showNotification('Отправка фото в разработке', 'info');
-            }
-            break;
-            
-        case 'video':
-            showNotification('Отправка видео в разработке', 'info');
-            break;
-            
-        case 'document':
-            // Для документов можно использовать showFileSelector
-            if (tg.platform !== 'unknown') {
-                tg.showPopup({
-                    title: 'Отправка документа',
-                    message: 'Функция выбора файлов будет доступна в следующих обновлениях',
-                    buttons: [{ type: 'close', text: 'OK' }]
-                });
-            } else {
-                showNotification('Отправка документов в разработке', 'info');
-            }
-            break;
-            
-        case 'sticker':
-            // Показываем выбор стикеров
-            showStickerPicker();
-            break;
-            
-        case 'audio':
-        case 'voice':
-        case 'location':
-        case 'contact':
-        case 'poll':
-            showNotification('Эта функция в разработке', 'info');
-            break;
-    }
-    
-    toggleAttachMenu();
-}
-
-// НОВАЯ ФУНКЦИЯ: Показ выбора стикеров
-function showStickerPicker() {
-    const stickers = ['😊', '😂', '🤣', '❤️', '🔥', '👍', '👏', '🎉', '🙏', '🤔'];
-    
-    tg.showPopup({
-        title: 'Выберите стикер',
-        message: stickers.join(' '),
-        buttons: stickers.map((sticker, index) => ({
-            id: `sticker_${index}`,
-            type: 'default',
-            text: sticker
-        })).concat([{ type: 'cancel', text: 'Отмена' }])
-    }, (buttonId) => {
-        if (buttonId && buttonId.startsWith('sticker_')) {
-            const index = parseInt(buttonId.split('_')[1]);
-            sendSticker(stickers[index]);
-        }
-    });
-}
-
-// НОВАЯ ФУНКЦИЯ: Отправка стикера
-function sendSticker(emoji) {
-    try {
-        showSendingIndicator();
-        
-        const newMessage = {
-            id: lastMessageId + 1,
-            user_id: currentUserId,
-            user: currentUser,
-            message_type: 'sticker',
-            emoji: emoji,
-            timestamp: Date.now(),
-            read: false,
-            section: currentSection
-        };
-        
-        // Добавляем сообщение
-        if (!window.chatData[currentSection]) window.chatData[currentSection] = [];
-        window.chatData[currentSection].push(newMessage);
-        lastMessageId = newMessage.id;
-        
-        // Сохраняем
-        saveMessagesToStorage(currentSection);
-        
-        // Отображаем
-        const messageElement = createMessageElement(newMessage);
-        document.getElementById('messages-container').appendChild(messageElement);
-        
-        hideSendingIndicator();
-        
-        // Прокручиваем вниз
-        scrollToBottom();
-        
-        // Обновляем статистику
-        updateUserUI();
-        
-        console.log("✅ Стикер отправлен:", newMessage);
-        
-    } catch (error) {
-        console.error('Ошибка отправки стикера:', error);
-        hideSendingIndicator();
-        showNotification('Ошибка отправки стикера', 'error');
-    }
-}
-
-// Эмодзи пикер
-function toggleEmojiPicker() {
-    const emojiPicker = document.getElementById('emoji-picker');
-    emojiPicker.classList.toggle('active');
-    
-    if (emojiPicker.classList.contains('active') && document.getElementById('emoji-grid').innerHTML === '') {
-        showEmojiCategory('smileys');
-    }
-}
-
-function showEmojiCategory(category) {
-    const emojiGrid = document.getElementById('emoji-grid');
-    const emojis = emojiCategories[category] || [];
-    
-    emojiGrid.innerHTML = '';
-    
-    emojis.forEach(emoji => {
-        const emojiBtn = document.createElement('button');
-        emojiBtn.className = 'emoji-btn';
-        emojiBtn.textContent = emoji;
-        emojiBtn.onclick = () => insertEmoji(emoji);
-        emojiGrid.appendChild(emojiBtn);
-    });
-    
-    // Обновляем активную категорию
-    document.querySelectorAll('.emoji-category').forEach(btn => {
-        btn.classList.remove('active');
-    });
-    event.target.classList.add('active');
-}
-
-function insertEmoji(emoji) {
-    const input = document.getElementById('message-input');
-    input.value += emoji;
-    input.focus();
-    autoResize(input);
 }
 
 // НОВАЯ ФУНКЦИЯ: Реакции на сообщения
@@ -1430,7 +1202,7 @@ function showMessageMenu(messageId) {
             { id: 'copy', type: 'default', text: 'Копировать текст' },
             { id: 'copy_link', type: 'default', text: 'Копировать ссылку' },
             { id: 'forward', type: 'default', text: 'Переслать' },
-            { id: 'edit', type: 'default', text: 'Редактировать' },
+            isOwnMessage ? { id: 'edit', type: 'default', text: 'Редактировать' } : null,
             isOwnMessage || isAdmin ? { id: 'delete', type: 'destructive', text: 'Удалить' } : null,
             !isOwnMessage ? { id: 'report', type: 'default', text: 'Пожаловаться' } : null,
             { type: 'cancel', text: 'Отмена' }
@@ -1473,7 +1245,7 @@ function editMessage(messageId) {
     if (!message) return;
     
     const isOwnMessage = message.user_id == currentUserId;
-    if (!isOwnMessage && !isAdmin) {
+    if (!isOwnMessage) {
         showNotification('Вы можете редактировать только свои сообщения', 'error');
         return;
     }
@@ -1669,6 +1441,40 @@ function kickUser(userId) {
     });
 }
 
+// НОВАЯ ФУНКЦИЯ: Загрузка списка приглашений
+function loadInvitesList() {
+    const container = document.getElementById('invites-list');
+    if (!container) return;
+    
+    container.innerHTML = '';
+    
+    if (pendingInvites.length === 0) {
+        container.innerHTML = '<p>Нет активных приглашений</p>';
+        return;
+    }
+    
+    pendingInvites.forEach((invite, index) => {
+        const inviteElement = document.createElement('div');
+        inviteElement.className = 'invite-item';
+        
+        const expiresDate = new Date(invite.expires_at).toLocaleDateString('ru-RU');
+        
+        inviteElement.innerHTML = `
+            <div>
+                <div class="invite-code">${invite.code}</div>
+                <div class="invite-stats">
+                    Использовано: ${invite.uses}/${invite.max_uses} • Истекает: ${expiresDate}
+                </div>
+            </div>
+            <button class="btn-admin-action small" onclick="deleteInvite(${index})">
+                <i class="fas fa-trash"></i>
+            </button>
+        `;
+        
+        container.appendChild(inviteElement);
+    });
+}
+
 // НОВАЯ ФУНКЦИЯ: Созыв всех онлайн пользователей
 function mentionAll() {
     const input = document.getElementById('message-input');
@@ -1682,7 +1488,6 @@ function mentionAll() {
     const mentions = onlineUsers.map(user => `@${user.username || user.first_name}`).join(' ');
     input.value += `Внимание ${mentions}! `;
     input.focus();
-    autoResize(input);
     
     showNotification(`Упомянуто ${onlineUsers.length} пользователей`, 'success');
 }
@@ -1724,40 +1529,6 @@ function createInvite() {
         } else if (action === 'share') {
             shareInvite(inviteCode);
         }
-    });
-}
-
-// НОВАЯ ФУНКЦИЯ: Загрузка списка приглашений
-function loadInvitesList() {
-    const container = document.getElementById('invites-list');
-    if (!container) return;
-    
-    container.innerHTML = '';
-    
-    if (pendingInvites.length === 0) {
-        container.innerHTML = '<p>Нет активных приглашений</p>';
-        return;
-    }
-    
-    pendingInvites.forEach((invite, index) => {
-        const inviteElement = document.createElement('div');
-        inviteElement.className = 'invite-item';
-        
-        const expiresDate = new Date(invite.expires_at).toLocaleDateString('ru-RU');
-        
-        inviteElement.innerHTML = `
-            <div>
-                <div class="invite-code">${invite.code}</div>
-                <div class="invite-stats">
-                    Использовано: ${invite.uses}/${invite.max_uses} • Истекает: ${expiresDate}
-                </div>
-            </div>
-            <button class="btn-admin-action small" onclick="deleteInvite(${index})">
-                <i class="fas fa-trash"></i>
-            </button>
-        `;
-        
-        container.appendChild(inviteElement);
     });
 }
 
@@ -1845,20 +1616,15 @@ function updateUnreadBadges() {
     }
 }
 
-// НОВАЯ ФУНКЦИЯ: Обновление счетчика непрочитанных для раздела
-function updateSectionUnreadCount() {
-    if (!window.chatData || !window.chatData[currentSection]) {
-        sections[currentSection].unread = 0;
-        return;
+// НОВАЯ ФУНКЦИЯ: Обновление темы
+function updateTheme() {
+    if (tg.colorScheme === 'dark') {
+        document.body.classList.add('dark-theme');
+        updateThemeButtons('dark');
+    } else {
+        document.body.classList.remove('dark-theme');
+        updateThemeButtons('light');
     }
-    
-    const userLastRead = localStorage.getItem(`last_read_${currentSection}_${currentUserId}`) || 0;
-    const unreadCount = window.chatData[currentSection].filter(m => 
-        m.id > userLastRead && m.user_id !== currentUserId
-    ).length;
-    
-    sections[currentSection].unread = unreadCount;
-    updateUnreadBadges();
 }
 
 // НОВАЯ ФУНКЦИЯ: Обновление заголовка чата
@@ -1866,28 +1632,6 @@ function updateChatTitle() {
     const titleElement = document.getElementById('chat-title');
     if (titleElement && sections[currentSection]) {
         titleElement.textContent = sections[currentSection].name;
-    }
-}
-
-// НОВАЯ ФУНКЦИЯ: Обновление разрешений раздела
-function updateSectionPermission(sectionId, permissionType, value) {
-    if (!isAdmin) {
-        showNotification('Только админы могут менять настройки разделов', 'error');
-        return;
-    }
-    
-    if (sections[sectionId]) {
-        sections[sectionId][permissionType] = value;
-        
-        // Сохраняем настройки разделов
-        localStorage.setItem('telegram_chat_sections', JSON.stringify(sections));
-        
-        showNotification('Настройки раздела обновлены', 'success');
-        
-        // Если это текущий раздел, проверяем права
-        if (sectionId === currentSection) {
-            checkWritePermissions();
-        }
     }
 }
 
@@ -1905,230 +1649,184 @@ function showError(message) {
     showNotification(message, 'error');
 }
 
-// Настройки темы
-function setTheme(theme) {
-    document.querySelectorAll('.theme-option').forEach(option => {
-        option.classList.remove('active');
-    });
+// Поиск сообщений
+function toggleSearch() {
+    const searchBar = document.getElementById('search-bar');
+    searchBar.classList.toggle('active');
     
-    event.target.closest('.theme-option').classList.add('active');
-    
-    if (theme === 'dark') {
-        document.body.classList.add('dark-theme');
-        localStorage.setItem('theme', 'dark');
-    } else if (theme === 'light') {
-        document.body.classList.remove('dark-theme');
-        localStorage.setItem('theme', 'light');
+    if (searchBar.classList.contains('active')) {
+        document.getElementById('search-input').focus();
     } else {
-        // Авто тема
-        localStorage.removeItem('theme');
-        if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-            document.body.classList.add('dark-theme');
-        } else {
-            document.body.classList.remove('dark-theme');
-        }
+        document.getElementById('search-input').value = '';
+        showChat();
     }
 }
 
-function updateThemeButtons(theme) {
-    document.querySelectorAll('.theme-option').forEach(option => {
-        option.classList.remove('active');
-        if (option.querySelector('i').className.includes(theme === 'dark' ? 'moon' : 'sun')) {
-            option.classList.add('active');
-        }
-    });
-}
-
-// Редактирование профиля
-function editProfile() {
-    tg.showPopup({
-        title: 'Редактирование профиля',
-        message: 'Имя пользователя: ' + (currentUser.username || 'не указан') + '\n\nЭта функция будет доступна в следующих обновлениях.',
-        buttons: [
-            { id: 'change_avatar', type: 'default', text: 'Сменить аватар' },
-            { type: 'cancel', text: 'Закрыть' }
-        ]
-    }, (buttonId) => {
-        if (buttonId === 'change_avatar') {
-            showNotification('Смена аватара в разработке', 'info');
-        }
-    });
-}
-
-// Настройки уведомлений
-function showNotificationSettings() {
-    tg.showPopup({
-        title: 'Настройки уведомлений',
-        message: 'Управление уведомлениями о новых сообщениях',
-        buttons: [
-            { id: 'enable', type: 'default', text: 'Включить уведомления' },
-            { id: 'disable', type: 'default', text: 'Выключить уведомления' },
-            { type: 'cancel', text: 'Отмена' }
-        ]
-    }, (buttonId) => {
-        if (buttonId === 'enable') {
-            showNotification('Уведомления включены', 'success');
-            localStorage.setItem('notifications', 'enabled');
-        } else if (buttonId === 'disable') {
-            showNotification('Уведомления выключены', 'info');
-            localStorage.setItem('notifications', 'disabled');
-        }
-    });
-}
-
-// Конфиденциальность
-function showPrivacySettings() {
-    tg.showPopup({
-        title: 'Конфиденциальность',
-        message: 'Настройки видимости профиля и управления данными',
-        buttons: [
-            { id: 'privacy', type: 'default', text: 'Настройки приватности' },
-            { id: 'blocked', type: 'default', text: 'Заблокированные' },
-            { type: 'cancel', text: 'Закрыть' }
-        ]
-    }, (buttonId) => {
-        if (buttonId === 'privacy') {
-            showNotification('Настройки приватности в разработке', 'info');
-        } else if (buttonId === 'blocked') {
-            showNotification('Управление заблокированными в разработке', 'info');
-        }
-    });
-}
-
-// Очистка чата
-function clearChat() {
-    tg.showConfirm('Очистить всю историю чата? Это действие нельзя отменить.', (confirmed) => {
-        if (confirmed) {
-            Object.keys(sections).forEach(sectionId => {
-                if (window.chatData && window.chatData[sectionId]) {
-                    window.chatData[sectionId] = [{
-                        id: 1,
-                        user_id: 'system',
-                        user: { first_name: 'Система', user_id: 'system' },
-                        message_type: 'text',
-                        content: 'История чата была очищена',
-                        timestamp: Date.now(),
-                        read: true,
-                        section: sectionId
-                    }];
-                    saveMessagesToStorage(sectionId);
-                }
-            });
-            
-            lastMessageId = 1;
-            
-            if (currentSection === 'main') {
-                displayCurrentSectionMessages();
-            }
-            
-            showNotification('История чата очищена', 'success');
-            updateUserUI();
-        }
-    });
-}
-
-// Выход из чата
-function leaveChat() {
-    tg.showConfirm('Покинуть чат? Вы сможете вернуться позже.', (confirmed) => {
-        if (confirmed) {
-            tg.close();
-        }
-    });
-}
-
-// НОВЫЕ УТИЛИТЫ
-function getRoleText(role) {
-    const roles = {
-        'main_admin': '👑 Главный админ',
-        'admin': '🛡️ Админ',
-        'moderator': '⚡ Модератор',
-        'user': 'Участник'
-    };
-    return roles[role] || 'Участник';
-}
-
-function stringToColor(str) {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-        hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const hue = Math.abs(hash % 360);
-    return `hsl(${hue}, 70%, 65%)`;
-}
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-function parseMentions(text) {
-    return text.replace(/@(\w+)/g, '<span class="mention">@$1</span>');
-}
-
-function parseEmojis(text) {
-    const emojiMap = {
-        ':)': '😊', ':(': '😢', ':D': '😄',
-        ';)': '😉', ':P': '😛', ':*': '😘',
-        '<3': '❤️', ':O': '😮', ':|': '😐',
-        ':/': '😕', ':3': '😺', '>_<': '😣'
-    };
+async function searchMessages(query) {
+    if (!query.trim()) return;
     
-    Object.keys(emojiMap).forEach(emoji => {
-        text = text.replace(new RegExp(emoji.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), emojiMap[emoji]);
+    // Поиск во всех разделах
+    let results = [];
+    Object.keys(sections).forEach(sectionId => {
+        if (window.chatData && window.chatData[sectionId]) {
+            const sectionResults = window.chatData[sectionId].filter(msg => 
+                msg.content && msg.content.toLowerCase().includes(query.toLowerCase())
+            ).map(msg => ({...msg, section: sectionId}));
+            
+            results = results.concat(sectionResults);
+        }
     });
     
-    return text;
-}
-
-function scrollToBottom() {
     const container = document.getElementById('messages-container');
-    if (container) {
-        container.scrollTop = container.scrollHeight;
+    
+    if (results.length === 0) {
+        container.innerHTML = `
+            <div class="empty-search">
+                <i class="fas fa-search"></i>
+                <p>По запросу "${query}" ничего не найдено</p>
+                <button onclick="showChat()" class="btn-back">Вернуться в чат</button>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = '';
+    
+    const searchHeader = document.createElement('div');
+    searchHeader.className = 'search-results-header';
+    searchHeader.innerHTML = `
+        <div class="search-results-info">
+            <i class="fas fa-search"></i>
+            <span>Найдено ${results.length} сообщений по запросу "${query}"</span>
+        </div>
+        <button onclick="showChat()" class="btn-back-search">
+            <i class="fas fa-arrow-left"></i> Назад
+        </button>
+    `;
+    container.appendChild(searchHeader);
+    
+    results.forEach(message => {
+        const messageElement = createMessageElement(message);
+        container.appendChild(messageElement);
+    });
+}
+
+// Эмодзи пикер
+function toggleEmojiPicker() {
+    const emojiPicker = document.getElementById('emoji-picker');
+    emojiPicker.classList.toggle('active');
+    
+    if (emojiPicker.classList.contains('active') && document.getElementById('emoji-grid').innerHTML === '') {
+        showEmojiCategory('smileys');
     }
 }
 
-// Индикаторы
-function showSendingIndicator() {
-    const inputArea = document.querySelector('.message-input-area');
-    const sendingIndicator = document.createElement('div');
-    sendingIndicator.className = 'sending-indicator';
-    sendingIndicator.innerHTML = '<div class="sending-dot"></div><div class="sending-dot"></div><div class="sending-dot"></div>';
-    inputArea.appendChild(sendingIndicator);
-}
-
-function hideSendingIndicator() {
-    const sendingIndicator = document.querySelector('.sending-indicator');
-    if (sendingIndicator) sendingIndicator.remove();
-}
-
-// Опрос "новых" сообщений (для демо)
-function startMessagePolling() {
-    messageInterval = setInterval(() => {
-        updateOnlineStatus();
-        checkForNewMessages();
-    }, 10000); // Проверяем каждые 10 секунд
-}
-
-// НОВАЯ ФУНКЦИЯ: Обновление онлайн статуса
-function updateOnlineStatus() {
-    // В реальном приложении здесь был бы запрос к серверу
-    // Для демо случайным образом меняем статусы
-    Object.values(usersCache).forEach(user => {
-        if (user.user_id !== currentUserId) {
-            user.is_online = Math.random() > 0.3; // 70% шанс быть онлайн
-        }
+function showEmojiCategory(category) {
+    const emojiGrid = document.getElementById('emoji-grid');
+    const emojis = emojiCategories[category] || [];
+    
+    emojiGrid.innerHTML = '';
+    
+    emojis.forEach(emoji => {
+        const emojiBtn = document.createElement('button');
+        emojiBtn.className = 'emoji-btn';
+        emojiBtn.textContent = emoji;
+        emojiBtn.onclick = () => insertEmoji(emoji);
+        emojiGrid.appendChild(emojiBtn);
     });
     
-    loadUsers();
-    updateOnlineUsers();
+    // Обновляем активную категорию
+    document.querySelectorAll('.emoji-category').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    event.target.classList.add('active');
 }
 
-// НОВАЯ ФУНКЦИЯ: Проверка новых сообщений
-function checkForNewMessages() {
-    // В реальном приложении здесь была бы проверка новых сообщений с сервера
-    // Для демо просто обновляем счетчики
-    updateSectionUnreadCount();
+function insertEmoji(emoji) {
+    const input = document.getElementById('message-input');
+    input.value += emoji;
+    input.focus();
+}
+
+// Прикрепление файлов
+function toggleAttachMenu() {
+    const attachMenu = document.getElementById('attach-menu');
+    attachMenu.classList.toggle('active');
+}
+
+function attachFile(type) {
+    switch(type) {
+        case 'photo':
+            showNotification('Отправка фото в разработке', 'info');
+            break;
+        case 'sticker':
+            showStickerPicker();
+            break;
+        default:
+            showNotification('Эта функция в разработке', 'info');
+    }
+    
+    toggleAttachMenu();
+}
+
+function showStickerPicker() {
+    const stickers = ['😊', '😂', '🤣', '❤️', '🔥', '👍', '👏', '🎉', '🙏', '🤔'];
+    
+    tg.showPopup({
+        title: 'Выберите стикер',
+        message: stickers.join(' '),
+        buttons: stickers.map((sticker, index) => ({
+            id: `sticker_${index}`,
+            type: 'default',
+            text: sticker
+        })).concat([{ type: 'cancel', text: 'Отмена' }])
+    }, (buttonId) => {
+        if (buttonId && buttonId.startsWith('sticker_')) {
+            const index = parseInt(buttonId.split('_')[1]);
+            sendSticker(stickers[index]);
+        }
+    });
+}
+
+function sendSticker(emoji) {
+    try {
+        showSendingIndicator();
+        
+        const newMessage = {
+            id: lastMessageId + 1,
+            user_id: currentUserId,
+            user: currentUser,
+            message_type: 'sticker',
+            emoji: emoji,
+            timestamp: Date.now(),
+            read: false,
+            section: currentSection
+        };
+        
+        // Добавляем сообщение
+        if (!window.chatData[currentSection]) window.chatData[currentSection] = [];
+        window.chatData[currentSection].push(newMessage);
+        lastMessageId = newMessage.id;
+        
+        // Сохраняем
+        saveMessagesToStorage(currentSection);
+        
+        // Отображаем
+        const messageElement = createMessageElement(newMessage);
+        document.getElementById('messages-container').appendChild(messageElement);
+        
+        hideSendingIndicator();
+        
+        // Прокручиваем вниз
+        scrollToBottom();
+        
+        console.log("✅ Стикер отправлен:", newMessage);
+        
+    } catch (error) {
+        console.error('Ошибка отправки стикера:', error);
+        hideSendingIndicator();
+        showNotification('Ошибка отправки стикера', 'error');
+    }
 }
 
 // НОВАЯ ФУНКЦИЯ: Обработка кнопки назад
@@ -2155,7 +1853,7 @@ function handleBackButton() {
     }
 }
 
-// Настройка обработчиков событий (ОБНОВЛЕННАЯ)
+// НОВАЯ ФУНКЦИЯ: Настройка обработчиков событий
 function setupEventListeners() {
     // Отправка сообщения по Enter
     const messageInput = document.getElementById('message-input');
@@ -2176,14 +1874,6 @@ function setupEventListeners() {
                 searchMessages(this.value);
                 toggleSearch();
             }
-        });
-    }
-    
-    // Поиск пользователей
-    const usersSearchInput = document.getElementById('users-search-input');
-    if (usersSearchInput) {
-        usersSearchInput.addEventListener('input', function(e) {
-            searchUsers(this.value);
         });
     }
     
@@ -2213,64 +1903,81 @@ function setupEventListeners() {
     });
 }
 
-// НОВАЯ ФУНКЦИЯ: Поиск пользователей
-function searchUsers(query) {
-    const container = document.getElementById('users-list');
-    if (!container) return;
-    
-    const users = Object.values(usersCache);
-    
-    if (!query.trim()) {
-        displayUsers();
-        return;
-    }
-    
-    const filteredUsers = users.filter(user => {
-        const userName = `${user.first_name} ${user.last_name || ''}`.toLowerCase();
-        const username = (user.username || '').toLowerCase();
-        const searchQuery = query.toLowerCase();
-        
-        return userName.includes(searchQuery) || username.includes(searchQuery);
-    });
-    
-    container.innerHTML = '';
-    
-    if (filteredUsers.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <i class="fas fa-search"></i>
-                <p>Пользователи не найдены</p>
-            </div>
-        `;
-        return;
-    }
-    
-    filteredUsers.forEach(user => {
-        const userElement = createUserElement(user);
-        container.appendChild(userElement);
-    });
+// НОВАЯ ФУНКЦИЯ: Опрос обновлений
+function startPolling() {
+    // Обновляем онлайн статус каждые 30 секунд
+    setInterval(() => {
+        updateOnlineStatus();
+        checkForNewMessages();
+    }, 30000);
 }
 
-// Обновление UI
-function updateUI() {
-    // Загружаем сохраненную тему
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme === 'dark') {
-        document.body.classList.add('dark-theme');
-        updateThemeButtons('dark');
-    } else if (savedTheme === 'light') {
-        document.body.classList.remove('dark-theme');
-        updateThemeButtons('light');
-    }
+// НОВАЯ ФУНКЦИЯ: Обновление онлайн статуса
+function updateOnlineStatus() {
+    // В реальном приложении здесь был бы запрос к серверу
+    // Для демо случайным образом меняем статусы
+    Object.values(usersCache).forEach(user => {
+        if (user.user_id !== currentUserId) {
+            user.is_online = Math.random() > 0.3; // 70% шанс быть онлайн
+        }
+    });
     
-    // Загружаем настройки разделов
-    const savedSections = localStorage.getItem('telegram_chat_sections');
-    if (savedSections) {
-        Object.assign(sections, JSON.parse(savedSections));
+    loadUsers();
+    updateOnlineUsers();
+}
+
+// НОВАЯ ФУНКЦИЯ: Проверка новых сообщений
+function checkForNewMessages() {
+    // В реальном приложении здесь была бы проверка новых сообщений с сервера
+    // Для демо просто обновляем счетчики
+    updateUnreadBadges();
+}
+
+// Утилиты
+function getRoleText(role) {
+    const roles = {
+        'main_admin': '👑 Главный админ',
+        'admin': '🛡️ Админ',
+        'moderator': '⚡ Модератор',
+        'user': 'Участник'
+    };
+    return roles[role] || 'Участник';
+}
+
+function stringToColor(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
     }
-    
-    // Обновляем заголовок
-    document.title = 'Telegram Chat Extended';
+    const hue = Math.abs(hash % 360);
+    return `hsl(${hue}, 70%, 65%)`;
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function scrollToBottom() {
+    const container = document.getElementById('messages-container');
+    if (container) {
+        container.scrollTop = container.scrollHeight;
+    }
+}
+
+// Индикаторы
+function showSendingIndicator() {
+    const inputArea = document.querySelector('.message-input-area');
+    const sendingIndicator = document.createElement('div');
+    sendingIndicator.className = 'sending-indicator';
+    sendingIndicator.innerHTML = '<div class="sending-dot"></div><div class="sending-dot"></div><div class="sending-dot"></div>';
+    inputArea.appendChild(sendingIndicator);
+}
+
+function hideSendingIndicator() {
+    const sendingIndicator = document.querySelector('.sending-indicator');
+    if (sendingIndicator) sendingIndicator.remove();
 }
 
 // Инициализация при загрузке страницы
@@ -2298,12 +2005,6 @@ window.toggleEmojiPicker = toggleEmojiPicker;
 window.showEmojiCategory = showEmojiCategory;
 window.insertEmoji = insertEmoji;
 window.searchMessages = searchMessages;
-window.setTheme = setTheme;
-window.editProfile = editProfile;
-window.showNotificationSettings = showNotificationSettings;
-window.showPrivacySettings = showPrivacySettings;
-window.clearChat = clearChat;
-window.leaveChat = leaveChat;
 
 // НОВЫЕ ГЛОБАЛЬНЫЕ ФУНКЦИИ
 window.switchSection = switchSection;
@@ -2313,12 +2014,14 @@ window.mentionAll = mentionAll;
 window.createInvite = createInvite;
 window.showReactionPopup = showReactionPopup;
 window.addReaction = addReaction;
+window.toggleReaction = toggleReaction;
 window.replyToMessage = replyToMessage;
 window.forwardMessage = forwardMessage;
 window.showMessageMenu = showMessageMenu;
 window.changeUserRole = changeUserRole;
 window.kickUser = kickUser;
-window.updateSectionPermission = updateSectionPermission;
+window.deleteInvite = deleteInvite;
+window.closeReplyPreview = closeReplyPreview;
 
 window.handleKeyPress = function(event) {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -2332,38 +2035,7 @@ window.autoResize = function(textarea) {
     textarea.style.height = (textarea.scrollHeight) + 'px';
 };
 
-// Функции для контекстного меню (из HTML)
-window.contextMenuReply = function() {
-    const menu = document.getElementById('message-context-menu');
-    const messageId = menu.dataset.messageId;
-    if (window.replyToMessage && messageId) window.replyToMessage(messageId);
-    menu.style.display = 'none';
-};
-
-window.contextMenuForward = function() {
-    const menu = document.getElementById('message-context-menu');
-    const messageId = menu.dataset.messageId;
-    if (window.forwardMessage && messageId) window.forwardMessage(messageId);
-    menu.style.display = 'none';
-};
-
-window.contextMenuReaction = function() {
-    const menu = document.getElementById('message-context-menu');
-    const messageId = menu.dataset.messageId;
-    if (window.showReactionPopup && messageId) window.showReactionPopup(messageId);
-    menu.style.display = 'none';
-};
-
-window.contextMenuDelete = function() {
-    const menu = document.getElementById('message-context-menu');
-    const messageId = menu.dataset.messageId;
-    if (window.deleteMessage && messageId) window.deleteMessage(messageId);
-    menu.style.display = 'none';
-};
-
 window.closeForwardPopup = function() {
     const popup = document.getElementById('forward-popup');
     if (popup) popup.style.display = 'none';
 };
-
-window.closeReplyPreview = closeReplyPreview;
