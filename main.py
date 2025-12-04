@@ -1,7 +1,6 @@
 import os
 import logging
 import asyncio
-import threading
 from aiogram import Bot, Dispatcher, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
@@ -254,8 +253,8 @@ async def on_shutdown(dp):
     """Действия при завершении работы"""
     logger.info("👋 Завершение работы бота...")
 
-def run_bot():
-    """Запуск бота"""
+def start_bot():
+    """Запуск бота в отдельном процессе"""
     print("\n" + "="*50)
     print("🚀 Telegram Bot with Mini App")
     print("="*50)
@@ -273,24 +272,34 @@ def run_bot():
     print("="*50)
     
     try:
-        # Запуск поллинга
-        executor.start_polling(
+        # Запуск поллинга в отдельном потоке событий
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(executor.start_polling(
             dp, 
             skip_updates=True,
             on_startup=on_startup,
             on_shutdown=on_shutdown
-        )
+        ))
     except Exception as e:
         logger.error(f"❌ Критическая ошибка при запуске бота: {e}", exc_info=True)
         print(f"\n❌ Бот не запущен: {e}")
 
-# Если файл запускается напрямую (не через gunicorn)
+# Запускаем бот при импорте (для Railway)
 if __name__ == '__main__':
+    # Если запускается напрямую, запускаем и Flask и бота
+    import threading
+    
     # Запускаем бота в отдельном потоке
-    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread = threading.Thread(target=start_bot, daemon=True)
     bot_thread.start()
     
-    # Запускаем Flask app (для gunicorn)
+    # Запускаем Flask app (основной поток для gunicorn)
     port = int(os.getenv("PORT", 8080))
     logger.info(f"🌐 Flask app запускается на порту {port}")
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+else:
+    # Если импортируется gunicorn, запускаем только бота в фоне
+    import threading
+    bot_thread = threading.Thread(target=start_bot, daemon=True)
+    bot_thread.start()
