@@ -15,6 +15,10 @@ flask_app = Flask(__name__)
 # Путь к веб-приложению
 WEBAPP_DIR = os.path.join(os.path.dirname(__file__), 'bot/webapp')
 
+# Импортируем модели для создания таблиц
+from sqlalchemy import create_engine
+from core.models import Base
+
 @flask_app.route('/')
 def index():
     return "Telegram Bot with Mini App is running! Use /start in Telegram"
@@ -22,6 +26,17 @@ def index():
 @flask_app.route('/health')
 def health():
     return jsonify({"status": "healthy"}), 200
+
+@flask_app.route('/init-db')
+def init_database():
+    """Ручка для инициализации базы данных"""
+    try:
+        # Создаем таблицы
+        engine = create_engine("sqlite:///botzakaz.db")
+        Base.metadata.create_all(engine)
+        return jsonify({"status": "success", "message": "Database tables created"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @flask_app.route('/index.html')
 def serve_index():
@@ -59,6 +74,29 @@ def get_messages():
             'status': 'success',
             'messages': messages_data
         })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@flask_app.route('/api/messages/send', methods=['POST'])
+def send_message_api():
+    """Отправить сообщение через API"""
+    try:
+        data = request.json
+        if not data or 'user_id' not in data or 'message_type' not in data:
+            return jsonify({'status': 'error', 'message': 'Invalid request'}), 400
+        
+        # Сохраняем сообщение
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        message = loop.run_until_complete(db.add_message(
+            user_id=data['user_id'],
+            message_type=data['message_type'],
+            content=data.get('content'),
+            file_id=data.get('file_id'),
+            file_url=data.get('file_url')
+        ))
+        
+        return jsonify({'status': 'success', 'message_id': message.id})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
@@ -166,6 +204,12 @@ async def on_startup(dp):
     
     # Инициализация базы данных
     try:
+        # Создаем таблицы если их нет
+        engine = create_engine("sqlite:///botzakaz.db")
+        Base.metadata.create_all(engine)
+        logger.info("✅ Таблицы базы данных созданы")
+        
+        # Инициализируем асинхронную БД
         await db.init_db()
         logger.info("✅ База данных инициализирована")
     except Exception as e:
@@ -176,6 +220,7 @@ async def on_startup(dp):
     logger.info(f"✅ Бот @{me.username} успешно запущен!")
     logger.info("📱 Используйте команду /start для начала работы")
     logger.info(f"🌐 Веб-приложение: https://botzakaz-production-ba19.up.railway.app")
+    logger.info(f"🔗 Инициализация БД: https://botzakaz-production-ba19.up.railway.app/init-db")
 
 async def on_shutdown(dp):
     """Действия при завершении работы"""
