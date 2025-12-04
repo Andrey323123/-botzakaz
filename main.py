@@ -15,6 +15,8 @@ from datetime import datetime, timedelta
 import json
 import traceback
 import sys
+from sqlalchemy import inspect
+from sqlalchemy.exc import SQLAlchemyError
 
 flask_app = Flask(__name__)
 
@@ -103,14 +105,41 @@ def init_database():
         tables = inspector.get_table_names()
         flask_logger.info(f"📊 Таблицы в базе данных: {tables}")
         
+        # Проверяем структуру каждой таблицы
+        for table in tables:
+            columns = inspector.get_columns(table)
+            column_names = [col['name'] for col in columns]
+            flask_logger.info(f"📋 Таблица '{table}': {column_names}")
+        
+        # Инициализируем начальные данные
+        try:
+            from core.database import init_db
+            init_db()
+            flask_logger.info("✅ Начальные данные созданы")
+        except Exception as init_error:
+            flask_logger.error(f"⚠️ Ошибка инициализации начальных данных: {init_error}")
+        
+        # Проверяем что база работает
+        from core.database import get_users, get_messages
+        users_count = len(get_users())
+        messages_count = len(get_messages(limit=1000))
+        
         return jsonify({
             "status": "success", 
-            "message": "Database tables created",
-            "tables": tables
+            "message": "Database initialized successfully",
+            "tables": tables,
+            "data": {
+                "users_count": users_count,
+                "messages_count": messages_count
+            }
         })
     except Exception as e:
         flask_logger.error(f"❌ Ошибка создания таблиц: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": str(e), "traceback": traceback.format_exc()}), 500
+        return jsonify({
+            "status": "error", 
+            "message": str(e), 
+            "traceback": traceback.format_exc()
+        }), 500
 
 @flask_app.route('/index.html')
 def serve_index():
@@ -149,7 +178,6 @@ def debug_info():
                 "path": "botzakaz.db",
                 "exists": os.path.exists("botzakaz.db")
             },
-            "recent_requests": getattr(flask_app, 'recent_requests', []),
             "memory_usage": {
                 "rss_mb": os.getpid().memory_info().rss / 1024 / 1024
             }
@@ -179,21 +207,33 @@ def get_messages():
         messages = db.get_messages(limit, offset)
         flask_logger.debug(f"📩 Получено {len(messages)} сообщений из БД")
         
+        # Логируем информацию о первых сообщениях
+        for i, msg in enumerate(messages[:3]):
+            flask_logger.debug(f"📝 Сообщение #{i+1}: ID={msg.id}, user_id={msg.user_id}, content={msg.content[:50] if msg.content else 'None'}")
+        
         messages_data = []
         for message in messages:
             # Получаем информацию о пользователе для каждого сообщения
             user = db.get_user_by_id(message.user_id)
             
             if not user:
-                flask_logger.warning(f"⚠️ Пользователь с ID {message.user_id} не найден в БД")
-            
-            user_data = {
-                'user_id': user.user_id if user else message.user_id,
-                'username': user.username if user else None,
-                'first_name': user.first_name if user else 'User',
-                'last_name': user.last_name if user else None,
-                'photo_url': user.photo_url if user else None
-            }
+                flask_logger.warning(f"⚠️ Пользователь с ID {message.user_id} не найден в БД для сообщения {message.id}")
+                # Создаем заглушку пользователя
+                user_data = {
+                    'user_id': message.user_id,
+                    'username': None,
+                    'first_name': f'User{message.user_id}',
+                    'last_name': None,
+                    'photo_url': None
+                }
+            else:
+                user_data = {
+                    'user_id': user.user_id,
+                    'username': user.username,
+                    'first_name': user.first_name,
+                    'last_name': user.last_name,
+                    'photo_url': user.photo_url
+                }
             
             # Форматируем время для отображения
             timestamp = None
@@ -217,17 +257,22 @@ def get_messages():
                 'voice_duration': getattr(message, 'voice_duration', None)
             }
             
-            flask_logger.debug(f"📝 Сообщение {message.id}: {message.content[:50] if message.content else 'No content'}...")
             messages_data.append(message_data)
         
         response = {
             'status': 'success',
             'count': len(messages_data),
+            'total_in_db': len(db.get_messages(limit=10000)),
             'messages': messages_data,
-            'requested_at': datetime.now().isoformat()
+            'requested_at': datetime.now().isoformat(),
+            'debug': {
+                'section': section,
+                'limit': limit,
+                'offset': offset
+            }
         }
         
-        flask_logger.info(f"✅ Отправлено {len(messages_data)} сообщений")
+        flask_logger.info(f"✅ Отправлено {len(messages_data)} сообщений (всего в БД: {response['total_in_db']})")
         return jsonify(response)
         
     except Exception as e:
@@ -244,58 +289,127 @@ def send_message_api():
     try:
         flask_logger.info("📤 Отправка сообщения через API")
         
-        if not request.is_json:
-            flask_logger.error("❌ Запрос не в JSON формате")
-            return jsonify({'status': 'error', 'message': 'Request must be JSON'}), 400
+        # Логируем все что пришло
+        flask_logger.debug(f"📦 Заголовки запроса: {dict(request.headers)}")
+        flask_logger.debug(f"📄 Content-Type: {request.content_type}")
+        flask_logger.debug(f"📝 Данные запроса (raw): {request.data}")
         
-        data = request.json
-        flask_logger.debug(f"📝 Данные запроса: {json.dumps(data, indent=2)}")
+        # Проверяем тип контента
+        data = None
+        if request.is_json:
+            data = request.json
+            flask_logger.info("✅ Получены JSON данные")
+        else:
+            # Пробуем парсить как JSON вручную
+            try:
+                if request.data:
+                    data = json.loads(request.data)
+                    flask_logger.info(f"✅ Удалось распарсить JSON из request.data")
+                else:
+                    # Пробуем получить данные из формы
+                    data = request.form.to_dict()
+                    flask_logger.info(f"✅ Получены данные из формы: {data}")
+                    
+                    # Пробуем распарсить JSON в поле 'data' если есть
+                    if 'data' in data:
+                        try:
+                            data = json.loads(data['data'])
+                            flask_logger.info(f"✅ Распарсен JSON из поля 'data'")
+                        except:
+                            pass
+            except Exception as parse_error:
+                flask_logger.error(f"❌ Не удалось распарсить данные: {parse_error}")
+                return jsonify({
+                    'status': 'error', 
+                    'message': 'Invalid request format',
+                    'received_content_type': request.content_type,
+                    'received_data': str(request.data)[:500]
+                }), 400
         
-        # Валидация данных
-        required_fields = ['user_id', 'content', 'section']
-        missing_fields = [field for field in required_fields if field not in data]
+        if not data:
+            flask_logger.error("❌ Пустые данные")
+            return jsonify({'status': 'error', 'message': 'Empty request data'}), 400
         
-        if missing_fields:
-            flask_logger.error(f"❌ Отсутствуют обязательные поля: {missing_fields}")
+        flask_logger.debug(f"📝 Данные запроса (parsed): {json.dumps(data, indent=2) if isinstance(data, dict) else data}")
+        
+        # Поддерживаем разные форматы данных
+        user_id = None
+        content = None
+        
+        # Вариант 1: прямой формат (новый фронтенд)
+        if 'user_id' in data:
+            user_id = data['user_id']
+            content = data.get('content', '')
+        # Вариант 2: вложенный формат
+        elif 'message' in data and isinstance(data['message'], dict):
+            if 'user_id' in data['message']:
+                user_id = data['message']['user_id']
+                content = data['message'].get('content', '')
+        # Вариант 3: старый формат
+        elif 'userId' in data:
+            user_id = data['userId']
+            content = data.get('content', '')
+        
+        if not user_id:
+            flask_logger.error(f"❌ User ID не найден в данных: {data}")
             return jsonify({
                 'status': 'error', 
-                'message': f'Missing required fields: {missing_fields}'
+                'message': 'User ID required',
+                'received_data_keys': list(data.keys()) if isinstance(data, dict) else str(type(data))
             }), 400
         
-        user_id = data['user_id']
-        content = data['content']
-        section = data.get('section', 'main')
-        files = data.get('files', [])
+        # Преобразуем user_id в int если нужно
+        try:
+            user_id = int(user_id)
+        except (ValueError, TypeError):
+            flask_logger.error(f"❌ Неверный формат user_id: {user_id}")
+            return jsonify({'status': 'error', 'message': 'Invalid user_id format'}), 400
         
-        flask_logger.info(f"📨 Новое сообщение от user_id={user_id}: {content[:100]}...")
-        flask_logger.debug(f"📁 Прикрепленные файлы: {len(files)} шт.")
+        flask_logger.info(f"📨 Новое сообщение от user_id={user_id}: {content[:100] if content else 'No content'}...")
         
-        # Проверяем, не забанен ли пользователь
+        # Проверяем существование пользователя в БД
         user = db.get_user_by_id(user_id)
         
         if not user:
-            flask_logger.warning(f"⚠️ Пользователь {user_id} не найден, создаем...")
-            # Создаем пользователя если не существует
-            user = db.get_or_create_user({
+            flask_logger.warning(f"⚠️ Пользователь {user_id} не найден в БД, создаем...")
+            
+            # Получаем информацию о пользователе из данных
+            user_info = {}
+            if 'user' in data and isinstance(data['user'], dict):
+                user_info = data['user']
+            
+            user_data = {
                 'id': user_id,
-                'username': data.get('username'),
-                'first_name': data.get('first_name', f'User{user_id}'),
-                'last_name': data.get('last_name')
-            })
-            flask_logger.info(f"👤 Создан новый пользователь: {user.first_name} (ID: {user.id})")
+                'username': data.get('username') or user_info.get('username'),
+                'first_name': data.get('first_name') or user_info.get('first_name') or f'User{user_id}',
+                'last_name': data.get('last_name') or user_info.get('last_name'),
+                'photo_url': data.get('photo_url') or user_info.get('photo_url')
+            }
+            
+            flask_logger.debug(f"👤 Данные для создания пользователя: {user_data}")
+            
+            try:
+                user = db.get_or_create_user(user_data)
+                flask_logger.info(f"✅ Создан новый пользователь: {user.first_name} (ID: {user.id}, DB ID: {user.id})")
+            except Exception as user_error:
+                flask_logger.error(f"❌ Ошибка создания пользователя: {user_error}", exc_info=True)
+                user = None
         
-        if user and user.is_banned:
-            flask_logger.warning(f"🚫 Пользователь {user_id} забанен")
-            return jsonify({'status': 'error', 'message': 'User is banned'}), 403
-        
-        if user and user.is_muted and user.mute_until and user.mute_until > datetime.utcnow():
-            flask_logger.warning(f"🔇 Пользователь {user_id} в муте до {user.mute_until}")
-            return jsonify({'status': 'error', 'message': 'User is muted'}), 403
+        # Проверяем бан и мут
+        if user:
+            if user.is_banned:
+                flask_logger.warning(f"🚫 Пользователь {user_id} забанен")
+                return jsonify({'status': 'error', 'message': 'User is banned'}), 403
+            
+            if user.is_muted and user.mute_until and user.mute_until > datetime.utcnow():
+                flask_logger.warning(f"🔇 Пользователь {user_id} в муте до {user.mute_until}")
+                return jsonify({'status': 'error', 'message': 'User is muted'}), 403
         
         # Сохраняем сообщение в БД
         flask_logger.debug("💾 Сохраняем сообщение в БД...")
         
         try:
+            # Сохраняем сообщение
             message = db.add_message(
                 user_id=user_id,
                 message_type='text',
@@ -303,13 +417,23 @@ def send_message_api():
                 file_id=None,
                 file_url=None
             )
+            
+            if not message:
+                flask_logger.error("❌ Функция add_message вернула None")
+                return jsonify({'status': 'error', 'message': 'Failed to save message to database'}), 500
+            
             flask_logger.info(f"✅ Сообщение сохранено в БД с ID: {message.id}")
+            
+            # Проверяем что сообщение действительно сохранено
+            all_messages = db.get_messages(limit=10)
+            flask_logger.debug(f"📊 Всего сообщений в БД после сохранения: {len(all_messages)}")
             
         except Exception as db_error:
             flask_logger.error(f"❌ Ошибка сохранения в БД: {db_error}", exc_info=True)
             return jsonify({
                 'status': 'error', 
-                'message': f'Database error: {str(db_error)}'
+                'message': f'Database error: {str(db_error)}',
+                'traceback': traceback.format_exc()[:500]
             }), 500
         
         # Форматируем время ответа
@@ -322,74 +446,117 @@ def send_message_api():
                 'full': local_time.strftime('%d.%m.%Y %H:%M')
             }
         
-        # Если есть файлы, сохраняем их
+        # Подготавливаем данные пользователя для ответа
+        user_response_data = {
+            'id': user.id if user else user_id,
+            'first_name': user.first_name if user else f'User{user_id}',
+            'username': user.username if user else None
+        }
+        
+        # Если есть файлы в сообщении
+        files = data.get('files', [])
         saved_files = []
         if files and isinstance(files, list):
-            flask_logger.info(f"💾 Сохраняем {len(files)} файлов...")
-            
+            flask_logger.info(f"💾 Обрабатываем {len(files)} файлов...")
             for file_data in files:
-                try:
-                    # Сохраняем информацию о файле в БД
-                    file_message = db.add_message(
-                        user_id=user_id,
-                        message_type='file',
-                        content=file_data.get('name', 'Файл'),
-                        file_id=file_data.get('id'),
-                        file_url=file_data.get('url')
-                    )
-                    saved_files.append({
-                        'id': file_data.get('id'),
-                        'name': file_data.get('name'),
-                        'url': file_data.get('url'),
-                        'message_id': file_message.id
-                    })
-                    flask_logger.debug(f"📎 Файл сохранен: {file_data.get('name')}")
-                    
-                except Exception as file_error:
-                    flask_logger.error(f"❌ Ошибка сохранения файла: {file_error}")
+                saved_files.append({
+                    'id': file_data.get('id'),
+                    'name': file_data.get('name'),
+                    'url': file_data.get('url')
+                })
         
         response_data = {
             'status': 'success', 
             'message_id': message.id,
-            'user': {
-                'id': user.id,
-                'first_name': user.first_name,
-                'username': user.username
-            },
+            'user': user_response_data,
             'content': content,
             'timestamp': timestamp,
             'files': saved_files,
-            'server_time': datetime.now().isoformat()
+            'server_time': datetime.now().isoformat(),
+            'debug': {
+                'user_in_db': user is not None,
+                'total_messages_in_db': len(db.get_messages(limit=1000))
+            }
         }
         
         flask_logger.info(f"✅ Сообщение успешно отправлено. ID: {message.id}")
+        flask_logger.debug(f"📤 Ответ сервера: {json.dumps(response_data, indent=2)}")
+        
         return jsonify(response_data)
         
     except Exception as e:
-        flask_logger.error(f"❌ Ошибка отправки сообщения: {e}", exc_info=True)
+        flask_logger.error(f"❌ Критическая ошибка отправки сообщения: {e}", exc_info=True)
         return jsonify({
             'status': 'error', 
-            'message': str(e),
-            'traceback': traceback.format_exc()
+            'message': f'Internal server error: {str(e)}',
+            'traceback': traceback.format_exc()[:1000]
         }), 500
 
-@flask_app.route('/api/messages/clear', methods=['POST'])
-def clear_messages():
-    """Очистить все сообщения (для отладки)"""
+@flask_app.route('/api/debug/test-db', methods=['GET'])
+def test_database():
+    """Тест работы базы данных"""
     try:
-        flask_logger.warning("⚠️ Запрос на очистку всех сообщений")
+        flask_logger.info("🧪 Тестирование базы данных...")
         
-        # Здесь нужно добавить функцию очистки сообщений в БД
-        # Временно возвращаем заглушку
+        # 1. Проверяем существующих пользователей
+        users = db.get_users()
+        flask_logger.info(f"👥 Пользователей в БД: {len(users)}")
+        
+        # 2. Проверяем сообщения
+        messages = db.get_messages(limit=10)
+        flask_logger.info(f"📨 Сообщений в БД: {len(messages)}")
+        
+        # 3. Создаем тестового пользователя если нет
+        test_user_id = 999999
+        test_user = db.get_user_by_id(test_user_id)
+        
+        if not test_user:
+            flask_logger.info("👤 Создаем тестового пользователя...")
+            test_user = db.get_or_create_user({
+                'id': test_user_id,
+                'username': 'test_user',
+                'first_name': 'Test',
+                'last_name': 'User'
+            })
+        
+        # 4. Создаем тестовое сообщение
+        flask_logger.info("💬 Создаем тестовое сообщение...")
+        test_message = db.add_message(
+            user_id=test_user_id,
+            message_type='text',
+            content='Тестовое сообщение от сервера',
+            file_id=None,
+            file_url=None
+        )
+        
+        # 5. Проверяем что сообщение сохранилось
+        messages_after = db.get_messages(limit=10)
+        
         return jsonify({
             'status': 'success',
-            'message': 'Clear messages function not implemented yet',
-            'cleared_at': datetime.now().isoformat()
+            'database_test': {
+                'users_count': len(users),
+                'messages_count_before': len(messages),
+                'messages_count_after': len(messages_after),
+                'test_user_created': test_user is not None,
+                'test_message_created': test_message is not None,
+                'test_message_id': test_message.id if test_message else None,
+                'test_details': {
+                    'user_id': test_user_id,
+                    'user_db_id': test_user.id if test_user else None,
+                    'message_content': 'Тестовое сообщение от сервера'
+                }
+            },
+            'timestamp': datetime.now().isoformat()
         })
         
     except Exception as e:
-        flask_logger.error(f"❌ Ошибка очистки сообщений: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        flask_logger.error(f"❌ Ошибка тестирования БД: {e}", exc_info=True)
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
 
 @flask_app.route('/api/upload/photo', methods=['POST'])
 def upload_photo():
@@ -699,7 +866,11 @@ def get_users_api():
         flask_logger.info("👥 Получение списка пользователей")
         
         users = db.get_users()
-        flask_logger.debug(f"📊 Найдено пользователей: {len(users)}")
+        flask_logger.debug(f"📊 Найдено пользователей в БД: {len(users)}")
+        
+        # Логируем информацию о пользователях
+        for i, user in enumerate(users[:5]):
+            flask_logger.debug(f"👤 Пользователь #{i+1}: ID={user.id}, user_id={user.user_id}, username={user.username}, first_name={user.first_name}")
         
         users_data = []
         for user in users:
@@ -707,8 +878,8 @@ def get_users_api():
             message_count = db.get_message_count(user.user_id)
             
             # Проверяем активность пользователя (был ли онлайн за последние 24 часа)
-            active_users = db.get_active_users(24)
-            is_online = any(u.user_id == user.user_id for u in active_users)
+            active_users_list = db.get_active_users(24)
+            is_online = any(u.user_id == user.user_id for u in active_users_list)
             
             user_data = {
                 'id': user.id,
@@ -726,8 +897,18 @@ def get_users_api():
             }
             users_data.append(user_data)
         
-        flask_logger.info(f"✅ Отправлено данных о {len(users_data)} пользователях")
-        return jsonify({'status': 'success', 'users': users_data})
+        response = {
+            'status': 'success', 
+            'users': users_data,
+            'total_users': len(users_data),
+            'active_users': len(active_users_list),
+            'debug': {
+                'request_time': datetime.now().isoformat()
+            }
+        }
+        
+        flask_logger.info(f"✅ Отправлено данных о {len(users_data)} пользователях ({len(active_users_list)} активных)")
+        return jsonify(response)
     except Exception as e:
         flask_logger.error(f"❌ Ошибка получения пользователей: {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -965,32 +1146,6 @@ def debug_database():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@flask_app.route('/api/debug/test-message', methods=['POST'])
-def test_message():
-    """Тестовый эндпоинт для проверки отправки сообщений"""
-    try:
-        data = request.json or {}
-        
-        # Создаем тестовое сообщение
-        test_data = {
-            "user_id": data.get("user_id", 123456),
-            "content": data.get("content", "Тестовое сообщение от сервера"),
-            "section": "main",
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        flask_logger.info(f"🧪 Тестовое сообщение: {test_data}")
-        
-        return jsonify({
-            "status": "success",
-            "message": "Test message endpoint is working",
-            "test_data": test_data,
-            "received_data": data,
-            "server_time": datetime.now().isoformat()
-        })
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-
 @flask_app.route('/api/debug/check-connection', methods=['GET'])
 def check_connection():
     """Проверка соединения с фронтендом"""
@@ -1112,7 +1267,7 @@ async def cmd_start(message: types.Message):
         await message.answer(welcome_text, reply_markup=keyboard, parse_mode='Markdown')
         logger.info(f"✅ Ответ отправлен пользователю {message.from_user.id}")
         
-    except Exception as e:
+    } catch Exception as e:
         logger.error(f"❌ Ошибка в /start: {e}", exc_info=True)
         await message.answer("❌ Произошла ошибка. Попробуйте позже.")
 
@@ -1145,7 +1300,7 @@ async def cmd_debug(message: types.Message):
 **Проверки:**
 • База данных: /api/debug/database
 • Соединение: /api/debug/check-connection
-• Тест: /api/debug/test-message
+• Тест: /api/debug/test-db
 """
         
         await message.answer(debug_info, parse_mode='Markdown')
@@ -1392,7 +1547,6 @@ async def on_startup(dp):
         logger.info("✅ База данных инициализирована")
         
         # Проверяем существующие таблицы
-        from sqlalchemy import inspect
         inspector = inspect(engine)
         tables = inspector.get_table_names()
         logger.info(f"📊 Таблицы в базе данных: {tables}")
@@ -1404,6 +1558,7 @@ async def on_startup(dp):
     logger.info(f"🌐 Веб-приложение: https://botzakaz-production-ba19.up.railway.app")
     logger.info(f"🔗 Инициализация БД: https://botzakaz-production-ba19.up.railway.app/init-db")
     logger.info(f"🐛 Отладка: https://botzakaz-production-ba19.up.railway.app/api/debug/info")
+    logger.info(f"🧪 Тест БД: https://botzakaz-production-ba19.up.railway.app/api/debug/test-db")
     logger.info("🎉 Бот готов к работе!")
 
 async def on_shutdown(dp):
