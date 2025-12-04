@@ -1267,7 +1267,7 @@ async def cmd_start(message: types.Message):
         await message.answer(welcome_text, reply_markup=keyboard, parse_mode='Markdown')
         logger.info(f"✅ Ответ отправлен пользователю {message.from_user.id}")
         
-    } catch Exception as e:
+    except Exception as e:
         logger.error(f"❌ Ошибка в /start: {e}", exc_info=True)
         await message.answer("❌ Произошла ошибка. Попробуйте позже.")
 
