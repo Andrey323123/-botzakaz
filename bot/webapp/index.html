@@ -3,41 +3,52 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Telegram Chat</title>
+    <title>Telegram Chat Pro</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="telegram-app">
-        <!-- Header -->
+        <!-- Header с разделами -->
         <div class="header">
             <div class="header-left">
                 <button class="btn-menu" onclick="toggleSidebar()">
                     <i class="fas fa-bars"></i>
                 </button>
                 <div class="chat-info">
-                    <div class="chat-title">Telegram Chat</div>
+                    <div class="chat-title" id="chat-title">Telegram Chat</div>
                     <div class="chat-status">онлайн: <span id="online-count">0</span></div>
                 </div>
             </div>
             <div class="header-right">
+                <!-- Кнопка админки (только для админов) -->
+                <button class="btn-admin" id="btn-admin" onclick="showAdminPanel()" style="display: none;">
+                    <i class="fas fa-user-shield"></i>
+                </button>
                 <button class="btn-search" onclick="toggleSearch()">
                     <i class="fas fa-search"></i>
+                </button>
+                <!-- Кнопка прыжка к новым сообщениям -->
+                <button class="btn-jump" id="btn-jump" onclick="jumpToUnread()" style="display: none;">
+                    <i class="fas fa-arrow-down"></i>
+                    <span class="unread-badge" id="unread-badge">0</span>
                 </button>
             </div>
         </div>
 
-        <!-- Sidebar -->
+        <!-- Боковая панель с разделами -->
         <div class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <div class="user-profile">
                     <div class="user-avatar" id="user-avatar">
-                        <i class="fas fa-user"></i>
+                        <img id="user-avatar-img" src="" alt="" onerror="this.style.display='none'">
+                        <i class="fas fa-user" id="user-avatar-icon"></i>
                     </div>
                     <div class="user-info">
                         <div class="user-name" id="user-name">Загрузка...</div>
                         <div class="user-username" id="user-username"></div>
+                        <div class="user-role" id="user-role"></div>
                     </div>
                 </div>
                 <button class="btn-close-sidebar" onclick="toggleSidebar()">
@@ -45,18 +56,29 @@
                 </button>
             </div>
             
+            <!-- Список разделов -->
+            <div class="sections-list" id="sections-list">
+                <!-- Разделы будут добавляться динамически -->
+            </div>
+            
             <div class="sidebar-menu">
                 <div class="menu-item active" onclick="showChat()">
                     <i class="fas fa-comments"></i>
                     <span>Чат</span>
+                    <span class="menu-badge" id="chat-badge">0</span>
+                </div>
+                <div class="menu-item" onclick="showUsersList()">
+                    <i class="fas fa-users"></i>
+                    <span>Участники</span>
+                    <span class="menu-badge" id="users-badge">0</span>
                 </div>
                 <div class="menu-item" onclick="showProfile()">
                     <i class="fas fa-user"></i>
                     <span>Профиль</span>
                 </div>
-                <div class="menu-item" onclick="showUsers()">
-                    <i class="fas fa-users"></i>
-                    <span>Участники</span>
+                <div class="menu-item" onclick="showAdminPanel()" id="admin-menu-item" style="display: none;">
+                    <i class="fas fa-user-shield"></i>
+                    <span>Админка</span>
                 </div>
                 <div class="menu-item" onclick="showSettings()">
                     <i class="fas fa-cog"></i>
@@ -69,14 +91,14 @@
                     <i class="fas fa-circle online-dot"></i>
                     <span id="sidebar-online-count">0</span> онлайн
                 </div>
-                <div class="app-version">v1.0</div>
+                <div class="app-version">v2.0</div>
             </div>
         </div>
 
-        <!-- Overlay for sidebar -->
+        <!-- Оверлей для сайдбара -->
         <div class="overlay" id="overlay" onclick="toggleSidebar()"></div>
 
-        <!-- Search bar -->
+        <!-- Поиск -->
         <div class="search-bar" id="search-bar">
             <input type="text" id="search-input" placeholder="Поиск сообщений...">
             <button class="btn-close-search" onclick="toggleSearch()">
@@ -84,10 +106,11 @@
             </button>
         </div>
 
-        <!-- Main content -->
+        <!-- Основной контент -->
         <div class="main-content" id="main-content">
-            <!-- Chat view -->
+            <!-- Чат -->
             <div class="chat-container active" id="chat-view">
+                <!-- Контейнер для сообщений -->
                 <div class="messages-container" id="messages-container">
                     <div class="empty-chat">
                         <i class="fas fa-comments"></i>
@@ -95,11 +118,13 @@
                     </div>
                 </div>
                 
+                <!-- Ввод сообщения -->
                 <div class="message-input-area">
                     <button class="btn-attach" onclick="toggleAttachMenu()">
                         <i class="fas fa-paperclip"></i>
                     </button>
                     
+                    <!-- Меню прикрепления -->
                     <div class="attach-menu" id="attach-menu">
                         <div class="attach-item" onclick="attachFile('photo')">
                             <i class="fas fa-image"></i>
@@ -113,25 +138,9 @@
                             <i class="fas fa-file"></i>
                             <span>Документ</span>
                         </div>
-                        <div class="attach-item" onclick="attachFile('audio')">
+                        <div class="attach-item" onclick="attachFile('voice')">
                             <i class="fas fa-microphone"></i>
                             <span>Голосовое</span>
-                        </div>
-                        <div class="attach-item" onclick="attachFile('sticker')">
-                            <i class="fas fa-sticky-note"></i>
-                            <span>Стикер</span>
-                        </div>
-                        <div class="attach-item" onclick="attachFile('location')">
-                            <i class="fas fa-map-marker-alt"></i>
-                            <span>Местоположение</span>
-                        </div>
-                        <div class="attach-item" onclick="attachFile('contact')">
-                            <i class="fas fa-address-book"></i>
-                            <span>Контакт</span>
-                        </div>
-                        <div class="attach-item" onclick="attachFile('poll')">
-                            <i class="fas fa-poll"></i>
-                            <span>Опрос</span>
                         </div>
                     </div>
                     
@@ -153,17 +162,26 @@
                 </div>
             </div>
 
-            <!-- Profile view -->
+            <!-- Список пользователей -->
+            <div class="users-container" id="users-view">
+                <div class="users-list" id="users-list">
+                    <!-- Пользователи загружаются динамически -->
+                </div>
+            </div>
+
+            <!-- Профиль -->
             <div class="profile-container" id="profile-view">
                 <div class="profile-header">
                     <div class="profile-avatar" id="profile-avatar">
-                        <i class="fas fa-user"></i>
+                        <img id="profile-avatar-img" src="" alt="" onerror="this.style.display='none'">
+                        <i class="fas fa-user" id="profile-avatar-icon"></i>
                         <button class="btn-change-avatar" onclick="changeAvatar()">
                             <i class="fas fa-camera"></i>
                         </button>
                     </div>
                     <div class="profile-name" id="profile-name">Загрузка...</div>
                     <div class="profile-username" id="profile-username"></div>
+                    <div class="profile-role" id="profile-role"></div>
                 </div>
                 
                 <div class="profile-info">
@@ -188,26 +206,52 @@
                     <button class="btn-action" onclick="showNotificationSettings()">
                         <i class="fas fa-bell"></i> Настройки уведомлений
                     </button>
-                    <button class="btn-action" onclick="showPrivacySettings()">
-                        <i class="fas fa-lock"></i> Конфиденциальность
-                    </button>
-                    <button class="btn-action" onclick="showHelp()">
-                        <i class="fas fa-question-circle"></i> Помощь
-                    </button>
                 </div>
             </div>
 
-            <!-- Users view -->
-            <div class="users-container" id="users-view">
-                <div class="users-list" id="users-list">
-                    <div class="empty-state">
-                        <i class="fas fa-users"></i>
-                        <p>Загрузка пользователей...</p>
+            <!-- Админ панель -->
+            <div class="admin-container" id="admin-view">
+                <div class="admin-header">
+                    <h2><i class="fas fa-user-shield"></i> Админ панель</h2>
+                    <p>Управление чатом и пользователями</p>
+                </div>
+                
+                <div class="admin-sections">
+                    <!-- Управление пользователями -->
+                    <div class="admin-section">
+                        <h3><i class="fas fa-users-cog"></i> Управление пользователями</h3>
+                        <div class="admin-users-list" id="admin-users-list">
+                            <!-- Список пользователей для админа -->
+                        </div>
+                    </div>
+                    
+                    <!-- Управление разделами -->
+                    <div class="admin-section">
+                        <h3><i class="fas fa-folder"></i> Управление разделами</h3>
+                        <div class="sections-admin-list" id="sections-admin-list">
+                            <!-- Настройки разделов -->
+                        </div>
+                    </div>
+                    
+                    <!-- Настройки чата -->
+                    <div class="admin-section">
+                        <h3><i class="fas fa-cog"></i> Настройки чата</h3>
+                        <div class="admin-actions">
+                            <button class="btn-admin-action" onclick="clearAllChat()">
+                                <i class="fas fa-trash"></i> Очистить весь чат
+                            </button>
+                            <button class="btn-admin-action" onclick="exportChatData()">
+                                <i class="fas fa-download"></i> Экспорт данных
+                            </button>
+                            <button class="btn-admin-action" onclick="manageAdmins()">
+                                <i class="fas fa-user-shield"></i> Управление админами
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Settings view -->
+            <!-- Настройки -->
             <div class="settings-container" id="settings-view">
                 <div class="settings-section">
                     <h3><i class="fas fa-bell"></i> Уведомления</h3>
@@ -219,16 +263,9 @@
                         </label>
                     </div>
                     <div class="setting-item">
-                        <span>Звуки уведомлений</span>
+                        <span>Звук уведомлений</span>
                         <label class="switch">
                             <input type="checkbox" id="sounds-toggle" checked>
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-                    <div class="setting-item">
-                        <span>Виброуведомления</span>
-                        <label class="switch">
-                            <input type="checkbox" id="vibration-toggle" checked>
                             <span class="slider"></span>
                         </label>
                     </div>
@@ -252,34 +289,6 @@
                     </div>
                 </div>
                 
-                <div class="settings-section">
-                    <h3><i class="fas fa-shield-alt"></i> Конфиденциальность</h3>
-                    <button class="btn-action" onclick="showPrivacySettings()">
-                        <i class="fas fa-lock"></i> Настройки конфиденциальности
-                    </button>
-                    <button class="btn-action" onclick="showBlockedUsers()">
-                        <i class="fas fa-ban"></i> Заблокированные пользователи
-                    </button>
-                </div>
-                
-                <div class="settings-section">
-                    <h3><i class="fas fa-cog"></i> Другие настройки</h3>
-                    <div class="setting-item">
-                        <span>Авто-загрузка медиа</span>
-                        <label class="switch">
-                            <input type="checkbox" id="media-toggle" checked>
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-                    <div class="setting-item">
-                        <span>Экономия трафика</span>
-                        <label class="switch">
-                            <input type="checkbox" id="data-saver-toggle">
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-                </div>
-                
                 <div class="settings-actions">
                     <button class="btn-action" onclick="clearCache()">
                         <i class="fas fa-broom"></i> Очистить кэш
@@ -287,32 +296,74 @@
                     <button class="btn-action" onclick="showAbout()">
                         <i class="fas fa-info-circle"></i> О приложении
                     </button>
-                    <button class="btn-danger" onclick="leaveChat()">
-                        <i class="fas fa-sign-out-alt"></i> Покинуть чат
-                    </button>
                 </div>
             </div>
         </div>
 
-        <!-- Emoji picker -->
+        <!-- Эмоджи пикер -->
         <div class="emoji-picker" id="emoji-picker">
             <div class="emoji-categories">
                 <button class="emoji-category active" onclick="showEmojiCategory('smileys')">😀</button>
                 <button class="emoji-category" onclick="showEmojiCategory('people')">👋</button>
-                <button class="emoji-category" onclick="showEmojiCategory('animals')">🐶</button>
-                <button class="emoji-category" onclick="showEmojiCategory('food')">🍎</button>
-                <button class="emoji-category" onclick="showEmojiCategory('travel')">🚗</button>
-                <button class="emoji-category" onclick="showEmojiCategory('objects')">💡</button>
                 <button class="emoji-category" onclick="showEmojiCategory('symbols')">❤️</button>
-                <button class="emoji-category" onclick="showEmojiCategory('flags')">🏁</button>
             </div>
             <div class="emoji-grid" id="emoji-grid"></div>
             <button class="btn-close-emoji" onclick="toggleEmojiPicker()">
                 <i class="fas fa-times"></i> Закрыть
             </button>
         </div>
+
+        <!-- Попап для реакций -->
+        <div class="reaction-popup" id="reaction-popup">
+            <div class="reaction-options">
+                <button class="reaction-option" onclick="addReaction('👍')">👍</button>
+                <button class="reaction-option" onclick="addReaction('❤️')">❤️</button>
+                <button class="reaction-option" onclick="addReaction('😂')">😂</button>
+                <button class="reaction-option" onclick="addReaction('😮')">😮</button>
+                <button class="reaction-option" onclick="addReaction('😢')">😢</button>
+                <button class="reaction-option" onclick="addReaction('🎉')">🎉</button>
+                <button class="reaction-option" onclick="addReaction('🔥')">🔥</button>
+            </div>
+        </div>
+
+        <!-- Попап для пересылки -->
+        <div class="forward-popup" id="forward-popup">
+            <div class="forward-header">
+                <h3>Переслать сообщение</h3>
+                <button class="btn-close-forward" onclick="closeForwardPopup()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="forward-users" id="forward-users-list">
+                <!-- Список пользователей для пересылки -->
+            </div>
+        </div>
+
+        <!-- Попап ответа -->
+        <div class="reply-popup" id="reply-popup">
+            <div class="reply-header">
+                <span>Ответить на сообщение</span>
+                <button class="btn-close-reply" onclick="closeReplyPopup()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="reply-preview" id="reply-preview"></div>
+            <input type="text" 
+                   id="reply-input" 
+                   placeholder="Ваш ответ..."
+                   onkeypress="handleReplyKeyPress(event)">
+            <button class="btn-send-reply" onclick="sendReply()">
+                <i class="fas fa-paper-plane"></i>
+            </button>
+        </div>
     </div>
 
+    <script>
+        // Временный скрипт для тестирования структуры
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('HTML структура загружена');
+        });
+    </script>
     <script src="script.js"></script>
 </body>
 </html>
