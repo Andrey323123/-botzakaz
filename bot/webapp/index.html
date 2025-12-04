@@ -36,7 +36,7 @@
                         <i class="fas fa-user"></i>
                     </div>
                     <div class="user-info">
-                        <div class="user-name" id="user-name"></div>
+                        <div class="user-name" id="user-name">Загрузка...</div>
                         <div class="user-username" id="user-username"></div>
                     </div>
                 </div>
@@ -69,6 +69,7 @@
                     <i class="fas fa-circle online-dot"></i>
                     <span id="sidebar-online-count">0</span> онлайн
                 </div>
+                <div class="app-version">v1.0</div>
             </div>
         </div>
 
@@ -88,7 +89,10 @@
             <!-- Chat view -->
             <div class="chat-container active" id="chat-view">
                 <div class="messages-container" id="messages-container">
-                    <!-- Messages will be loaded here -->
+                    <div class="empty-chat">
+                        <i class="fas fa-comments"></i>
+                        <p>Загрузка чата...</p>
+                    </div>
                 </div>
                 
                 <div class="message-input-area">
@@ -97,21 +101,37 @@
                     </button>
                     
                     <div class="attach-menu" id="attach-menu">
-                        <div class="attach-item" onclick="sendPhoto()">
+                        <div class="attach-item" onclick="attachFile('photo')">
                             <i class="fas fa-image"></i>
                             <span>Фото</span>
                         </div>
-                        <div class="attach-item" onclick="sendVoice()">
-                            <i class="fas fa-microphone"></i>
-                            <span>Голосовое</span>
+                        <div class="attach-item" onclick="attachFile('video')">
+                            <i class="fas fa-video"></i>
+                            <span>Видео</span>
                         </div>
-                        <div class="attach-item" onclick="sendDocument()">
+                        <div class="attach-item" onclick="attachFile('document')">
                             <i class="fas fa-file"></i>
                             <span>Документ</span>
                         </div>
-                        <div class="attach-item" onclick="mentionUser()">
-                            <i class="fas fa-at"></i>
-                            <span>Упомянуть</span>
+                        <div class="attach-item" onclick="attachFile('audio')">
+                            <i class="fas fa-microphone"></i>
+                            <span>Голосовое</span>
+                        </div>
+                        <div class="attach-item" onclick="attachFile('sticker')">
+                            <i class="fas fa-sticky-note"></i>
+                            <span>Стикер</span>
+                        </div>
+                        <div class="attach-item" onclick="attachFile('location')">
+                            <i class="fas fa-map-marker-alt"></i>
+                            <span>Местоположение</span>
+                        </div>
+                        <div class="attach-item" onclick="attachFile('contact')">
+                            <i class="fas fa-address-book"></i>
+                            <span>Контакт</span>
+                        </div>
+                        <div class="attach-item" onclick="attachFile('poll')">
+                            <i class="fas fa-poll"></i>
+                            <span>Опрос</span>
                         </div>
                     </div>
                     
@@ -124,31 +144,11 @@
                             <button class="btn-emoji" onclick="toggleEmojiPicker()">
                                 <i class="far fa-smile"></i>
                             </button>
-                            <button class="btn-voice" onclick="startVoiceRecording()">
-                                <i class="fas fa-microphone"></i>
-                            </button>
                         </div>
                     </div>
                     
                     <button class="btn-send" onclick="sendMessage()">
                         <i class="fas fa-paper-plane"></i>
-                    </button>
-                </div>
-                
-                <div class="voice-recording" id="voice-recording">
-                    <div class="voice-wave">
-                        <div class="wave-bar"></div>
-                        <div class="wave-bar"></div>
-                        <div class="wave-bar"></div>
-                        <div class="wave-bar"></div>
-                        <div class="wave-bar"></div>
-                    </div>
-                    <div class="voice-time">0:00</div>
-                    <button class="btn-cancel-voice" onclick="cancelVoiceRecording()">
-                        <i class="fas fa-times"></i>
-                    </button>
-                    <button class="btn-send-voice" onclick="sendVoiceMessage()">
-                        <i class="fas fa-check"></i>
                     </button>
                 </div>
             </div>
@@ -162,22 +162,22 @@
                             <i class="fas fa-camera"></i>
                         </button>
                     </div>
-                    <div class="profile-name" id="profile-name"></div>
+                    <div class="profile-name" id="profile-name">Загрузка...</div>
                     <div class="profile-username" id="profile-username"></div>
                 </div>
                 
                 <div class="profile-info">
                     <div class="info-item">
                         <span class="info-label">ID:</span>
-                        <span class="info-value" id="profile-id"></span>
+                        <span class="info-value" id="profile-id">0</span>
                     </div>
                     <div class="info-item">
                         <span class="info-label">В чате с:</span>
-                        <span class="info-value" id="profile-joined"></span>
+                        <span class="info-value" id="profile-joined">Загрузка...</span>
                     </div>
                     <div class="info-item">
                         <span class="info-label">Сообщений:</span>
-                        <span class="info-value" id="profile-messages"></span>
+                        <span class="info-value" id="profile-messages">0</span>
                     </div>
                 </div>
                 
@@ -186,10 +186,13 @@
                         <i class="fas fa-edit"></i> Редактировать профиль
                     </button>
                     <button class="btn-action" onclick="showNotificationSettings()">
-                        <i class="fas fa-bell"></i> Уведомления
+                        <i class="fas fa-bell"></i> Настройки уведомлений
                     </button>
                     <button class="btn-action" onclick="showPrivacySettings()">
                         <i class="fas fa-lock"></i> Конфиденциальность
+                    </button>
+                    <button class="btn-action" onclick="showHelp()">
+                        <i class="fas fa-question-circle"></i> Помощь
                     </button>
                 </div>
             </div>
@@ -197,39 +200,42 @@
             <!-- Users view -->
             <div class="users-container" id="users-view">
                 <div class="users-list" id="users-list">
-                    <!-- Users will be loaded here -->
+                    <div class="empty-state">
+                        <i class="fas fa-users"></i>
+                        <p>Загрузка пользователей...</p>
+                    </div>
                 </div>
             </div>
 
             <!-- Settings view -->
             <div class="settings-container" id="settings-view">
                 <div class="settings-section">
-                    <h3>Настройки чата</h3>
+                    <h3><i class="fas fa-bell"></i> Уведомления</h3>
                     <div class="setting-item">
-                        <span>Уведомления</span>
+                        <span>Включить уведомления</span>
                         <label class="switch">
                             <input type="checkbox" id="notifications-toggle" checked>
                             <span class="slider"></span>
                         </label>
                     </div>
                     <div class="setting-item">
-                        <span>Звуки</span>
+                        <span>Звуки уведомлений</span>
                         <label class="switch">
                             <input type="checkbox" id="sounds-toggle" checked>
                             <span class="slider"></span>
                         </label>
                     </div>
                     <div class="setting-item">
-                        <span>Авто-загрузка медиа</span>
+                        <span>Виброуведомления</span>
                         <label class="switch">
-                            <input type="checkbox" id="media-toggle" checked>
+                            <input type="checkbox" id="vibration-toggle" checked>
                             <span class="slider"></span>
                         </label>
                     </div>
                 </div>
                 
                 <div class="settings-section">
-                    <h3>Внешний вид</h3>
+                    <h3><i class="fas fa-eye"></i> Внешний вид</h3>
                     <div class="theme-selector">
                         <div class="theme-option active" onclick="setTheme('light')">
                             <i class="fas fa-sun"></i>
@@ -239,22 +245,71 @@
                             <i class="fas fa-moon"></i>
                             <span>Темная</span>
                         </div>
-                        <div class="theme-option" onclick="setTheme('system')">
+                        <div class="theme-option" onclick="setTheme('auto')">
                             <i class="fas fa-desktop"></i>
-                            <span>Как система</span>
+                            <span>Авто</span>
                         </div>
                     </div>
                 </div>
                 
+                <div class="settings-section">
+                    <h3><i class="fas fa-shield-alt"></i> Конфиденциальность</h3>
+                    <button class="btn-action" onclick="showPrivacySettings()">
+                        <i class="fas fa-lock"></i> Настройки конфиденциальности
+                    </button>
+                    <button class="btn-action" onclick="showBlockedUsers()">
+                        <i class="fas fa-ban"></i> Заблокированные пользователи
+                    </button>
+                </div>
+                
+                <div class="settings-section">
+                    <h3><i class="fas fa-cog"></i> Другие настройки</h3>
+                    <div class="setting-item">
+                        <span>Авто-загрузка медиа</span>
+                        <label class="switch">
+                            <input type="checkbox" id="media-toggle" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <span>Экономия трафика</span>
+                        <label class="switch">
+                            <input type="checkbox" id="data-saver-toggle">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
                 <div class="settings-actions">
-                    <button class="btn-danger" onclick="clearChat()">
-                        <i class="fas fa-trash"></i> Очистить историю
+                    <button class="btn-action" onclick="clearCache()">
+                        <i class="fas fa-broom"></i> Очистить кэш
+                    </button>
+                    <button class="btn-action" onclick="showAbout()">
+                        <i class="fas fa-info-circle"></i> О приложении
                     </button>
                     <button class="btn-danger" onclick="leaveChat()">
                         <i class="fas fa-sign-out-alt"></i> Покинуть чат
                     </button>
                 </div>
             </div>
+        </div>
+
+        <!-- Emoji picker -->
+        <div class="emoji-picker" id="emoji-picker">
+            <div class="emoji-categories">
+                <button class="emoji-category active" onclick="showEmojiCategory('smileys')">😀</button>
+                <button class="emoji-category" onclick="showEmojiCategory('people')">👋</button>
+                <button class="emoji-category" onclick="showEmojiCategory('animals')">🐶</button>
+                <button class="emoji-category" onclick="showEmojiCategory('food')">🍎</button>
+                <button class="emoji-category" onclick="showEmojiCategory('travel')">🚗</button>
+                <button class="emoji-category" onclick="showEmojiCategory('objects')">💡</button>
+                <button class="emoji-category" onclick="showEmojiCategory('symbols')">❤️</button>
+                <button class="emoji-category" onclick="showEmojiCategory('flags')">🏁</button>
+            </div>
+            <div class="emoji-grid" id="emoji-grid"></div>
+            <button class="btn-close-emoji" onclick="toggleEmojiPicker()">
+                <i class="fas fa-times"></i> Закрыть
+            </button>
         </div>
     </div>
 
