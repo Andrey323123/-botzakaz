@@ -2,145 +2,184 @@
 let tg = window.Telegram.WebApp;
 let currentUserId = null;
 let currentUser = null;
-let usersOnline = new Set();
-let messageInterval = null;
+let messages = [];
 let usersCache = {};
-let typingTimeout = null;
-let isTyping = false;
-let pollingInterval = 3000; // 3 секунды
 let lastMessageId = 0;
+let chatId = 'main_chat';
+let messageInterval = null;
+
+// Эмодзи для выбора
+const emojiCategories = {
+    smileys: ['😀', '😃', '😄', '😁', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🥸', '🤩', '🥳'],
+    people: ['👋', '🤚', '🖐️', '✋', '🖖', '👌', '🤌', '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝', '🙏'],
+    symbols: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❤️‍🔥', '❤️‍🩹', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '☮️', '✝️', '☪️', '🕉️', '☸️', '✡️', '🔯', '🕎', '☯️']
+};
 
 // Initialize the app
 function initApp() {
     console.log("🚀 Инициализация приложения...");
     
-    // Expand WebApp to full screen
-    tg.expand();
-    
-    // Set theme based on Telegram theme
-    if (tg.colorScheme === 'dark') {
-        document.body.classList.add('dark-theme');
-    }
-    
-    // Get user ID from URL parameters
-    const urlParams = new URLSearchParams(window.location.search);
-    currentUserId = urlParams.get('user_id');
-    
-    if (!currentUserId) {
-        showError('User ID not found. Use Telegram bot to open chat.');
+    // Проверяем, доступен ли Telegram WebApp
+    if (!window.Telegram || !window.Telegram.WebApp) {
+        console.error("Telegram WebApp не доступен");
+        showError('Откройте приложение через Telegram бота');
         return;
     }
     
-    // Загружаем пользователя
-    loadUserData();
-    
-    // Загружаем сообщения
-    loadMessages();
-    
-    // Начинаем опрос новых сообщений
-    startMessagePolling();
-    
-    // Загружаем пользователей онлайн
-    updateOnlineUsers();
-    
-    // Загружаем настройки группы
-    loadGroupSettings();
-    
-    // Настраиваем обработчики событий
-    setupEventListeners();
-    
-    // Обновляем UI
-    updateUI();
-    
-    console.log("✅ Приложение инициализировано");
-}
-
-// Загрузка данных пользователя
-async function loadUserData() {
     try {
-        const response = await fetch(`/api/user/${currentUserId}`);
-        if (response.ok) {
-            const data = await response.json();
-            if (data.status === 'success') {
-                currentUser = data.user;
-                updateUserUI();
-                return;
+        // Expand WebApp to full screen
+        tg.expand();
+        
+        // Говорим Telegram, что приложение готово
+        tg.ready();
+        
+        // Включаем кнопку назад
+        tg.BackButton.show();
+        tg.BackButton.onClick(() => {
+            if (document.getElementById('emoji-picker').classList.contains('active')) {
+                toggleEmojiPicker();
+            } else if (document.getElementById('attach-menu').classList.contains('active')) {
+                toggleAttachMenu();
+            } else if (document.getElementById('sidebar').classList.contains('active')) {
+                toggleSidebar();
+            } else if (!document.getElementById('chat-view').classList.contains('active')) {
+                showChat();
+            } else {
+                // Если в чате, спрашиваем о выходе
+                tg.showConfirm("Выйти из приложения?", (confirmed) => {
+                    if (confirmed) {
+                        tg.close();
+                    }
+                });
             }
+        });
+        
+        // Устанавливаем тему из Telegram
+        if (tg.colorScheme === 'dark') {
+            document.body.classList.add('dark-theme');
+            updateThemeButtons('dark');
+        } else {
+            document.body.classList.remove('dark-theme');
+            updateThemeButtons('light');
         }
+        
+        // Слушаем изменение темы
+        tg.onEvent('themeChanged', () => {
+            if (tg.colorScheme === 'dark') {
+                document.body.classList.add('dark-theme');
+                updateThemeButtons('dark');
+            } else {
+                document.body.classList.remove('dark-theme');
+                updateThemeButtons('light');
+            }
+        });
+        
+        // Получаем данные пользователя из Telegram
+        const user = tg.initDataUnsafe?.user;
+        
+        if (user) {
+            currentUserId = user.id.toString();
+            currentUser = {
+                user_id: user.id,
+                first_name: user.first_name || 'Пользователь',
+                last_name: user.last_name || '',
+                username: user.username || '',
+                language_code: user.language_code || 'ru'
+            };
+            
+            console.log("✅ Пользователь Telegram:", currentUser);
+        } else {
+            showError('Не удалось получить данные пользователя из Telegram');
+            return;
+        }
+        
+        // Инициализируем UI
+        updateUserUI();
+        
+        // Загружаем сообщения из localStorage
+        loadMessagesFromStorage();
+        
+        // Загружаем пользователей
+        loadUsers();
+        
+        // Настраиваем обработчики событий
+        setupEventListeners();
+        
+        // Обновляем UI
+        updateUI();
+        
+        // Начинаем "опрос" сообщений (для демо)
+        startMessagePolling();
+        
+        console.log("✅ Приложение инициализировано");
+        
     } catch (error) {
-        console.error('Ошибка загрузки данных пользователя:', error);
+        console.error('Ошибка инициализации:', error);
+        showError('Ошибка инициализации приложения');
     }
-    
-    // Fallback к параметрам URL
-    const urlParams = new URLSearchParams(window.location.search);
-    currentUser = {
-        user_id: currentUserId,
-        first_name: urlParams.get('first_name') || 'User',
-        username: urlParams.get('username') || '',
-        last_name: urlParams.get('last_name') || ''
-    };
-    updateUserUI();
 }
 
 // Обновление UI пользователя
 function updateUserUI() {
     if (!currentUser) return;
     
-    // Обновляем имя пользователя
     const userName = currentUser.first_name + (currentUser.last_name ? ' ' + currentUser.last_name : '');
+    const username = currentUser.username ? '@' + currentUser.username : 'без username';
+    
     document.getElementById('user-name').textContent = userName;
     document.getElementById('profile-name').textContent = userName;
-    
-    // Обновляем username
-    const username = currentUser.username ? '@' + currentUser.username : 'без username';
     document.getElementById('user-username').textContent = username;
     document.getElementById('profile-username').textContent = username;
-    
-    // Обновляем ID
     document.getElementById('profile-id').textContent = currentUser.user_id;
     
     // Обновляем дату вступления
-    if (currentUser.created_at) {
-        const joinedDate = new Date(currentUser.created_at);
-        document.getElementById('profile-joined').textContent = 
-            joinedDate.toLocaleDateString('ru-RU');
-    }
+    const joinedDate = new Date();
+    document.getElementById('profile-joined').textContent = joinedDate.toLocaleDateString('ru-RU');
     
     // Обновляем количество сообщений
-    document.getElementById('profile-messages').textContent = currentUser.message_count || 0;
+    const userMessages = messages.filter(m => m.user_id === currentUserId).length;
+    document.getElementById('profile-messages').textContent = userMessages;
 }
 
-// Загрузка сообщений
-async function loadMessages(showLoading = true) {
-    try {
-        if (showLoading) {
-            showLoadingIndicator();
+// Загрузка сообщений из localStorage
+function loadMessagesFromStorage() {
+    const savedMessages = localStorage.getItem(`telegram_chat_messages_${chatId}`);
+    
+    if (savedMessages) {
+        messages = JSON.parse(savedMessages);
+        if (messages.length > 0) {
+            lastMessageId = Math.max(...messages.map(m => m.id));
         }
-        
-        const response = await fetch('/api/messages');
-        if (response.ok) {
-            const data = await response.json();
-            if (data.status === 'success') {
-                // Обновляем ID последнего сообщения
-                if (data.messages.length > 0) {
-                    lastMessageId = Math.max(...data.messages.map(m => m.id));
-                }
-                displayMessages(data.messages);
-                hideLoadingIndicator();
-            }
-        }
-    } catch (error) {
-        console.error('Ошибка загрузки сообщений:', error);
-        hideLoadingIndicator();
-        showNotification('Ошибка загрузки сообщений', 'error');
+    } else {
+        // Создаем приветственное сообщение
+        messages = [{
+            id: 1,
+            user_id: 'system',
+            user: {
+                first_name: 'Система',
+                user_id: 'system'
+            },
+            message_type: 'text',
+            content: '👋 Добро пожаловать в чат! Начните общение.',
+            timestamp: Date.now(),
+            read: true
+        }];
+        lastMessageId = 1;
+        saveMessagesToStorage();
     }
+    
+    displayMessages();
+}
+
+// Сохранение сообщений в localStorage
+function saveMessagesToStorage() {
+    localStorage.setItem(`telegram_chat_messages_${chatId}`, JSON.stringify(messages));
 }
 
 // Отображение сообщений
-function displayMessages(messages) {
+function displayMessages() {
     const container = document.getElementById('messages-container');
     
-    // Если сообщений нет, показываем информационное сообщение
     if (messages.length === 0) {
         container.innerHTML = `
             <div class="empty-chat">
@@ -151,41 +190,37 @@ function displayMessages(messages) {
         return;
     }
     
-    // Очищаем контейнер только если это полная перезагрузка
-    if (container.children.length === 0 || container.querySelector('.empty-chat')) {
-        container.innerHTML = '';
-    }
+    container.innerHTML = '';
     
-    // Добавляем новые сообщения
     messages.forEach(message => {
-        // Проверяем, нет ли уже этого сообщения
-        const existingMessage = container.querySelector(`[data-message-id="${message.id}"]`);
-        if (!existingMessage) {
-            const messageElement = createMessageElement(message);
-            container.appendChild(messageElement);
-        }
+        const messageElement = createMessageElement(message);
+        container.appendChild(messageElement);
     });
     
-    // Прокручиваем вниз
     scrollToBottom();
 }
 
 // Создание элемента сообщения
 function createMessageElement(message) {
-    const isOutgoing = message.user.user_id == currentUserId;
+    const isOutgoing = message.user_id == currentUserId;
+    const isSystem = message.user_id === 'system';
     const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${isOutgoing ? 'outgoing' : 'incoming'}`;
+    
+    if (isSystem) {
+        messageDiv.className = 'message system';
+    } else {
+        messageDiv.className = `message ${isOutgoing ? 'outgoing' : 'incoming'}`;
+    }
+    
     messageDiv.dataset.messageId = message.id;
     
     // Форматируем время
-    const time = message.timestamp ? 
-        new Date(message.timestamp).toLocaleTimeString('ru-RU', {
-            hour: '2-digit',
-            minute: '2-digit'
-        }) : 'сейчас';
+    const time = new Date(message.timestamp).toLocaleTimeString('ru-RU', {
+        hour: '2-digit',
+        minute: '2-digit'
+    });
     
-    // Получаем информацию о пользователе
-    const user = message.user || { first_name: 'User', username: '', user_id: message.user_id };
+    const user = message.user || { first_name: 'User', user_id: message.user_id };
     const userName = user.first_name || 'User';
     
     let contentHTML = '';
@@ -194,9 +229,8 @@ function createMessageElement(message) {
         case 'photo':
             contentHTML = `
                 <div class="message-media">
-                    <img src="${message.file_url || 'https://via.placeholder.com/200x150/5682a3/ffffff?text=Photo'}" 
-                         alt="Photo" 
-                         onerror="this.src='https://via.placeholder.com/200x150/5682a3/ffffff?text=Photo'">
+                    <img src="${message.file_url}" alt="Photo" onerror="this.style.display='none'">
+                    ${message.content ? `<div class="media-caption">${escapeHtml(message.content)}</div>` : ''}
                 </div>
             `;
             break;
@@ -204,11 +238,10 @@ function createMessageElement(message) {
         case 'voice':
             contentHTML = `
                 <div class="message-voice">
-                    <button class="voice-play-btn" onclick="playVoice('${message.file_id}')">
+                    <button class="voice-play-btn">
                         <i class="fas fa-play"></i>
                     </button>
-                    <div class="voice-waveform"></div>
-                    <div class="voice-duration">0:30</div>
+                    <div class="voice-duration">${message.duration || '0:15'}</div>
                 </div>
             `;
             break;
@@ -216,53 +249,70 @@ function createMessageElement(message) {
         case 'document':
             contentHTML = `
                 <div class="message-document">
-                    <i class="fas fa-file-pdf"></i>
+                    <i class="fas fa-file"></i>
                     <div class="document-info">
-                        <div class="document-name">${message.content || 'Документ'}</div>
-                        <div class="document-size">1.2 MB</div>
+                        <div class="document-name">${message.file_name || 'Документ'}</div>
+                        <div class="document-size">${message.file_size || '1.2 MB'}</div>
                     </div>
-                    <button class="download-btn" onclick="downloadFile('${message.file_url}')">
+                    <button class="download-btn">
                         <i class="fas fa-download"></i>
                     </button>
                 </div>
             `;
             break;
             
+        case 'sticker':
+            contentHTML = `
+                <div class="message-sticker">
+                    <div class="sticker-emoji">${message.emoji || '😊'}</div>
+                </div>
+            `;
+            break;
+            
         default:
-            // Обрабатываем упоминания и эмодзи
             let text = message.content || '';
             text = escapeHtml(text);
-            text = parseMentions(text);
-            text = parseEmojis(text);
             text = text.replace(/\n/g, '<br>');
             contentHTML = `<div class="message-text">${text}</div>`;
     }
     
-    messageDiv.innerHTML = `
-        ${!isOutgoing ? `
-            <div class="message-avatar" style="background-color: ${stringToColor(user.user_id || 'user')}">
-                ${user.first_name ? user.first_name.charAt(0).toUpperCase() : 'U'}
+    if (isSystem) {
+        messageDiv.innerHTML = `
+            <div class="message-content">
+                <div class="message-system">
+                    <i class="fas fa-info-circle"></i>
+                    ${contentHTML}
+                    <div class="message-time">${time}</div>
+                </div>
             </div>
-        ` : ''}
-        
-        <div class="message-content">
+        `;
+    } else {
+        messageDiv.innerHTML = `
             ${!isOutgoing ? `
-                <div class="message-header">
-                    <div class="message-sender">${userName}</div>
-                    <div class="message-time">${time}</div>
+                <div class="message-avatar" style="background-color: ${stringToColor(user.user_id)}">
+                    ${user.first_name ? user.first_name.charAt(0).toUpperCase() : 'U'}
                 </div>
             ` : ''}
             
-            ${contentHTML}
-            
-            ${isOutgoing ? `
-                <div class="message-status">
-                    <i class="fas fa-check${message.read ? '-double' : ''}"></i>
-                    <div class="message-time">${time}</div>
-                </div>
-            ` : ''}
-        </div>
-    `;
+            <div class="message-content">
+                ${!isOutgoing ? `
+                    <div class="message-header">
+                        <div class="message-sender">${userName}</div>
+                        <div class="message-time">${time}</div>
+                    </div>
+                ` : ''}
+                
+                ${contentHTML}
+                
+                ${isOutgoing ? `
+                    <div class="message-status">
+                        <i class="fas fa-check${message.read ? '-double' : ''}"></i>
+                        <div class="message-time">${time}</div>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }
     
     return messageDiv;
 }
@@ -278,34 +328,42 @@ async function sendMessage() {
     }
     
     try {
-        const messageData = {
-            user_id: parseInt(currentUserId),
-            message_type: 'text',
-            content: text
-        };
-        
-        // Показываем отправку
         showSendingIndicator();
         
-        const response = await fetch('/api/messages/send', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(messageData)
-        });
+        const newMessage = {
+            id: lastMessageId + 1,
+            user_id: currentUserId,
+            user: currentUser,
+            message_type: 'text',
+            content: text,
+            timestamp: Date.now(),
+            read: false
+        };
         
-        const data = await response.json();
+        // Добавляем сообщение
+        messages.push(newMessage);
+        lastMessageId = newMessage.id;
         
-        if (data.status === 'success') {
-            input.value = '';
-            hideSendingIndicator();
-            loadMessages(false); // Перезагружаем сообщения без индикатора загрузки
-            input.focus();
-        } else {
-            hideSendingIndicator();
-            showNotification(data.message || 'Ошибка отправки', 'error');
-        }
+        // Сохраняем в localStorage
+        saveMessagesToStorage();
+        
+        // Отображаем
+        const messageElement = createMessageElement(newMessage);
+        document.getElementById('messages-container').appendChild(messageElement);
+        
+        // Очищаем поле ввода
+        input.value = '';
+        hideSendingIndicator();
+        
+        // Прокручиваем вниз
+        scrollToBottom();
+        input.focus();
+        
+        // Обновляем статистику сообщений пользователя
+        updateUserUI();
+        
+        console.log("✅ Сообщение отправлено:", newMessage);
+        
     } catch (error) {
         console.error('Ошибка отправки сообщения:', error);
         hideSendingIndicator();
@@ -314,34 +372,48 @@ async function sendMessage() {
 }
 
 // Загрузка пользователей
-async function loadUsers() {
-    try {
-        showLoadingIndicator('users');
-        
-        const response = await fetch('/api/users');
-        if (response.ok) {
-            const data = await response.json();
-            if (data.status === 'success') {
-                usersCache = {};
-                data.users.forEach(user => {
-                    usersCache[user.user_id] = user;
-                });
-                
-                displayUsers(data.users);
-                hideLoadingIndicator('users');
-            }
+function loadUsers() {
+    // Начинаем с текущего пользователя
+    usersCache = {
+        [currentUserId]: {
+            ...currentUser,
+            is_online: true,
+            message_count: messages.filter(m => m.user_id === currentUserId).length
         }
-    } catch (error) {
-        console.error('Ошибка загрузки пользователей:', error);
-        hideLoadingIndicator('users');
-        showNotification('Ошибка загрузки пользователей', 'error');
-    }
+    };
+    
+    // Добавляем "виртуальных" пользователей для демо
+    const demoUsers = [
+        {
+            user_id: 'demo_1',
+            first_name: 'Анна',
+            last_name: 'Иванова',
+            username: 'anna_ivanova',
+            is_online: true,
+            message_count: Math.floor(Math.random() * 50)
+        },
+        {
+            user_id: 'demo_2',
+            first_name: 'Сергей',
+            last_name: 'Петров',
+            username: 'sergey_petrov',
+            is_online: false,
+            message_count: Math.floor(Math.random() * 30)
+        }
+    ];
+    
+    demoUsers.forEach(user => {
+        usersCache[user.user_id] = user;
+    });
+    
+    displayUsers();
+    updateOnlineUsers();
 }
 
 // Отображение пользователей
-function displayUsers(users) {
+function displayUsers() {
     const container = document.getElementById('users-list');
-    container.innerHTML = '';
+    const users = Object.values(usersCache);
     
     if (users.length === 0) {
         container.innerHTML = `
@@ -353,17 +425,11 @@ function displayUsers(users) {
         return;
     }
     
-    // Группируем пользователей по статусу
-    const onlineUsers = [];
-    const offlineUsers = [];
+    container.innerHTML = '';
     
-    users.forEach(user => {
-        if (user.is_online && !user.is_banned) {
-            onlineUsers.push(user);
-        } else if (!user.is_banned) {
-            offlineUsers.push(user);
-        }
-    });
+    // Группируем пользователей по статусу
+    const onlineUsers = users.filter(user => user.is_online && user.user_id !== currentUserId);
+    const offlineUsers = users.filter(user => !user.is_online && user.user_id !== currentUserId);
     
     // Добавляем онлайн пользователей
     if (onlineUsers.length > 0) {
@@ -390,20 +456,6 @@ function displayUsers(users) {
             container.appendChild(userElement);
         });
     }
-    
-    // Добавляем забаненных пользователей
-    const bannedUsers = users.filter(u => u.is_banned);
-    if (bannedUsers.length > 0) {
-        const bannedHeader = document.createElement('div');
-        bannedHeader.className = 'users-header';
-        bannedHeader.innerHTML = `<i class="fas fa-ban"></i> Забанены (${bannedUsers.length})`;
-        container.appendChild(bannedHeader);
-        
-        bannedUsers.forEach(user => {
-            const userElement = createUserElement(user);
-            container.appendChild(userElement);
-        });
-    }
 }
 
 // Создание элемента пользователя
@@ -425,55 +477,18 @@ function createUserElement(user) {
             <div class="user-item-name">${userName}</div>
             <div class="user-item-status">${status}</div>
         </div>
-        ${user.is_banned ? '<i class="fas fa-ban banned-icon"></i>' : 
-          user.is_muted ? '<i class="fas fa-volume-mute muted-icon"></i>' : 
-          user.is_online ? '<i class="fas fa-circle online-dot"></i>' : ''}
+        ${user.is_online ? '<i class="fas fa-circle online-dot"></i>' : ''}
     `;
     
     return userElement;
 }
 
 // Обновление онлайн пользователей
-async function updateOnlineUsers() {
-    try {
-        const response = await fetch('/api/stats');
-        if (response.ok) {
-            const data = await response.json();
-            if (data.status === 'success') {
-                const onlineCount = data.stats.online_users || 0;
-                
-                // Обновляем счетчики
-                document.getElementById('online-count').textContent = onlineCount;
-                document.getElementById('sidebar-online-count').textContent = onlineCount;
-                
-                // Обновляем список пользователей, если он открыт
-                if (document.getElementById('users-view').classList.contains('active')) {
-                    loadUsers();
-                }
-            }
-        }
-    } catch (error) {
-        console.error('Ошибка обновления онлайн пользователей:', error);
-    }
-}
-
-// Загрузка настроек группы
-async function loadGroupSettings() {
-    try {
-        const response = await fetch('/api/group/settings');
-        if (response.ok) {
-            const data = await response.json();
-            if (data.status === 'success') {
-                // Обновляем название чата
-                const chatTitle = document.querySelector('.chat-title');
-                if (chatTitle && data.settings.group_name) {
-                    chatTitle.textContent = data.settings.group_name;
-                }
-            }
-        }
-    } catch (error) {
-        console.error('Ошибка загрузки настроек группы:', error);
-    }
+function updateOnlineUsers() {
+    const onlineCount = Object.values(usersCache).filter(u => u.is_online).length;
+    
+    document.getElementById('online-count').textContent = onlineCount;
+    document.getElementById('sidebar-online-count').textContent = onlineCount;
 }
 
 // Показать профиль пользователя
@@ -488,25 +503,18 @@ function showUserProfile(userId) {
 📛 Username: ${user.username || 'нет'}
 🆔 ID: ${user.user_id}
 📊 Сообщений: ${user.message_count || 0}
-📅 В чате с: ${new Date(user.created_at).toLocaleDateString('ru-RU')}
-${user.is_banned ? '🚫 Забанен' : ''}
-${user.is_muted ? '🔇 В муте' : ''}
-${user.is_online ? '🟢 Онлайн' : ''}
+${user.is_online ? '🟢 Онлайн' : '⚫ Оффлайн'}
         `.trim(),
         buttons: [
             { id: 'mention', type: 'default', text: 'Упомянуть' },
-            userId != currentUserId ? { id: 'message', type: 'default', text: 'Написать' } : null,
             { type: 'cancel', text: 'Закрыть' }
-        ].filter(Boolean)
+        ]
     }, (buttonId) => {
         if (buttonId === 'mention') {
             const input = document.getElementById('message-input');
             input.value += `@${user.username || user.first_name} `;
             input.focus();
             showChat();
-        } else if (buttonId === 'message') {
-            // В будущем можно добавить ЛС
-            showNotification('Личные сообщения в разработке', 'info');
         }
     });
 }
@@ -547,7 +555,6 @@ function showView(viewId) {
     });
     document.getElementById(viewId).classList.add('active');
     
-    // Закрываем сайдбар на мобильных
     if (window.innerWidth <= 768) {
         toggleSidebar();
     }
@@ -564,33 +571,28 @@ function updateMenuActive(index) {
 }
 
 // Поиск сообщений
-async function searchMessages(query) {
-    if (!query.trim()) return;
+function toggleSearch() {
+    const searchBar = document.getElementById('search-bar');
+    searchBar.classList.toggle('active');
     
-    try {
-        showLoadingIndicator();
-        
-        const response = await fetch(`/api/messages/search?q=${encodeURIComponent(query)}`);
-        if (response.ok) {
-            const data = await response.json();
-            if (data.status === 'success') {
-                displaySearchResults(data.messages, query);
-                hideLoadingIndicator();
-            }
-        }
-    } catch (error) {
-        console.error('Ошибка поиска:', error);
-        hideLoadingIndicator();
-        showNotification('Ошибка поиска', 'error');
+    if (searchBar.classList.contains('active')) {
+        document.getElementById('search-input').focus();
+    } else {
+        document.getElementById('search-input').value = '';
+        showChat();
     }
 }
 
-// Отображение результатов поиска
-function displaySearchResults(messages, query) {
-    const container = document.getElementById('messages-container');
-    container.innerHTML = '';
+async function searchMessages(query) {
+    if (!query.trim()) return;
     
-    if (messages.length === 0) {
+    const results = messages.filter(msg => 
+        msg.content && msg.content.toLowerCase().includes(query.toLowerCase())
+    );
+    
+    const container = document.getElementById('messages-container');
+    
+    if (results.length === 0) {
         container.innerHTML = `
             <div class="empty-search">
                 <i class="fas fa-search"></i>
@@ -601,12 +603,14 @@ function displaySearchResults(messages, query) {
         return;
     }
     
+    container.innerHTML = '';
+    
     const searchHeader = document.createElement('div');
     searchHeader.className = 'search-results-header';
     searchHeader.innerHTML = `
         <div class="search-results-info">
             <i class="fas fa-search"></i>
-            <span>Найдено ${messages.length} сообщений по запросу "${query}"</span>
+            <span>Найдено ${results.length} сообщений по запросу "${query}"</span>
         </div>
         <button onclick="showChat()" class="btn-back-search">
             <i class="fas fa-arrow-left"></i> Назад
@@ -614,9 +618,237 @@ function displaySearchResults(messages, query) {
     `;
     container.appendChild(searchHeader);
     
-    messages.forEach(message => {
+    results.forEach(message => {
         const messageElement = createMessageElement(message);
         container.appendChild(messageElement);
+    });
+}
+
+// Прикрепление файлов
+function toggleAttachMenu() {
+    const attachMenu = document.getElementById('attach-menu');
+    attachMenu.classList.toggle('active');
+}
+
+function attachFile(type) {
+    switch(type) {
+        case 'photo':
+            // Используем Telegram CloudStorage для загрузки фото
+            if (tg.platform !== 'unknown') {
+                tg.showPopup({
+                    title: 'Отправка фото',
+                    message: 'Выберите фото из галереи Telegram',
+                    buttons: [{ type: 'close', text: 'OK' }]
+                });
+            } else {
+                showNotification('Отправка фото в разработке', 'info');
+            }
+            break;
+            
+        case 'video':
+            showNotification('Отправка видео в разработке', 'info');
+            break;
+            
+        case 'document':
+            // Для документов можно использовать showFileSelector
+            if (tg.platform !== 'unknown') {
+                tg.showPopup({
+                    title: 'Отправка документа',
+                    message: 'Функция выбора файлов будет доступна в следующих обновлениях',
+                    buttons: [{ type: 'close', text: 'OK' }]
+                });
+            } else {
+                showNotification('Отправка документов в разработке', 'info');
+            }
+            break;
+            
+        case 'audio':
+        case 'sticker':
+        case 'location':
+        case 'contact':
+        case 'poll':
+            showNotification('Эта функция в разработке', 'info');
+            break;
+    }
+    
+    toggleAttachMenu();
+}
+
+// Эмодзи пикер
+function toggleEmojiPicker() {
+    const emojiPicker = document.getElementById('emoji-picker');
+    emojiPicker.classList.toggle('active');
+    
+    if (emojiPicker.classList.contains('active') && document.getElementById('emoji-grid').innerHTML === '') {
+        showEmojiCategory('smileys');
+    }
+}
+
+function showEmojiCategory(category) {
+    const emojiGrid = document.getElementById('emoji-grid');
+    const emojis = emojiCategories[category] || [];
+    
+    emojiGrid.innerHTML = '';
+    
+    emojis.forEach(emoji => {
+        const emojiBtn = document.createElement('button');
+        emojiBtn.className = 'emoji-btn';
+        emojiBtn.textContent = emoji;
+        emojiBtn.onclick = () => insertEmoji(emoji);
+        emojiGrid.appendChild(emojiBtn);
+    });
+    
+    // Обновляем активную категорию
+    document.querySelectorAll('.emoji-category').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    event.target.classList.add('active');
+}
+
+function insertEmoji(emoji) {
+    const input = document.getElementById('message-input');
+    input.value += emoji;
+    input.focus();
+}
+
+// Уведомления
+function showNotification(message, type = 'info') {
+    tg.showPopup({
+        title: type === 'error' ? 'Ошибка' : 
+               type === 'success' ? 'Успех' : 'Информация',
+        message: message,
+        buttons: [{ type: 'close', text: 'OK' }]
+    });
+}
+
+function showError(message) {
+    tg.showPopup({
+        title: 'Ошибка',
+        message: message,
+        buttons: [{ type: 'close', text: 'OK' }]
+    });
+}
+
+// Настройки темы
+function setTheme(theme) {
+    document.querySelectorAll('.theme-option').forEach(option => {
+        option.classList.remove('active');
+    });
+    
+    event.target.closest('.theme-option').classList.add('active');
+    
+    if (theme === 'dark') {
+        document.body.classList.add('dark-theme');
+        localStorage.setItem('theme', 'dark');
+    } else if (theme === 'light') {
+        document.body.classList.remove('dark-theme');
+        localStorage.setItem('theme', 'light');
+    } else {
+        // Авто тема
+        localStorage.removeItem('theme');
+        if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.body.classList.add('dark-theme');
+        } else {
+            document.body.classList.remove('dark-theme');
+        }
+    }
+}
+
+function updateThemeButtons(theme) {
+    document.querySelectorAll('.theme-option').forEach(option => {
+        option.classList.remove('active');
+        if (option.querySelector('i').className.includes(theme === 'dark' ? 'moon' : 'sun')) {
+            option.classList.add('active');
+        }
+    });
+}
+
+// Редактирование профиля
+function editProfile() {
+    tg.showPopup({
+        title: 'Редактирование профиля',
+        message: 'Имя пользователя: ' + (currentUser.username || 'не указан') + '\n\nЭта функция будет доступна в следующих обновлениях.',
+        buttons: [
+            { id: 'change_avatar', type: 'default', text: 'Сменить аватар' },
+            { type: 'cancel', text: 'Закрыть' }
+        ]
+    }, (buttonId) => {
+        if (buttonId === 'change_avatar') {
+            showNotification('Смена аватара в разработке', 'info');
+        }
+    });
+}
+
+// Настройки уведомлений
+function showNotificationSettings() {
+    tg.showPopup({
+        title: 'Настройки уведомлений',
+        message: 'Управление уведомлениями о новых сообщениях',
+        buttons: [
+            { id: 'enable', type: 'default', text: 'Включить уведомления' },
+            { id: 'disable', type: 'default', text: 'Выключить уведомления' },
+            { type: 'cancel', text: 'Отмена' }
+        ]
+    }, (buttonId) => {
+        if (buttonId === 'enable') {
+            showNotification('Уведомления включены', 'success');
+            localStorage.setItem('notifications', 'enabled');
+        } else if (buttonId === 'disable') {
+            showNotification('Уведомления выключены', 'info');
+            localStorage.setItem('notifications', 'disabled');
+        }
+    });
+}
+
+// Конфиденциальность
+function showPrivacySettings() {
+    tg.showPopup({
+        title: 'Конфиденциальность',
+        message: 'Настройки видимости профиля и управления данными',
+        buttons: [
+            { id: 'privacy', type: 'default', text: 'Настройки приватности' },
+            { id: 'blocked', type: 'default', text: 'Заблокированные' },
+            { type: 'cancel', text: 'Закрыть' }
+        ]
+    }, (buttonId) => {
+        if (buttonId === 'privacy') {
+            showNotification('Настройки приватности в разработке', 'info');
+        } else if (buttonId === 'blocked') {
+            showNotification('Управление заблокированными в разработке', 'info');
+        }
+    });
+}
+
+// Очистка чата
+function clearChat() {
+    tg.showConfirm('Очистить всю историю чата? Это действие нельзя отменить.', (confirmed) => {
+        if (confirmed) {
+            messages = [{
+                id: 1,
+                user_id: 'system',
+                user: { first_name: 'Система', user_id: 'system' },
+                message_type: 'text',
+                content: 'История чата была очищена',
+                timestamp: Date.now(),
+                read: true
+            }];
+            
+            lastMessageId = 1;
+            saveMessagesToStorage();
+            displayMessages();
+            
+            showNotification('История чата очищена', 'success');
+            updateUserUI();
+        }
+    });
+}
+
+// Выход из чата
+function leaveChat() {
+    tg.showConfirm('Покинуть чат? Вы сможете вернуться позже.', (confirmed) => {
+        if (confirmed) {
+            tg.close();
+        }
     });
 }
 
@@ -645,9 +877,7 @@ function parseEmojis(text) {
         ':)': '😊', ':(': '😢', ':D': '😄',
         ';)': '😉', ':P': '😛', ':*': '😘',
         '<3': '❤️', ':O': '😮', ':|': '😐',
-        ':/': '😕', ':3': '😺', '>_<': '😣',
-        '^.^': '😊', 'T_T': '😭', 'O_O': '😲',
-        '^_^': '😄', '-_-': '😑', 'o_O': '😕'
+        ':/': '😕', ':3': '😺', '>_<': '😣'
     };
     
     Object.keys(emojiMap).forEach(emoji => {
@@ -662,42 +892,7 @@ function scrollToBottom() {
     container.scrollTop = container.scrollHeight;
 }
 
-// Уведомления
-function showNotification(message, type = 'info') {
-    tg.showPopup({
-        title: type === 'error' ? 'Ошибка' : 
-               type === 'success' ? 'Успех' : 'Информация',
-        message: message,
-        buttons: [{ type: 'close', text: 'OK' }]
-    });
-}
-
-function showError(message) {
-    const container = document.getElementById('messages-container');
-    container.innerHTML = `
-        <div class="error-state">
-            <i class="fas fa-exclamation-circle"></i>
-            <p>${message}</p>
-            <button onclick="loadMessages()" class="btn-retry">Попробовать снова</button>
-        </div>
-    `;
-}
-
 // Индикаторы
-function showLoadingIndicator(type = 'messages') {
-    const container = document.getElementById(`${type === 'users' ? 'users-list' : 'messages-container'}`);
-    const loader = document.createElement('div');
-    loader.className = 'loading-indicator';
-    loader.id = `${type}-loader`;
-    loader.innerHTML = '<div class="spinner"></div>';
-    container.appendChild(loader);
-}
-
-function hideLoadingIndicator(type = 'messages') {
-    const loader = document.getElementById(`${type}-loader`);
-    if (loader) loader.remove();
-}
-
 function showSendingIndicator() {
     const inputArea = document.querySelector('.message-input-area');
     const sendingIndicator = document.createElement('div');
@@ -711,12 +906,11 @@ function hideSendingIndicator() {
     if (sendingIndicator) sendingIndicator.remove();
 }
 
-// Опрос новых сообщений
+// Опрос "новых" сообщений (для демо)
 function startMessagePolling() {
     messageInterval = setInterval(() => {
-        loadMessages(false); // Без показа индикатора загрузки
         updateOnlineUsers();
-    }, pollingInterval);
+    }, 10000); // Проверяем каждые 10 секунд
 }
 
 // Настройка обработчиков событий
@@ -730,7 +924,7 @@ function setupEventListeners() {
         }
     });
     
-    // Поиск по нажатию Enter в поле поиска
+    // Поиск по Enter
     const searchInput = document.getElementById('search-input');
     searchInput.addEventListener('keypress', function(e) {
         if (e.key === 'Enter') {
@@ -739,208 +933,34 @@ function setupEventListeners() {
         }
     });
     
-    // Обработка ввода для индикатора "печатает"
-    messageInput.addEventListener('input', function() {
-        if (this.value.trim() && !isTyping) {
-            isTyping = true;
-            // Здесь можно добавить отправку события "печатает"
-        } else if (!this.value.trim() && isTyping) {
-            isTyping = false;
-            // Здесь можно добавить остановку события "печатает"
-        }
-    });
-    
-    // Обработка кликов вне меню
+    // Закрытие меню при клике вне
     document.addEventListener('click', (e) => {
         const attachMenu = document.getElementById('attach-menu');
         if (attachMenu && !e.target.closest('.btn-attach') && !e.target.closest('.attach-menu')) {
             attachMenu.classList.remove('active');
         }
-    });
-}
-
-// Меню вложений
-function toggleAttachMenu() {
-    const attachMenu = document.getElementById('attach-menu');
-    attachMenu.classList.toggle('active');
-}
-
-function sendPhoto() {
-    // В реальном приложении используйте Telegram file picker
-    showNotification('Выбор фото в разработке', 'info');
-    toggleAttachMenu();
-}
-
-function sendVoice() {
-    // В реальном приложении используйте запись голоса через Telegram
-    showNotification('Запись голоса в разработке', 'info');
-    toggleAttachMenu();
-}
-
-function sendDocument() {
-    // В реальном приложении используйте Telegram file picker
-    showNotification('Выбор файла в разработке', 'info');
-    toggleAttachMenu();
-}
-
-function mentionUser() {
-    // Показываем список пользователей для упоминания
-    if (Object.keys(usersCache).length === 0) {
-        showNotification('Сначала загрузите список пользователей', 'info');
-        return;
-    }
-    
-    tg.showPopup({
-        title: 'Упомянуть пользователя',
-        message: 'Выберите пользователя:',
-        buttons: Object.values(usersCache)
-            .filter(user => user.user_id != currentUserId)
-            .slice(0, 8) // Ограничиваем 8 пользователями
-            .map(user => ({
-                id: `mention_${user.user_id}`,
-                type: 'default',
-                text: `@${user.username || user.first_name}`
-            }))
-            .concat([{ type: 'cancel', text: 'Отмена' }])
-    }, (buttonId) => {
-        if (buttonId && buttonId.startsWith('mention_')) {
-            const userId = buttonId.split('_')[1];
-            const user = usersCache[userId];
-            if (user) {
-                const input = document.getElementById('message-input');
-                input.value += `@${user.username || user.first_name} `;
-                input.focus();
-                showChat();
-            }
-        }
-    });
-    
-    toggleAttachMenu();
-}
-
-// Переключение поиска
-function toggleSearch() {
-    const searchBar = document.getElementById('search-bar');
-    searchBar.classList.toggle('active');
-    
-    if (searchBar.classList.contains('active')) {
-        document.getElementById('search-input').focus();
-    } else {
-        document.getElementById('search-input').value = '';
-        showChat();
-    }
-}
-
-// Настройки темы
-function setTheme(theme) {
-    document.querySelectorAll('.theme-option').forEach(option => {
-        option.classList.remove('active');
-    });
-    
-    event.target.closest('.theme-option').classList.add('active');
-    
-    if (theme === 'dark') {
-        document.body.classList.add('dark-theme');
-    } else if (theme === 'light') {
-        document.body.classList.remove('dark-theme');
-    } else {
-        // Системная тема
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-            document.body.classList.add('dark-theme');
-        } else {
-            document.body.classList.remove('dark-theme');
-        }
-    }
-}
-
-// Очистка чата
-function clearChat() {
-    tg.showPopup({
-        title: 'Очистить историю',
-        message: 'Вы уверены, что хотите очистить всю историю чата? Это действие нельзя отменить.',
-        buttons: [
-            { id: 'clear', type: 'destructive', text: 'Очистить' },
-            { type: 'cancel', text: 'Отмена' }
-        ]
-    }, (buttonId) => {
-        if (buttonId === 'clear') {
-            showNotification('История чата очищена', 'success');
-            // В реальном приложении здесь был бы вызов API для очистки
-        }
-    });
-}
-
-// Выход из чата
-function leaveChat() {
-    tg.showPopup({
-        title: 'Покинуть чат',
-        message: 'Вы уверены, что хотите покинуть чат?',
-        buttons: [
-            { id: 'leave', type: 'destructive', text: 'Покинуть' },
-            { type: 'cancel', text: 'Отмена' }
-        ]
-    }, (buttonId) => {
-        if (buttonId === 'leave') {
-            tg.close();
+        
+        const emojiPicker = document.getElementById('emoji-picker');
+        if (emojiPicker && !e.target.closest('.btn-emoji') && !e.target.closest('.emoji-picker')) {
+            emojiPicker.classList.remove('active');
         }
     });
 }
 
 // Обновление UI
 function updateUI() {
+    // Загружаем сохраненную тему
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'dark') {
+        document.body.classList.add('dark-theme');
+        updateThemeButtons('dark');
+    } else if (savedTheme === 'light') {
+        document.body.classList.remove('dark-theme');
+        updateThemeButtons('light');
+    }
+    
     // Обновляем заголовок
     document.title = 'Telegram Chat';
-    
-    // Добавляем иконку загрузки
-    const style = document.createElement('style');
-    style.textContent = `
-        .loading-indicator {
-            text-align: center;
-            padding: 20px;
-        }
-        .spinner {
-            border: 3px solid rgba(86, 130, 163, 0.3);
-            border-radius: 50%;
-            border-top-color: var(--primary-color);
-            width: 30px;
-            height: 30px;
-            margin: 0 auto;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        .empty-chat, .empty-state, .empty-search, .error-state {
-            text-align: center;
-            padding: 50px 20px;
-            color: var(--secondary-color);
-        }
-        .empty-chat i, .empty-state i, .empty-search i, .error-state i {
-            font-size: 48px;
-            margin-bottom: 15px;
-            opacity: 0.5;
-        }
-        .btn-back, .btn-retry, .btn-back-search {
-            margin-top: 15px;
-            padding: 8px 16px;
-            background-color: var(--primary-color);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-        }
-        .users-header {
-            padding: 10px 15px;
-            font-size: 12px;
-            color: var(--secondary-color);
-            background-color: rgba(0,0,0,0.03);
-            border-bottom: 1px solid var(--border-color);
-        }
-        .dark-theme .users-header {
-            background-color: rgba(255,255,255,0.03);
-        }
-    `;
-    document.head.appendChild(style);
 }
 
 // Инициализация при загрузке страницы
@@ -962,15 +982,18 @@ window.showSettings = showSettings;
 window.sendMessage = sendMessage;
 window.toggleSearch = toggleSearch;
 window.toggleAttachMenu = toggleAttachMenu;
-window.sendPhoto = sendPhoto;
-window.sendVoice = sendVoice;
-window.sendDocument = sendDocument;
-window.mentionUser = mentionUser;
+window.attachFile = attachFile;
+window.toggleEmojiPicker = toggleEmojiPicker;
+window.showEmojiCategory = showEmojiCategory;
+window.insertEmoji = insertEmoji;
+window.searchMessages = searchMessages;
 window.setTheme = setTheme;
+window.editProfile = editProfile;
+window.showNotificationSettings = showNotificationSettings;
+window.showPrivacySettings = showPrivacySettings;
 window.clearChat = clearChat;
 window.leaveChat = leaveChat;
 
-// Обработка нажатия клавиш
 window.handleKeyPress = function(event) {
     if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
