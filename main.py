@@ -35,8 +35,8 @@ S3_CONFIG = {
     'endpoint': 'https://s3.ru-3.storage.selcloud.ru',
     'region': 'ru-3',
     'bucket': 'telegram-chat-files',
-    'access_key': '7508531e4e684de2bc5d039c74c4441d',
-    'secret_key': '9a9c1682a5b247019acafa4489060d61'
+    'access_key': '25d16365251e45ec9b678de28dafd86b',
+    'secret_key': 'cc56887e78d14bdbae867638726a816b'
 }
 
 # Инициализация S3 клиента - УПРОЩЕННАЯ версия для Selectel
