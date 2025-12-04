@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Botfs23 - Telegram Chat</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -65,8 +65,8 @@
                     <i class="fas fa-times"></i>
                 </button>
             </div>
-            
-            <!-- Список разделов Telegram -->
+           
+            <!-- Список разделов -->
             <div class="sections-list">
                 <div class="section-item active" onclick="switchSection('main')">
                     <i class="fas fa-comments"></i>
@@ -90,8 +90,8 @@
                     <span class="section-unread" id="announcements-unread"></span>
                 </div>
             </div>
-            
-            <!-- Меню навигации Telegram -->
+           
+            <!-- Меню навигации -->
             <div class="sidebar-menu">
                 <div class="menu-item active" onclick="showChat()">
                     <i class="fas fa-comments"></i>
@@ -116,13 +116,13 @@
                     <span>Профиль</span>
                 </div>
             </div>
-            
+           
             <div class="sidebar-footer">
                 <div class="online-users">
                     <i class="fas fa-circle online-dot"></i>
                     <span id="sidebar-online-count">0</span> онлайн
                 </div>
-                <div class="app-version">v3.1</div>
+                <div class="app-version">v3.2</div>
             </div>
         </div>
 
@@ -131,75 +131,55 @@
 
         <!-- Основной контент -->
         <div class="main-content">
-            <!-- Чат Telegram -->
+            <!-- Чат -->
             <div class="chat-container active" id="chat-view">
-                <!-- Контейнер сообщений Telegram -->
-                <div class="messages-container" id="messages-container">
-                    <!-- Сообщения загружаются динамически -->
+                <div class="messages-container" id="messages-container"></div>
+               
+                <!-- Превью прикреплённых файлов -->
+                <div class="file-preview" id="file-preview" style="display: none;">
+                    <div id="file-preview-container"></div>
+                    <div class="file-preview-actions">
+                        <button onclick="clearAttachments()" class="btn-admin-action danger">Отмена</button>
+                    </div>
                 </div>
-                
-                <!-- Поле ввода сообщения Telegram -->
+               
+                <!-- Поле ввода сообщения -->
                 <div class="message-input-area">
                     <button class="btn-attach" id="btn-attach">
                         <i class="fas fa-paperclip"></i>
                     </button>
-                    
-                    <!-- Меню прикрепления файлов -->
+                   
                     <div class="attach-menu" id="attach-menu">
                         <div class="attach-item" onclick="attachFile('photo')">
-                            <i class="fas fa-image"></i>
-                            <span>Фото</span>
+                            <i class="fas fa-image"></i><span>Фото</span>
                         </div>
                         <div class="attach-item" onclick="attachFile('video')">
-                            <i class="fas fa-video"></i>
-                            <span>Видео</span>
+                            <i class="fas fa-video"></i><span>Видео</span>
                         </div>
                         <div class="attach-item" onclick="attachFile('voice')">
-                            <i class="fas fa-microphone"></i>
-                            <span>Голосовое</span>
+                            <i class="fas fa-microphone"></i><span>Голосовое</span>
                         </div>
                         <div class="attach-item" onclick="attachFile('document')">
-                            <i class="fas fa-file"></i>
-                            <span>Документ</span>
+                            <i class="fas fa-file"></i><span>Документ</span>
                         </div>
                     </div>
-                    
-                    <!-- Контейнер для превью файлов -->
-                    <div class="file-preview-container" id="file-preview-container" style="display: none;"></div>
-                    
+                   
                     <div class="input-wrapper">
-                        <textarea 
-                            id="message-input" 
-                            placeholder="Сообщение..."
-                            rows="1"></textarea>
+                        <textarea id="message-input" placeholder="Сообщение..." rows="1"></textarea>
                         <div class="input-actions">
                             <button class="btn-emoji" id="btn-emoji">
                                 <i class="far fa-smile"></i>
                             </button>
                         </div>
                     </div>
-                    
+                   
                     <button class="btn-send" id="send-button">
                         <i class="fas fa-paper-plane"></i>
                     </button>
-                    
-                    <!-- Эмодзи пикер -->
-                    <div class="emoji-picker" id="emoji-picker">
-                        <div class="emoji-categories">
-                            <button class="emoji-category active" onclick="showEmojiCategory('smileys')">😀</button>
-                            <button class="emoji-category" onclick="showEmojiCategory('people')">👋</button>
-                            <button class="emoji-category" onclick="showEmojiCategory('symbols')">❤️</button>
-                            <button class="emoji-category" onclick="showEmojiCategory('nature')">🐶</button>
-                            <button class="emoji-category" onclick="showEmojiCategory('food')">🍕</button>
-                        </div>
-                        <div class="emoji-grid" id="emoji-grid">
-                            <!-- Эмодзи загружаются динамически -->
-                        </div>
-                    </div>
                 </div>
             </div>
 
-            <!-- Список пользователей Telegram -->
+            <!-- Список пользователей -->
             <div class="users-container" id="users-view">
                 <div class="users-header">
                     <h2><i class="fas fa-users"></i> Участники</h2>
@@ -210,9 +190,7 @@
                         </button>
                     </div>
                 </div>
-                <div class="users-list" id="users-list">
-                    <!-- Список пользователей загружается динамически -->
-                </div>
+                <div class="users-list" id="users-list"></div>
             </div>
 
             <!-- Админ панель -->
@@ -221,73 +199,29 @@
                     <h2><i class="fas fa-user-shield"></i> Админ панель</h2>
                     <p>Управление чатом и пользователями</p>
                 </div>
-                
                 <div class="admin-sections">
-                    <!-- Управление пользователями -->
                     <div class="admin-section">
                         <h3><i class="fas fa-users-cog"></i> Управление участниками</h3>
-                        <div class="admin-users-list" id="admin-users-list">
-                            <!-- Список загружается динамически -->
-                        </div>
+                        <div class="admin-users-list" id="admin-users-list"></div>
                     </div>
-                    
-                    <!-- Приглашения -->
                     <div class="admin-section">
                         <h3><i class="fas fa-key"></i> Приглашения</h3>
                         <button class="btn-admin-action primary large" onclick="createInvite()">
                             <i class="fas fa-plus"></i> Создать приглашение
                         </button>
-                        <div class="invites-list" id="invites-list">
-                            <!-- Список приглашений загружается динамически -->
-                        </div>
+                        <div class="invites-list" id="invites-list"></div>
                     </div>
-                    
-                    <!-- Управление разделами -->
                     <div class="admin-section">
                         <h3><i class="fas fa-cogs"></i> Управление разделами</h3>
-                        <div class="sections-admin-list" id="sections-admin-list">
-                            <div class="section-permissions">
-                                <div class="permission-item">
-                                    <span>Основной чат</span>
-                                    <select class="permission-select" onchange="updateSectionPermission('main', 'write', this.value)">
-                                        <option value="all">Все</option>
-                                        <option value="moderators">Модераторы+</option>
-                                        <option value="admins">Только админы</option>
-                                    </select>
-                                </div>
-                                <div class="permission-item">
-                                    <span>Новости</span>
-                                    <select class="permission-select" onchange="updateSectionPermission('news', 'write', this.value)">
-                                        <option value="all">Все</option>
-                                        <option value="moderators">Модераторы+</option>
-                                        <option value="admins">Только админы</option>
-                                    </select>
-                                </div>
-                                <div class="permission-item">
-                                    <span>Объявления</span>
-                                    <select class="permission-select" onchange="updateSectionPermission('announcements', 'write', this.value)">
-                                        <option value="admins">Только админы</option>
-                                        <option value="moderators">Модераторы+</option>
-                                        <option value="all">Все</option>
-                                    </select>
-                                </div>
+                        <div class="sections-admin-list">
+                            <div class="permission-item">
+                                <span>Основной чат</span>
+                                <select class="permission-select" onchange="updateSectionPermission('main', 'write', this.value)">
+                                    <option value="all">Все</option>
+                                    <option value="moderators">Модераторы+</option>
+                                    <option value="admins">Только админы</option>
+                                </select>
                             </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Административные действия -->
-                    <div class="admin-section">
-                        <h3><i class="fas fa-tools"></i> Административные действия</h3>
-                        <div class="admin-actions">
-                            <button class="btn-admin-action danger" onclick="clearChatHistory()">
-                                <i class="fas fa-trash"></i> Очистить историю чата
-                            </button>
-                            <button class="btn-admin-action" onclick="exportChatData()">
-                                <i class="fas fa-download"></i> Экспортировать данные
-                            </button>
-                            <button class="btn-admin-action" onclick="createBackup()">
-                                <i class="fas fa-save"></i> Создать резервную копию
-                            </button>
                         </div>
                     </div>
                 </div>
@@ -307,28 +241,7 @@
                         </label>
                     </div>
                     <div class="settings-item">
-                        <span class="settings-label">Уведомления</span>
-                        <label class="settings-toggle">
-                            <input type="checkbox" id="notifications-toggle" checked onchange="toggleNotifications()">
-                            <span class="settings-toggle-slider"></span>
-                        </label>
-                    </div>
-                    <div class="settings-item">
-                        <span class="settings-label">Звуки</span>
-                        <label class="settings-toggle">
-                            <input type="checkbox" id="sounds-toggle" checked onchange="toggleSounds()">
-                            <span class="settings-toggle-slider"></span>
-                        </label>
-                    </div>
-                    <div class="settings-item">
-                        <span class="settings-label">Авто-загрузка медиа</span>
-                        <label class="settings-toggle">
-                            <input type="checkbox" id="media-toggle" checked onchange="toggleAutoMedia()">
-                            <span class="settings-toggle-slider"></span>
-                        </label>
-                    </div>
-                    <div class="settings-item">
-                        <span class="settings-label">S3 Хранилище</span>
+                        <span class="settings-label">S3 Хранилище (Selectel)</span>
                         <span class="settings-status" id="s3-status">Проверка...</span>
                     </div>
                 </div>
@@ -357,231 +270,38 @@
                             <span class="detail-label">Роль:</span>
                             <span class="detail-value" id="profile-role">участник</span>
                         </div>
-                        <div class="profile-detail">
-                            <span class="detail-label">Статус:</span>
-                            <span class="detail-value" id="profile-status">онлайн</span>
-                        </div>
-                        <div class="profile-detail">
-                            <span class="detail-label">В чате с:</span>
-                            <span class="detail-value" id="profile-join-date">сегодня</span>
-                        </div>
-                    </div>
-                    
-                    <div class="stats-grid">
-                        <div class="stats-card">
-                            <div class="stats-number" id="profile-messages">0</div>
-                            <div class="stats-label">Сообщений</div>
-                        </div>
-                        <div class="stats-card">
-                            <div class="stats-number" id="profile-reactions">0</div>
-                            <div class="stats-label">Реакций</div>
-                        </div>
-                        <div class="stats-card">
-                            <div class="stats-number" id="profile-words">0</div>
-                            <div class="stats-label">Слов</div>
-                        </div>
-                        <div class="stats-card">
-                            <div class="stats-number" id="profile-media">0</div>
-                            <div class="stats-label">Файлов</div>
-                        </div>
-                    </div>
-                    
-                    <div class="profile-actions">
-                        <button class="btn-admin-action" onclick="changeProfilePhoto()">
-                            <i class="fas fa-camera"></i> Сменить фото
-                        </button>
-                        <button class="btn-admin-action" onclick="editProfile()">
-                            <i class="fas fa-edit"></i> Редактировать
-                        </button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Всплывающие окна -->
-        <div class="forward-popup" id="forward-popup">
-            <div class="forward-header">
-                <h3>Переслать в:</h3>
-                <button class="btn-close-forward" onclick="closeForwardPopup()">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-            <div class="forward-options" id="forward-options">
-                <!-- Опции загружаются динамически -->
-            </div>
-        </div>
-        
-        <div class="reactions-popup" id="reactions-popup">
-            <div class="reactions-options" id="reactions-options">
-                <!-- Реакции загружаются динамически -->
-            </div>
-        </div>
-
-        <!-- Прогресс загрузки -->
+        <!-- Прогресс загрузки файлов -->
         <div class="upload-progress" id="upload-progress">
-            <div class="upload-progress-bar">
-                <div id="progress-bar-fill" class="progress-bar-fill"></div>
+            <div>Загрузка файла...</div>
+            <div class="progress-bar-container">
+                <div id="progress-bar-fill" class="progress-bar-fill" style="width: 0%;"></div>
             </div>
-            <div id="progress-bar-text" class="progress-bar-text">0%</div>
+            <div id="progress-text">0%</div>
         </div>
 
-        <!-- Превью файла -->
-        <div class="file-preview-modal" id="file-preview-modal" style="display: none;">
-            <!-- Заполняется динамически -->
-        </div>
-
-        <!-- Кнопка переключения темы -->
+        <!-- Кнопка смены темы -->
         <button class="theme-toggle" id="theme-toggle-btn" onclick="toggleThemeManual()">
             <i class="fas fa-moon" id="theme-icon"></i>
         </button>
     </div>
 
-    <!-- Основной JavaScript -->
+    <!-- AWS SDK + Основной скрипт -->
     <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1494.0.min.js"></script>
     <script src="script.js"></script>
-    
-    <!-- Дополнительные функции -->
+
     <script>
-        // Инициализация при загрузке страницы
         document.addEventListener('DOMContentLoaded', function() {
-            // Запуск основного приложения
             setTimeout(() => {
+                document.getElementById('loading-screen').classList.add('hidden');
+                document.getElementById('app').style.display = 'flex';
                 initApp();
-            }, 100);
+            }, 800);
         });
-
-        // Быстрые функции для навигации
-        function showChat() {
-            document.querySelectorAll('.chat-container, .users-container, .admin-container, .settings-container, .profile-container')
-                .forEach(container => container.classList.remove('active'));
-            document.getElementById('chat-view').classList.add('active');
-            updateMenuActive(0);
-        }
-
-        function showUsersList() {
-            document.querySelectorAll('.chat-container, .users-container, .admin-container, .settings-container, .profile-container')
-                .forEach(container => container.classList.remove('active'));
-            document.getElementById('users-view').classList.add('active');
-            loadUsers();
-            updateMenuActive(1);
-        }
-
-        function showAdminPanel() {
-            if (!window.isAdmin) {
-                showNotification('У вас нет прав доступа', 'error');
-                return;
-            }
-            document.querySelectorAll('.chat-container, .users-container, .admin-container, .settings-container, .profile-container')
-                .forEach(container => container.classList.remove('active'));
-            document.getElementById('admin-view').classList.add('active');
-            loadAdminUsersList();
-            loadInvitesList();
-            updateMenuActive(2);
-        }
-
-        function showSettings() {
-            document.querySelectorAll('.chat-container, .users-container, .admin-container, .settings-container, .profile-container')
-                .forEach(container => container.classList.remove('active'));
-            document.getElementById('settings-view').classList.add('active');
-            loadSettings();
-            updateMenuActive(3);
-        }
-
-        function showProfile() {
-            document.querySelectorAll('.chat-container, .users-container, .admin-container, .settings-container, .profile-container')
-                .forEach(container => container.classList.remove('active'));
-            document.getElementById('profile-view').classList.add('active');
-            updateProfileInfo();
-            updateMenuActive(4);
-        }
-
-        function updateMenuActive(index) {
-            document.querySelectorAll('.menu-item').forEach((item, i) => {
-                item.classList.toggle('active', i === index);
-            });
-        }
-
-        // Функции для тем
-        function toggleTheme() {
-            const isDark = document.getElementById('theme-toggle').checked;
-            document.body.classList.toggle('dark-theme', isDark);
-            localStorage.setItem('theme', isDark ? 'dark' : 'light');
-            updateThemeIcon();
-        }
-
-        function toggleThemeManual() {
-            const toggle = document.getElementById('theme-toggle');
-            toggle.checked = !toggle.checked;
-            toggleTheme();
-        }
-
-        function updateThemeIcon() {
-            const isDark = document.getElementById('theme-toggle').checked;
-            const icon = document.getElementById('theme-icon');
-            icon.className = isDark ? 'fas fa-sun' : 'fas fa-moon';
-        }
-
-        function loadSettings() {
-            const theme = localStorage.getItem('theme') || 'light';
-            document.getElementById('theme-toggle').checked = theme === 'dark';
-            document.body.classList.toggle('dark-theme', theme === 'dark');
-            updateThemeIcon();
-            
-            // Загружаем другие настройки
-            const notifications = localStorage.getItem('notifications') !== 'false';
-            document.getElementById('notifications-toggle').checked = notifications;
-            
-            const sounds = localStorage.getItem('sounds') !== 'false';
-            document.getElementById('sounds-toggle').checked = sounds;
-            
-            const media = localStorage.getItem('autoMedia') !== 'false';
-            document.getElementById('media-toggle').checked = media;
-            
-            // Обновляем статус S3
-            updateS3Status();
-        }
-
-        function updateS3Status() {
-            const statusElement = document.getElementById('s3-status');
-            if (window.S3) {
-                statusElement.textContent = '✓ Активно';
-                statusElement.style.color = 'var(--success-color)';
-            } else {
-                statusElement.textContent = '✗ Не доступно';
-                statusElement.style.color = 'var(--error-color)';
-            }
-        }
-
-        function toggleNotifications() {
-            const enabled = document.getElementById('notifications-toggle').checked;
-            localStorage.setItem('notifications', enabled);
-            showNotification(enabled ? 'Уведомления включены' : 'Уведомления выключены');
-        }
-
-        function toggleSounds() {
-            const enabled = document.getElementById('sounds-toggle').checked;
-            localStorage.setItem('sounds', enabled);
-            showNotification(enabled ? 'Звуки включены' : 'Звуки выключены');
-        }
-
-        function toggleAutoMedia() {
-            const enabled = document.getElementById('media-toggle').checked;
-            localStorage.setItem('autoMedia', enabled);
-            showNotification(enabled ? 'Авто-загрузка включена' : 'Авто-загрузка выключена');
-        }
-
-        // Профиль
-        function updateProfileInfo() {
-            // Здесь будет обновление информации профиля из основного скрипта
-        }
-
-        function changeProfilePhoto() {
-            showNotification('Смена фото профиля в разработке', 'info');
-        }
-
-        function editProfile() {
-            showNotification('Редактирование профиля в разработке', 'info');
-        }
     </script>
 </body>
 </html>
