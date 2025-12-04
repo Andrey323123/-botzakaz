@@ -54,10 +54,8 @@ def get_messages():
         limit = int(request.args.get('limit', 50))
         offset = int(request.args.get('offset', 0))
         
-        # Запускаем асинхронную функцию
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        messages = loop.run_until_complete(db.get_messages(limit, offset))
+        # Используем синхронную функцию напрямую
+        messages = db.get_messages(limit, offset)
         
         messages_data = []
         for message in messages:
@@ -84,16 +82,14 @@ def send_message_api():
         if not data or 'user_id' not in data or 'message_type' not in data:
             return jsonify({'status': 'error', 'message': 'Invalid request'}), 400
         
-        # Сохраняем сообщение
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        message = loop.run_until_complete(db.add_message(
+        # Сохраняем сообщение (синхронно)
+        message = db.add_message(
             user_id=data['user_id'],
             message_type=data['message_type'],
             content=data.get('content'),
             file_id=data.get('file_id'),
             file_url=data.get('file_url')
-        ))
+        )
         
         return jsonify({'status': 'success', 'message_id': message.id})
     except Exception as e:
@@ -130,15 +126,15 @@ async def cmd_start(message: types.Message):
         # ОТЛАДКА: логируем получение команды
         logger.info(f"📩 Получена команда /start от пользователя: {message.from_user.id} (@{message.from_user.username})")
         
-        # Регистрируем пользователя
+        # Регистрируем пользователя (СИНХРОННО - без await)
         user_data = {
             'id': message.from_user.id,
             'username': message.from_user.username,
             'first_name': message.from_user.first_name,
             'last_name': message.from_user.last_name
         }
-        user = await db.get_or_create_user(user_data)
-        logger.info(f"👤 Пользователь зарегистрирован в БД: {user.id}")
+        user = db.get_or_create_user(user_data)  # БЕЗ AWAIT!
+        logger.info(f"👤 Пользователь зарегистрирован в БД: ID={user.id}")
         
         # Используем фиксированный домен Railway
         domain = "https://botzakaz-production-ba19.up.railway.app"
@@ -231,15 +227,15 @@ async def on_startup(dp):
         logger.error("  3. Бот заблокирован или удален")
         return
     
-    # Инициализация базы данных
+    # Инициализация базы данных (СИНХРОННО - без await)
     try:
         # Создаем таблицы если их нет
         engine = create_engine("sqlite:///botzakaz.db")
         Base.metadata.create_all(engine)
         logger.info("✅ Таблицы базы данных созданы")
         
-        # Инициализируем асинхронную БД
-        await db.init_db()
+        # Инициализируем БД (БЕЗ AWAIT!)
+        db.init_db()
         logger.info("✅ База данных инициализирована")
     except Exception as e:
         logger.error(f"❌ Ошибка инициализации БД: {e}", exc_info=True)
