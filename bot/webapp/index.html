@@ -6,7 +6,7 @@
     <title>Botfs23 - Telegram Chat</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css"> <!-- Подключаем внешний CSS -->
 </head>
 <body>
     <div class="telegram-app">
@@ -110,171 +110,177 @@
         <!-- Оверлей для сайдбара -->
         <div class="overlay" id="overlay" onclick="toggleSidebar()"></div>
 
-        <!-- Контейнер чата -->
-        <div class="chat-container active" id="chat-view">
-            <!-- Сообщения -->
-            <div class="messages-container" id="messages-container">
-                <!-- Сообщения будут загружаться динамически -->
-            </div>
-            
-            <!-- Поле ввода -->
-            <div class="message-input-area">
-                <button class="btn-attach" onclick="toggleAttachMenu()">
-                    <i class="fas fa-paperclip"></i>
-                </button>
-                
-                <div class="attach-menu" id="attach-menu">
-                    <div class="attach-item" onclick="attachFile('photo')">
-                        <i class="fas fa-image"></i>
-                        <span>Фото</span>
-                    </div>
-                    <div class="attach-item" onclick="attachFile('voice')">
-                        <i class="fas fa-microphone"></i>
-                        <span>Голосовое</span>
-                    </div>
-                    <div class="attach-item" onclick="attachFile('document')">
-                        <i class="fas fa-file"></i>
-                        <span>Документ</span>
-                    </div>
-                    <div class="attach-item" onclick="attachFile('sticker')">
-                        <i class="far fa-smile"></i>
-                        <span>Стикер</span>
-                    </div>
+        <!-- Контейнеры представлений -->
+        <div class="main-content">
+            <!-- Контейнер чата -->
+            <div class="chat-container active" id="chat-view">
+                <!-- Сообщения -->
+                <div class="messages-container" id="messages-container">
+                    <!-- Сообщения будут загружаться динамически -->
                 </div>
                 
-                <div class="input-wrapper">
-                    <textarea 
-                        id="message-input" 
-                        placeholder="Сообщение..."
-                        rows="1"
-                        onkeypress="handleKeyPress(event)"
-                        oninput="autoResize(this)"></textarea>
-                    <div class="input-actions">
-                        <button class="btn-emoji" onclick="toggleEmojiPicker()">
+                <!-- Превью ответа (будет показываться динамически) -->
+                <div class="reply-preview-container" id="reply-preview-container"></div>
+                
+                <!-- Поле ввода -->
+                <div class="message-input-area">
+                    <button class="btn-attach" onclick="toggleAttachMenu()">
+                        <i class="fas fa-paperclip"></i>
+                    </button>
+                    
+                    <div class="attach-menu" id="attach-menu">
+                        <div class="attach-item" onclick="attachFile('photo')">
+                            <i class="fas fa-image"></i>
+                            <span>Фото</span>
+                        </div>
+                        <div class="attach-item" onclick="attachFile('voice')">
+                            <i class="fas fa-microphone"></i>
+                            <span>Голосовое</span>
+                        </div>
+                        <div class="attach-item" onclick="attachFile('document')">
+                            <i class="fas fa-file"></i>
+                            <span>Документ</span>
+                        </div>
+                        <div class="attach-item" onclick="attachFile('sticker')">
                             <i class="far fa-smile"></i>
-                        </button>
+                            <span>Стикер</span>
+                        </div>
                     </div>
+                    
+                    <div class="input-wrapper">
+                        <textarea 
+                            id="message-input" 
+                            placeholder="Сообщение..."
+                            rows="1"
+                            onkeypress="handleKeyPress(event)"
+                            oninput="autoResize(this)"></textarea>
+                        <div class="input-actions">
+                            <button class="btn-emoji" onclick="toggleEmojiPicker()">
+                                <i class="far fa-smile"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <button class="btn-send" onclick="sendMessage()" id="send-button">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
                 </div>
                 
-                <button class="btn-send" onclick="sendMessage()" id="send-button">
-                    <i class="fas fa-paper-plane"></i>
-                </button>
-            </div>
-            
-            <!-- Эмодзи пикер -->
-            <div class="emoji-picker" id="emoji-picker">
-                <div class="emoji-categories">
-                    <button class="emoji-category active" onclick="showEmojiCategory('smileys')">😀</button>
-                    <button class="emoji-category" onclick="showEmojiCategory('people')">👋</button>
-                    <button class="emoji-category" onclick="showEmojiCategory('symbols')">❤️</button>
-                    <button class="emoji-category" onclick="showEmojiCategory('nature')">🐶</button>
-                    <button class="emoji-category" onclick="showEmojiCategory('food')">🍕</button>
+                <!-- Эмодзи пикер -->
+                <div class="emoji-picker" id="emoji-picker">
+                    <div class="emoji-categories">
+                        <button class="emoji-category active" onclick="showEmojiCategory('smileys')">😀</button>
+                        <button class="emoji-category" onclick="showEmojiCategory('people')">👋</button>
+                        <button class="emoji-category" onclick="showEmojiCategory('symbols')">❤️</button>
+                        <button class="emoji-category" onclick="showEmojiCategory('nature')">🐶</button>
+                        <button class="emoji-category" onclick="showEmojiCategory('food')">🍕</button>
+                    </div>
+                    <div class="emoji-grid" id="emoji-grid"></div>
                 </div>
-                <div class="emoji-grid" id="emoji-grid"></div>
             </div>
-            
-            <!-- Превью ответа (будет показываться динамически) -->
-            <div class="reply-preview-container" id="reply-preview-container"></div>
-        </div>
 
-        <!-- Админ панель -->
-        <div class="admin-container" id="admin-view">
-            <div class="admin-header">
-                <h2><i class="fas fa-user-shield"></i> Админ панель</h2>
-                <p>Управление чатом и пользователями</p>
-            </div>
-            
-            <div class="admin-sections">
-                <!-- Управление пользователями -->
-                <div class="admin-section">
-                    <h3><i class="fas fa-users-cog"></i> Управление участниками</h3>
-                    <div class="admin-users-list" id="admin-users-list">
-                        <!-- Список пользователей будет загружаться динамически -->
+            <!-- Контейнер списка пользователей -->
+            <div class="users-container" id="users-view">
+                <div class="users-header">
+                    <h2><i class="fas fa-users"></i> Участники</h2>
+                    <div class="users-search">
+                        <input type="text" id="users-search-input" placeholder="Поиск участников..." oninput="searchUsers(this.value)">
+                        <button class="btn-close-search" onclick="clearUserSearch()">
+                            <i class="fas fa-times"></i>
+                        </button>
                     </div>
                 </div>
+                <div class="users-list" id="users-list">
+                    <!-- Список пользователей будет загружаться динамически -->
+                </div>
+            </div>
+
+            <!-- Админ панель -->
+            <div class="admin-container" id="admin-view">
+                <div class="admin-header">
+                    <h2><i class="fas fa-user-shield"></i> Админ панель</h2>
+                    <p>Управление чатом и пользователями</p>
+                </div>
                 
-                <!-- Приглашения -->
-                <div class="admin-section">
-                    <h3><i class="fas fa-user-plus"></i> Приглашения</h3>
-                    <div class="admin-actions">
-                        <button class="btn-admin-action large" onclick="createInvite()">
-                            <i class="fas fa-plus"></i> Создать приглашение
-                        </button>
-                        <div class="invites-list" id="invites-list">
-                            <!-- Список активных приглашений -->
+                <div class="admin-sections">
+                    <!-- Управление пользователями -->
+                    <div class="admin-section">
+                        <h3><i class="fas fa-users-cog"></i> Управление участниками</h3>
+                        <div class="admin-users-list" id="admin-users-list">
+                            <!-- Список пользователей будет загружаться динамически -->
                         </div>
                     </div>
-                </div>
-                
-                <!-- Управление разделами -->
-                <div class="admin-section">
-                    <h3><i class="fas fa-folder"></i> Управление разделами</h3>
-                    <div class="sections-admin-list">
-                        <div class="section-permissions">
-                            <div class="permission-item">
-                                <span>Основной чат:</span>
-                                <select class="permission-select" onchange="updateSectionPermission('main', 'write', this.value)">
-                                    <option value="all">Все участники</option>
-                                    <option value="moderators">Модераторы+</option>
-                                    <option value="admins">Только админы</option>
-                                </select>
-                            </div>
-                            <div class="permission-item">
-                                <span>Новости:</span>
-                                <select class="permission-select" onchange="updateSectionPermission('news', 'write', this.value)">
-                                    <option value="all">Все участники</option>
-                                    <option value="moderators">Модераторы+</option>
-                                    <option value="admins">Только админы</option>
-                                </select>
-                            </div>
-                            <div class="permission-item">
-                                <span>Правила:</span>
-                                <select class="permission-select" onchange="updateSectionPermission('rules', 'write', this.value)">
-                                    <option value="admins">Только админы</option>
-                                    <option value="moderators">Модераторы+</option>
-                                    <option value="all">Все участники</option>
-                                </select>
-                            </div>
-                            <div class="permission-item">
-                                <span>Объявления:</span>
-                                <select class="permission-select" onchange="updateSectionPermission('announcements', 'write', this.value)">
-                                    <option value="admins">Только админы</option>
-                                    <option value="moderators">Модераторы+</option>
-                                    <option value="all">Все участники</option>
-                                </select>
+                    
+                    <!-- Приглашения -->
+                    <div class="admin-section">
+                        <h3><i class="fas fa-user-plus"></i> Приглашения</h3>
+                        <div class="admin-actions">
+                            <button class="btn-admin-action large" onclick="createInvite()">
+                                <i class="fas fa-plus"></i> Создать приглашение
+                            </button>
+                            <div class="invites-list" id="invites-list">
+                                <!-- Список активных приглашений -->
                             </div>
                         </div>
                     </div>
-                </div>
-                
-                <!-- Админ действия -->
-                <div class="admin-section">
-                    <h3><i class="fas fa-tools"></i> Действия</h3>
-                    <div class="admin-actions">
-                        <button class="btn-admin-action danger" onclick="clearChatHistory()">
-                            <i class="fas fa-trash"></i> Очистить историю чата
-                        </button>
-                        <button class="btn-admin-action danger" onclick="exportChatData()">
-                            <i class="fas fa-download"></i> Экспорт данных
-                        </button>
-                        <button class="btn-admin-action" onclick="createBackup()">
-                            <i class="fas fa-save"></i> Создать резервную копию
-                        </button>
+                    
+                    <!-- Управление разделами -->
+                    <div class="admin-section">
+                        <h3><i class="fas fa-folder"></i> Управление разделами</h3>
+                        <div class="sections-admin-list">
+                            <div class="section-permissions">
+                                <div class="permission-item">
+                                    <span>Основной чат:</span>
+                                    <select class="permission-select" onchange="updateSectionPermission('main', 'write', this.value)">
+                                        <option value="all">Все участники</option>
+                                        <option value="moderators">Модераторы+</option>
+                                        <option value="admins">Только админы</option>
+                                    </select>
+                                </div>
+                                <div class="permission-item">
+                                    <span>Новости:</span>
+                                    <select class="permission-select" onchange="updateSectionPermission('news', 'write', this.value)">
+                                        <option value="all">Все участники</option>
+                                        <option value="moderators">Модераторы+</option>
+                                        <option value="admins">Только админы</option>
+                                    </select>
+                                </div>
+                                <div class="permission-item">
+                                    <span>Правила:</span>
+                                    <select class="permission-select" onchange="updateSectionPermission('rules', 'write', this.value)">
+                                        <option value="admins">Только админы</option>
+                                        <option value="moderators">Модераторы+</option>
+                                        <option value="all">Все участники</option>
+                                    </select>
+                                </div>
+                                <div class="permission-item">
+                                    <span>Объявления:</span>
+                                    <select class="permission-select" onchange="updateSectionPermission('announcements', 'write', this.value)">
+                                        <option value="admins">Только админы</option>
+                                        <option value="moderators">Модераторы+</option>
+                                        <option value="all">Все участники</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Админ действия -->
+                    <div class="admin-section">
+                        <h3><i class="fas fa-tools"></i> Действия</h3>
+                        <div class="admin-actions">
+                            <button class="btn-admin-action danger" onclick="clearChatHistory()">
+                                <i class="fas fa-trash"></i> Очистить историю чата
+                            </button>
+                            <button class="btn-admin-action danger" onclick="exportChatData()">
+                                <i class="fas fa-download"></i> Экспорт данных
+                            </button>
+                            <button class="btn-admin-action" onclick="createBackup()">
+                                <i class="fas fa-save"></i> Создать резервную копию
+                            </button>
+                        </div>
                     </div>
                 </div>
-            </div>
-        </div>
-        
-        <!-- Контейнер списка пользователей -->
-        <div class="users-container" id="users-view">
-            <div class="users-header">
-                <h2><i class="fas fa-users"></i> Участники</h2>
-                <div class="users-search">
-                    <input type="text" id="users-search-input" placeholder="Поиск участников..." oninput="searchUsers(this.value)">
-                </div>
-            </div>
-            <div class="users-list" id="users-list">
-                <!-- Список пользователей будет загружаться динамически -->
             </div>
         </div>
     </div>
@@ -337,7 +343,7 @@
         </div>
     </div>
 
-    <!-- Попикер для пересылки -->
+    <!-- Попап для пересылки -->
     <div class="forward-popup" id="forward-popup">
         <div class="forward-header">
             <h3>Переслать в...</h3>
@@ -365,8 +371,9 @@
         }
         
         // Функция для открытия меню сообщения
-        function showMessageMenu(button, messageId) {
+        function showMessageMenu(messageId) {
             const menu = document.getElementById('message-context-menu');
+            const button = event.target; // Получаем кнопку, которая вызвала контекстное меню
             const rect = button.getBoundingClientRect();
             
             menu.style.left = (rect.left - 150) + 'px';
@@ -398,8 +405,11 @@
             const menu = document.getElementById('message-context-menu');
             const messageId = menu.dataset.messageId;
             // Здесь будет логика копирования ссылки
-            navigator.clipboard.writeText(`https://t.me/botfs23/message/${messageId}`);
-            alert('Ссылка скопирована в буфер обмена');
+            navigator.clipboard.writeText(`https://t.me/botfs23/message/${messageId}`).then(() => {
+                console.log('Ссылка скопирована в буфер обмена');
+            }).catch(err => {
+                console.error('Ошибка при копировании ссылки: ', err);
+            });
             menu.style.display = 'none';
         }
         
@@ -466,8 +476,6 @@
             }
         });
     </script>
-    
-    <!-- Подключаем основной скрипт -->
-    <script src="script.js"></script>
+    <script src="script.js"></script> <!-- Подключаем внешний JS -->
 </body>
 </html>
