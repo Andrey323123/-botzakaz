@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+import threading
 from aiogram import Bot, Dispatcher, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
@@ -8,16 +9,29 @@ from aiogram.utils import executor
 import core.database as db
 
 # Сначала создаем Flask app для gunicorn
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 flask_app = Flask(__name__)
+
+# Путь к веб-приложению
+WEBAPP_DIR = os.path.join(os.path.dirname(__file__), 'bot/webapp')
 
 @flask_app.route('/')
 def index():
-    return "Telegram Bot with Mini App is running!"
+    return "Telegram Bot with Mini App is running! Use /start in Telegram"
 
 @flask_app.route('/health')
 def health():
     return jsonify({"status": "healthy"}), 200
+
+@flask_app.route('/index.html')
+def serve_index():
+    return send_from_directory(WEBAPP_DIR, 'index.html')
+
+@flask_app.route('/<path:filename>')
+def serve_static(filename):
+    if os.path.exists(os.path.join(WEBAPP_DIR, filename)):
+        return send_from_directory(WEBAPP_DIR, filename)
+    return "File not found", 404
 
 @flask_app.route('/api/messages', methods=['GET'])
 def get_messages():
@@ -81,8 +95,8 @@ async def cmd_start(message: types.Message):
         }
         user = await db.get_or_create_user(user_data)
         
-        # Получаем домен из переменных окружения Railway
-        domain = os.getenv("RAILWAY_STATIC_URL", f"http://localhost:{os.getenv('PORT', 8080)}")
+        # Используем фиксированный домен Railway
+        domain = "https://botzakaz-production-ba19.up.railway.app"
         
         # Создаем URL для веб-приложения
         webapp_url = f"{domain}/index.html?user_id={message.from_user.id}&first_name={message.from_user.first_name}"
@@ -116,7 +130,7 @@ async def cmd_start(message: types.Message):
 @dp.message_handler(commands=['chat'])
 async def cmd_chat(message: types.Message):
     """Открыть чат"""
-    domain = os.getenv("RAILWAY_STATIC_URL", f"http://localhost:{os.getenv('PORT', 8080)}")
+    domain = "https://botzakaz-production-ba19.up.railway.app"
     webapp_url = f"{domain}/index.html?user_id={message.from_user.id}"
     
     keyboard = InlineKeyboardMarkup(row_width=1)
@@ -146,34 +160,6 @@ async def cmd_help(message: types.Message):
 """
     await message.answer(help_text, parse_mode='Markdown')
 
-@dp.message_handler(commands=['stats'])
-async def cmd_stats(message: types.Message):
-    """Статистика чата"""
-    try:
-        users = await db.get_users()
-        messages = await db.get_messages(limit=1000)
-        
-        stats_text = f"""
-📊 **Статистика чата:**
-
-👥 Пользователей: {len(users)}
-💬 Сообщений: {len(messages)}
-"""
-        await message.answer(stats_text, parse_mode='Markdown')
-        
-    except Exception as e:
-        logger.error(f"Error in /stats: {e}")
-        await message.answer("❌ Не удалось получить статистику.")
-
-@dp.message_handler(content_types=types.ContentType.TEXT)
-async def handle_text(message: types.Message):
-    """Обработка текстовых сообщений"""
-    if message.text.startswith('/'):
-        # Если команда не распознана
-        await message.answer("🤔 Неизвестная команда. Используйте /help для списка команд.")
-    else:
-        await message.answer("💡 Для общения в чате используйте мини-приложение через команду /chat")
-
 async def on_startup(dp):
     """Действия при запуске"""
     logger.info("🤖 Бот запускается...")
@@ -189,7 +175,7 @@ async def on_startup(dp):
     me = await bot.get_me()
     logger.info(f"✅ Бот @{me.username} успешно запущен!")
     logger.info("📱 Используйте команду /start для начала работы")
-    logger.info(f"🌐 Веб-приложение доступно по адресу: {os.getenv('RAILWAY_STATIC_URL', 'http://localhost:8080')}")
+    logger.info(f"🌐 Веб-приложение: https://botzakaz-production-ba19.up.railway.app")
 
 async def on_shutdown(dp):
     """Действия при завершении работы"""
@@ -208,7 +194,7 @@ def run_bot():
         exit(1)
     
     print(f"\n🔑 Токен бота: {'✅ Найден' if BOT_TOKEN else '❌ Не найден'}")
-    print(f"🌐 Порт: {os.getenv('PORT', 8080)}")
+    print(f"🌐 Домен: https://botzakaz-production-ba19.up.railway.app")
     print("🤖 Запуск бота...\n")
     
     # Запуск поллинга
@@ -221,8 +207,6 @@ def run_bot():
 
 # Если файл запускается напрямую (не через gunicorn)
 if __name__ == '__main__':
-    import threading
-    
     # Запускаем бота в отдельном потоке
     bot_thread = threading.Thread(target=run_bot, daemon=True)
     bot_thread.start()
