@@ -122,7 +122,7 @@
                     <i class="fas fa-circle online-dot"></i>
                     <span id="sidebar-online-count">0</span> онлайн
                 </div>
-                <div class="app-version">v3.0</div>
+                <div class="app-version">v3.1</div>
             </div>
         </div>
 
@@ -150,22 +150,22 @@
                             <i class="fas fa-image"></i>
                             <span>Фото</span>
                         </div>
-                        <div class="attach-item" onclick="attachFile('document')">
-                            <i class="fas fa-file"></i>
-                            <span>Документ</span>
-                        </div>
-                        <div class="attach-item" onclick="attachFile('sticker')">
-                            <i class="far fa-smile"></i>
-                            <span>Стикер</span>
+                        <div class="attach-item" onclick="attachFile('video')">
+                            <i class="fas fa-video"></i>
+                            <span>Видео</span>
                         </div>
                         <div class="attach-item" onclick="attachFile('voice')">
                             <i class="fas fa-microphone"></i>
                             <span>Голосовое</span>
                         </div>
+                        <div class="attach-item" onclick="attachFile('document')">
+                            <i class="fas fa-file"></i>
+                            <span>Документ</span>
+                        </div>
                     </div>
                     
-                    <!-- Reply preview -->
-                    <div class="reply-preview-container" id="reply-preview-container" style="display: none;"></div>
+                    <!-- Контейнер для превью файлов -->
+                    <div class="file-preview-container" id="file-preview-container" style="display: none;"></div>
                     
                     <div class="input-wrapper">
                         <textarea 
@@ -327,6 +327,10 @@
                             <span class="settings-toggle-slider"></span>
                         </label>
                     </div>
+                    <div class="settings-item">
+                        <span class="settings-label">S3 Хранилище</span>
+                        <span class="settings-status" id="s3-status">Проверка...</span>
+                    </div>
                 </div>
             </div>
 
@@ -415,25 +419,15 @@
 
         <!-- Прогресс загрузки -->
         <div class="upload-progress" id="upload-progress">
-            <div>Загрузка файла...</div>
-            <div class="progress-bar-container">
-                <div class="progress-bar-fill" id="progress-bar-fill" style="width: 0%"></div>
+            <div class="upload-progress-bar">
+                <div id="progress-bar-fill" class="progress-bar-fill"></div>
             </div>
+            <div id="progress-bar-text" class="progress-bar-text">0%</div>
         </div>
 
         <!-- Превью файла -->
-        <div class="file-preview" id="file-preview">
-            <div class="file-preview-content">
-                <i class="fas fa-file file-preview-icon" id="file-preview-icon"></i>
-                <div class="file-preview-info">
-                    <div class="file-preview-name" id="file-preview-name"></div>
-                    <div class="file-preview-size" id="file-preview-size"></div>
-                </div>
-            </div>
-            <div class="file-preview-actions">
-                <button class="btn-admin-action danger" onclick="cancelFile()">Отмена</button>
-                <button class="btn-admin-action primary" onclick="sendFile()">Отправить</button>
-            </div>
+        <div class="file-preview-modal" id="file-preview-modal" style="display: none;">
+            <!-- Заполняется динамически -->
         </div>
 
         <!-- Кнопка переключения темы -->
@@ -443,6 +437,7 @@
     </div>
 
     <!-- Основной JavaScript -->
+    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1494.0.min.js"></script>
     <script src="script.js"></script>
     
     <!-- Дополнительные функции -->
@@ -472,7 +467,7 @@
         }
 
         function showAdminPanel() {
-            if (!isAdmin) {
+            if (!window.isAdmin) {
                 showNotification('У вас нет прав доступа', 'error');
                 return;
             }
@@ -541,6 +536,20 @@
             
             const media = localStorage.getItem('autoMedia') !== 'false';
             document.getElementById('media-toggle').checked = media;
+            
+            // Обновляем статус S3
+            updateS3Status();
+        }
+
+        function updateS3Status() {
+            const statusElement = document.getElementById('s3-status');
+            if (window.S3) {
+                statusElement.textContent = '✓ Активно';
+                statusElement.style.color = 'var(--success-color)';
+            } else {
+                statusElement.textContent = '✗ Не доступно';
+                statusElement.style.color = 'var(--error-color)';
+            }
         }
 
         function toggleNotifications() {
