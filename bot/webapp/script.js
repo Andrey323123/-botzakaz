@@ -8,6 +8,7 @@ let voiceRecognition = null;
 let isRecording = false;
 let recordingStartTime = null;
 let recordingTimer = null;
+let usersCache = {};
 
 // Initialize the app
 function initApp() {
@@ -16,15 +17,15 @@ function initApp() {
     
     // Set theme based on Telegram theme
     if (tg.colorScheme === 'dark') {
-        setTheme('dark');
+        document.body.classList.add('dark-theme');
     }
     
-    // Get user ID from URL parameters or Telegram
+    // Get user ID from URL parameters
     const urlParams = new URLSearchParams(window.location.search);
-    currentUserId = urlParams.get('user_id') || tg.initDataUnsafe.user?.id;
+    currentUserId = urlParams.get('user_id');
     
     if (!currentUserId) {
-        console.error('User ID not found');
+        showError('User ID not found. Use Telegram bot to open chat.');
         return;
     }
     
@@ -40,11 +41,11 @@ function initApp() {
     // Load online users
     updateOnlineUsers();
     
+    // Load group settings
+    loadGroupSettings();
+    
     // Set up event listeners
     setupEventListeners();
-    
-    // Initialize voice recognition if available
-    initVoiceRecognition();
 }
 
 // Load user data from backend
@@ -52,49 +53,22 @@ async function loadUserData() {
     try {
         const response = await fetch(`/api/user/${currentUserId}`);
         if (response.ok) {
-            currentUser = await response.json();
-            updateUserUI();
-        } else {
-            // Create user from Telegram data
-            const tgUser = tg.initDataUnsafe.user;
-            currentUser = {
-                id: tgUser.id,
-                username: tgUser.username,
-                first_name: tgUser.first_name,
-                last_name: tgUser.last_name,
-                photo_url: tgUser.photo_url
-            };
-            
-            // Register user on backend
-            await registerUser(currentUser);
-            updateUserUI();
+            const data = await response.json();
+            if (data.status === 'success') {
+                currentUser = data.user;
+                updateUserUI();
+            }
         }
     } catch (error) {
         console.error('Error loading user data:', error);
-        // Fallback to Telegram data
-        const tgUser = tg.initDataUnsafe.user || {
-            id: currentUserId,
-            username: 'user' + currentUserId,
-            first_name: 'User',
-            last_name: ''
+        // Fallback to URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        currentUser = {
+            user_id: currentUserId,
+            first_name: urlParams.get('first_name') || 'User',
+            username: urlParams.get('username') || ''
         };
-        currentUser = tgUser;
         updateUserUI();
-    }
-}
-
-// Register new user
-async function registerUser(userData) {
-    try {
-        await fetch('/api/user/register', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(userData)
-        });
-    } catch (error) {
-        console.error('Error registering user:', error);
     }
 }
 
@@ -111,15 +85,16 @@ function updateUserUI() {
     const username = currentUser.username ? '@' + currentUser.username : 'без username';
     document.getElementById('user-username').textContent = username;
     document.getElementById('profile-username').textContent = username;
-    document.getElementById('profile-id').textContent = currentUser.id;
+    document.getElementById('profile-id').textContent = currentUser.user_id;
     
-    // Update avatar
-    if (currentUser.photo_url) {
-        document.getElementById('user-avatar').style.backgroundImage = `url(${currentUser.photo_url})`;
-        document.getElementById('user-avatar').innerHTML = '';
-        document.getElementById('profile-avatar').style.backgroundImage = `url(${currentUser.photo_url})`;
-        document.getElementById('profile-avatar').innerHTML = '';
+    // Update profile info
+    if (currentUser.created_at) {
+        const joinedDate = new Date(currentUser.created_at);
+        document.getElementById('profile-joined').textContent = 
+            joinedDate.toLocaleDateString('ru-RU');
     }
+    
+    document.getElementById('profile-messages').textContent = currentUser.message_count || 0;
 }
 
 // Load messages from backend
@@ -127,13 +102,13 @@ async function loadMessages() {
     try {
         const response = await fetch('/api/messages');
         if (response.ok) {
-            const messages = await response.json();
-            displayMessages(messages);
+            const data = await response.json();
+            if (data.status === 'success') {
+                displayMessages(data.messages);
+            }
         }
     } catch (error) {
         console.error('Error loading messages:', error);
-        // Show sample messages for demo
-        showSampleMessages();
     }
 }
 
@@ -153,15 +128,16 @@ function displayMessages(messages) {
 
 // Create message element
 function createMessageElement(message) {
-    const isOutgoing = message.user_id == currentUserId;
+    const isOutgoing = message.user.user_id == currentUserId;
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${isOutgoing ? 'outgoing' : 'incoming'}`;
     
     // Format time
-    const time = new Date(message.timestamp).toLocaleTimeString('ru-RU', {
-        hour: '2-digit',
-        minute: '2-digit'
-    });
+    const time = message.timestamp ? 
+        new Date(message.timestamp).toLocaleTimeString('ru-RU', {
+            hour: '2-digit',
+            minute: '2-digit'
+        }) : 'now';
     
     // Get user info
     const user = message.user || { first_name: 'User', username: '' };
@@ -173,7 +149,7 @@ function createMessageElement(message) {
         case 'photo':
             contentHTML = `
                 <div class="message-media">
-                    <img src="${message.file_url || '/placeholder-image.jpg'}" alt="Photo">
+                    <img src="${message.file_url || 'https://via.placeholder.com/200x150/5682a3/ffffff?text=Photo'}" alt="Photo" onclick="openMedia('${message.file_url}')">
                 </div>
             `;
             break;
@@ -192,15 +168,15 @@ function createMessageElement(message) {
             
         case 'document':
             contentHTML = `
-                <div class="message-document">
+                <div class="message-document" onclick="downloadFile('${message.file_url}')">
                     <i class="fas fa-file"></i>
-                    <span>Документ</span>
+                    <span>${message.content || 'Документ'}</span>
                 </div>
             `;
             break;
             
         default:
-            // Parse mentions
+            // Parse mentions and emojis
             let text = message.content || '';
             text = parseMentions(text);
             text = parseEmojis(text);
@@ -209,7 +185,7 @@ function createMessageElement(message) {
     
     messageDiv.innerHTML = `
         ${!isOutgoing ? `
-            <div class="message-avatar">
+            <div class="message-avatar" style="background-color: ${stringToColor(user.user_id || 'user')}">
                 ${user.first_name ? user.first_name.charAt(0).toUpperCase() : 'U'}
             </div>
         ` : ''}
@@ -244,7 +220,7 @@ async function sendMessage() {
     
     try {
         const messageData = {
-            user_id: currentUserId,
+            user_id: parseInt(currentUserId),
             message_type: 'text',
             content: text
         };
@@ -257,9 +233,13 @@ async function sendMessage() {
             body: JSON.stringify(messageData)
         });
         
-        if (response.ok) {
+        const data = await response.json();
+        
+        if (data.status === 'success') {
             input.value = '';
             loadMessages(); // Reload messages
+        } else {
+            showNotification(data.message || 'Ошибка отправки', 'error');
         }
     } catch (error) {
         console.error('Error sending message:', error);
@@ -269,42 +249,30 @@ async function sendMessage() {
 
 // Send photo
 async function sendPhoto() {
-    tg.showPopup({
-        title: 'Отправить фото',
-        message: 'Выберите фото',
-        buttons: [
-            { id: 'camera', type: 'default', text: 'Камера' },
-            { id: 'gallery', type: 'default', text: 'Галерея' },
-            { type: 'cancel' }
-        ]
-    }, (buttonId) => {
-        if (buttonId === 'camera' || buttonId === 'gallery') {
-            // In real app, use Telegram file picker
-            // For demo, simulate photo upload
-            simulatePhotoUpload();
-        }
-    });
-}
-
-// Simulate photo upload (for demo)
-function simulatePhotoUpload() {
+    // In real app, use Telegram file picker
+    // For demo, simulate photo upload
     showNotification('Загрузка фото...', 'info');
     
     setTimeout(async () => {
         const messageData = {
-            user_id: currentUserId,
+            user_id: parseInt(currentUserId),
             message_type: 'photo',
-            file_url: 'https://via.placeholder.com/200x150/5682a3/ffffff?text=Photo'
+            file_url: 'https://via.placeholder.com/200x150/5682a3/ffffff?text=Photo',
+            content: 'Фото'
         };
         
         try {
-            await fetch('/api/messages/send', {
+            const response = await fetch('/api/messages/send', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(messageData)
             });
-            loadMessages();
-            showNotification('Фото отправлено', 'success');
+            
+            const data = await response.json();
+            if (data.status === 'success') {
+                loadMessages();
+                showNotification('Фото отправлено', 'success');
+            }
         } catch (error) {
             showNotification('Ошибка отправки фото', 'error');
         }
@@ -322,11 +290,6 @@ async function sendVoice() {
 
 // Start voice recording
 function startVoiceRecording() {
-    if (!voiceRecognition) {
-        showNotification('Голосовые сообщения не поддерживаются в вашем браузере', 'error');
-        return;
-    }
-    
     isRecording = true;
     recordingStartTime = Date.now();
     
@@ -338,10 +301,6 @@ function startVoiceRecording() {
     updateRecordingTimer();
     recordingTimer = setInterval(updateRecordingTimer, 1000);
     
-    // Start voice recognition (simulated)
-    voiceRecognition.start();
-    
-    // Show notification
     showNotification('Запись голосового сообщения...', 'info');
 }
 
@@ -373,29 +332,29 @@ async function sendVoiceMessage() {
     document.getElementById('voice-recording').classList.remove('active');
     document.getElementById('message-input').style.display = '';
     
-    if (voiceRecognition) {
-        voiceRecognition.stop();
-    }
-    
     showNotification('Отправка голосового сообщения...', 'info');
     
     // Simulate voice message upload
     setTimeout(async () => {
         const messageData = {
-            user_id: currentUserId,
+            user_id: parseInt(currentUserId),
             message_type: 'voice',
             file_url: '/voice-message.mp3',
             content: 'Голосовое сообщение'
         };
         
         try {
-            await fetch('/api/messages/send', {
+            const response = await fetch('/api/messages/send', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(messageData)
             });
-            loadMessages();
-            showNotification('Голосовое сообщение отправлено', 'success');
+            
+            const data = await response.json();
+            if (data.status === 'success') {
+                loadMessages();
+                showNotification('Голосовое сообщение отправлено', 'success');
+            }
         } catch (error) {
             showNotification('Ошибка отправки голосового сообщения', 'error');
         }
@@ -410,59 +369,65 @@ function cancelVoiceRecording() {
     document.getElementById('voice-recording').classList.remove('active');
     document.getElementById('message-input').style.display = '';
     
-    if (voiceRecognition) {
-        voiceRecognition.stop();
-    }
-    
     showNotification('Запись отменена', 'warning');
 }
 
 // Send document
 async function sendDocument() {
-    tg.showPopup({
-        title: 'Отправить файл',
-        message: 'Выберите файл',
-        buttons: [
-            { id: 'document', type: 'default', text: 'Документ' },
-            { id: 'video', type: 'default', text: 'Видео' },
-            { id: 'audio', type: 'default', text: 'Аудио' },
-            { type: 'cancel' }
-        ]
-    }, async (buttonId) => {
-        if (buttonId) {
-            const messageData = {
-                user_id: currentUserId,
-                message_type: 'document',
-                content: `${buttonId.charAt(0).toUpperCase() + buttonId.slice(1)} файл`
-            };
+    showNotification('Загрузка файла...', 'info');
+    
+    setTimeout(async () => {
+        const messageData = {
+            user_id: parseInt(currentUserId),
+            message_type: 'document',
+            content: 'Документ',
+            file_url: '/document.pdf'
+        };
+        
+        try {
+            const response = await fetch('/api/messages/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(messageData)
+            });
             
-            try {
-                await fetch('/api/messages/send', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(messageData)
-                });
+            const data = await response.json();
+            if (data.status === 'success') {
                 loadMessages();
                 showNotification('Файл отправлен', 'success');
-            } catch (error) {
-                showNotification('Ошибка отправки файла', 'error');
             }
+        } catch (error) {
+            showNotification('Ошибка отправки файла', 'error');
         }
-    });
+    }, 1000);
 }
 
 // Mention user
 function mentionUser() {
-    const input = document.getElementById('message-input');
-    input.value += '@';
-    input.focus();
-    showMentionSuggestions();
+    showUserMentionList();
 }
 
-// Show mention suggestions
-function showMentionSuggestions() {
-    // In real app, show dropdown with users
-    showNotification('Начните вводить имя пользователя для упоминания', 'info');
+// Show user mention list
+function showUserMentionList() {
+    const mentionList = document.getElementById('mention-list');
+    mentionList.innerHTML = '';
+    
+    Object.values(usersCache).forEach(user => {
+        if (user.user_id != currentUserId) {
+            const item = document.createElement('div');
+            item.className = 'mention-item';
+            item.textContent = `@${user.username || user.first_name}`;
+            item.onclick = () => {
+                const input = document.getElementById('message-input');
+                input.value += `@${user.username || user.first_name} `;
+                input.focus();
+                mentionList.style.display = 'none';
+            };
+            mentionList.appendChild(item);
+        }
+    });
+    
+    mentionList.style.display = 'block';
 }
 
 // Parse mentions in text
@@ -472,7 +437,6 @@ function parseMentions(text) {
 
 // Parse emojis in text
 function parseEmojis(text) {
-    // Simple emoji mapping
     const emojiMap = {
         ':)': '😊',
         ':(': '😢',
@@ -481,7 +445,8 @@ function parseEmojis(text) {
         ':P': '😛',
         ':*': '😘',
         '<3': '❤️',
-        ':O': '😮'
+        ':O': '😮',
+        ':|': '😐'
     };
     
     Object.keys(emojiMap).forEach(emoji => {
@@ -491,120 +456,27 @@ function parseEmojis(text) {
     return text;
 }
 
-// Play voice message
-function playVoice(fileId) {
-    showNotification('Воспроизведение голосового сообщения', 'info');
-    // In real app, implement audio playback
-}
-
 // Start polling for new messages
 function startMessagePolling() {
-    messageInterval = setInterval(loadMessages, 3000); // Poll every 3 seconds
+    messageInterval = setInterval(loadMessages, 3000);
 }
 
 // Update online users
 async function updateOnlineUsers() {
     try {
-        const response = await fetch('/api/users/online');
+        const response = await fetch('/api/stats');
         if (response.ok) {
-            const onlineUsers = await response.json();
-            usersOnline = new Set(onlineUsers);
-            
-            // Update counters
-            document.getElementById('online-count').textContent = usersOnline.size;
-            document.getElementById('sidebar-online-count').textContent = usersOnline.size;
+            const data = await response.json();
+            if (data.status === 'success') {
+                usersOnline = new Set(data.stats.online_users || []);
+                
+                // Update counters
+                document.getElementById('online-count').textContent = data.stats.online_users || 0;
+                document.getElementById('sidebar-online-count').textContent = data.stats.online_users || 0;
+            }
         }
     } catch (error) {
         console.error('Error updating online users:', error);
-    }
-}
-
-// Toggle sidebar
-function toggleSidebar() {
-    const sidebar = document.getElementById('sidebar');
-    const overlay = document.getElementById('overlay');
-    
-    sidebar.classList.toggle('active');
-    overlay.classList.toggle('active');
-}
-
-// Toggle search
-function toggleSearch() {
-    document.getElementById('search-bar').classList.toggle('active');
-}
-
-// Toggle attach menu
-function toggleAttachMenu() {
-    document.getElementById('attach-menu').classList.toggle('active');
-}
-
-// Show chat view
-function showChat() {
-    showView('chat-view');
-    document.querySelector('.menu-item:nth-child(1)').classList.add('active');
-    document.querySelectorAll('.menu-item:not(:nth-child(1))').forEach(item => {
-        item.classList.remove('active');
-    });
-}
-
-// Show profile view
-function showProfile() {
-    showView('profile-view');
-    document.querySelector('.menu-item:nth-child(2)').classList.add('active');
-    document.querySelectorAll('.menu-item:not(:nth-child(2))').forEach(item => {
-        item.classList.remove('active');
-    });
-    
-    // Load profile data
-    loadProfileData();
-}
-
-// Show users view
-function showUsers() {
-    showView('users-view');
-    document.querySelector('.menu-item:nth-child(3)').classList.add('active');
-    document.querySelectorAll('.menu-item:not(:nth-child(3))').forEach(item => {
-        item.classList.remove('active');
-    });
-    
-    // Load users
-    loadUsers();
-}
-
-// Show settings view
-function showSettings() {
-    showView('settings-view');
-    document.querySelector('.menu-item:nth-child(4)').classList.add('active');
-    document.querySelectorAll('.menu-item:not(:nth-child(4))').forEach(item => {
-        item.classList.remove('active');
-    });
-}
-
-// Show specific view
-function showView(viewId) {
-    document.querySelectorAll('.chat-container, .profile-container, .users-container, .settings-container').forEach(view => {
-        view.classList.remove('active');
-    });
-    document.getElementById(viewId).classList.add('active');
-    
-    // Close sidebar on mobile
-    if (window.innerWidth <= 768) {
-        toggleSidebar();
-    }
-}
-
-// Load profile data
-async function loadProfileData() {
-    try {
-        const response = await fetch(`/api/user/${currentUserId}/profile`);
-        if (response.ok) {
-            const profile = await response.json();
-            document.getElementById('profile-joined').textContent = 
-                new Date(profile.joined_at).toLocaleDateString('ru-RU');
-            document.getElementById('profile-messages').textContent = profile.message_count || 0;
-        }
-    } catch (error) {
-        console.error('Error loading profile data:', error);
     }
 }
 
@@ -613,8 +485,15 @@ async function loadUsers() {
     try {
         const response = await fetch('/api/users');
         if (response.ok) {
-            const users = await response.json();
-            displayUsers(users);
+            const data = await response.json();
+            if (data.status === 'success') {
+                usersCache = {};
+                data.users.forEach(user => {
+                    usersCache[user.user_id] = user;
+                });
+                
+                displayUsers(data.users);
+            }
         }
     } catch (error) {
         console.error('Error loading users:', error);
@@ -627,189 +506,126 @@ function displayUsers(users) {
     container.innerHTML = '';
     
     users.forEach(user => {
-        const userElement = document.createElement('div');
-        userElement.className = 'user-item';
-        userElement.onclick = () => showUserProfile(user.id);
-        
-        const isOnline = usersOnline.has(user.id);
-        const userName = user.first_name + (user.last_name ? ' ' + user.last_name : '');
-        const status = isOnline ? 
-            `<span class="user-item-online">онлайн</span>` : 
-            `<span>был(а) недавно</span>`;
-        
-        userElement.innerHTML = `
-            <div class="user-item-avatar">
-                ${user.first_name ? user.first_name.charAt(0).toUpperCase() : 'U'}
-            </div>
-            <div class="user-item-info">
-                <div class="user-item-name">${userName}</div>
-                <div class="user-item-status">${status}</div>
-            </div>
-            ${isOnline ? '<i class="fas fa-circle online-dot"></i>' : ''}
-        `;
-        
+        const userElement = createUserElement(user);
         container.appendChild(userElement);
+    });
+}
+
+// Create user element
+function createUserElement(user) {
+    const userElement = document.createElement('div');
+    userElement.className = 'user-item';
+    userElement.onclick = () => showUserActions(user.user_id);
+    
+    const isOnline = usersOnline.has(user.user_id);
+    const userName = user.first_name + (user.last_name ? ' ' + user.last_name : '');
+    const status = isOnline ? 
+        `<span class="user-item-online">онлайн</span>` : 
+        `<span>сообщений: ${user.message_count || 0}</span>`;
+    
+    userElement.innerHTML = `
+        <div class="user-item-avatar" style="background-color: ${stringToColor(user.user_id)}">
+            ${user.first_name ? user.first_name.charAt(0).toUpperCase() : 'U'}
+        </div>
+        <div class="user-item-info">
+            <div class="user-item-name">${userName}</div>
+            <div class="user-item-status">${status}</div>
+        </div>
+        ${user.is_banned ? '<i class="fas fa-ban banned-icon"></i>' : 
+          user.is_muted ? '<i class="fas fa-volume-mute muted-icon"></i>' : 
+          isOnline ? '<i class="fas fa-circle online-dot"></i>' : ''}
+    `;
+    
+    return userElement;
+}
+
+// Load group settings
+async function loadGroupSettings() {
+    try {
+        const response = await fetch('/api/group/settings');
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success') {
+                document.getElementById('chat-title').textContent = data.settings.group_name;
+                document.querySelector('.chat-title').textContent = data.settings.group_name;
+            }
+        }
+    } catch (error) {
+        console.error('Error loading group settings:', error);
+    }
+}
+
+// Show user actions
+function showUserActions(userId) {
+    tg.showPopup({
+        title: 'Действия с пользователем',
+        message: 'Выберите действие:',
+        buttons: [
+            { id: 'mention', type: 'default', text: 'Упомянуть' },
+            { id: 'profile', type: 'default', text: 'Профиль' },
+            userId != currentUserId ? { id: 'message', type: 'default', text: 'Написать в ЛС' } : null,
+            { type: 'cancel' }
+        ].filter(Boolean)
+    }, (buttonId) => {
+        if (buttonId === 'mention') {
+            const user = usersCache[userId];
+            if (user) {
+                const input = document.getElementById('message-input');
+                input.value += `@${user.username || user.first_name} `;
+                input.focus();
+                showChat();
+            }
+        } else if (buttonId === 'profile') {
+            showUserProfile(userId);
+        } else if (buttonId === 'message') {
+            // В будущем можно добавить ЛС
+            showNotification('Личные сообщения в разработке', 'info');
+        }
     });
 }
 
 // Show user profile
 function showUserProfile(userId) {
+    const user = usersCache[userId];
+    if (!user) return;
+    
     tg.showPopup({
-        title: 'Профиль пользователя',
-        message: 'Действия с пользователем',
+        title: `Профиль: ${user.first_name}`,
+        message: `Username: ${user.username || 'нет'}\nID: ${user.user_id}\nСообщений: ${user.message_count || 0}\nВ чате с: ${new Date(user.created_at).toLocaleDateString('ru-RU')}`,
         buttons: [
-            { id: 'message', type: 'default', text: 'Написать' },
-            { id: 'mention', type: 'default', text: 'Упомянуть' },
-            { id: 'mute', type: 'default', text: 'Замутить' },
-            { id: 'ban', type: 'default', text: 'Забанить' },
-            { type: 'cancel' }
+            { id: 'close', type: 'cancel', text: 'Закрыть' }
         ]
-    }, (buttonId) => {
-        if (buttonId === 'message') {
-            // Switch to chat and focus input
-            showChat();
-            const input = document.getElementById('message-input');
-            input.value += `@${userId} `;
-            input.focus();
-        } else if (buttonId === 'mention') {
-            const input = document.getElementById('message-input');
-            input.value += `@${userId} `;
-            input.focus();
-            showChat();
-        } else if (buttonId === 'mute') {
-            muteUser(userId);
-        } else if (buttonId === 'ban') {
-            banUser(userId);
-        }
     });
 }
 
-// Mute user
-async function muteUser(userId) {
-    try {
-        await fetch(`/api/user/${userId}/mute`, { method: 'POST' });
-        showNotification('Пользователь замучен', 'success');
-        loadUsers();
-    } catch (error) {
-        showNotification('Ошибка', 'error');
-    }
-}
-
-// Ban user
-async function banUser(userId) {
-    try {
-        await fetch(`/api/user/${userId}/ban`, { method: 'POST' });
-        showNotification('Пользователь забанен', 'success');
-        loadUsers();
-    } catch (error) {
-        showNotification('Ошибка', 'error');
-    }
-}
-
-// Change avatar
-function changeAvatar() {
-    tg.showPopup({
-        title: 'Сменить аватар',
-        message: 'Выберите новое фото профиля',
-        buttons: [
-            { id: 'camera', type: 'default', text: 'Сделать фото' },
-            { id: 'gallery', type: 'default', text: 'Выбрать из галереи' },
-            { type: 'cancel' }
-        ]
-    }, (buttonId) => {
-        if (buttonId) {
-            showNotification('Функция в разработке', 'info');
+// Setup event listeners
+function setupEventListeners() {
+    // Send message on Enter
+    document.getElementById('message-input').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
         }
-    });
-}
-
-// Edit profile
-function editProfile() {
-    tg.showPopup({
-        title: 'Редактировать профиль',
-        message: 'Что вы хотите изменить?',
-        buttons: [
-            { id: 'name', type: 'default', text: 'Имя' },
-            { id: 'username', type: 'default', text: 'Username' },
-            { type: 'cancel' }
-        ]
-    }, (buttonId) => {
-        if (buttonId === 'name') {
-            tg.showPopup({
-                title: 'Изменить имя',
-                message: 'Введите новое имя:',
-                buttons: [
-                    { id: 'save', type: 'ok', text: 'Сохранить' },
-                    { type: 'cancel' }
-                ]
-            });
-        } else if (buttonId === 'username') {
-            showNotification('Функция в разработке', 'info');
-        }
-    });
-}
-
-// Set theme
-function setTheme(theme) {
-    document.querySelectorAll('.theme-option').forEach(option => {
-        option.classList.remove('active');
     });
     
-    event.target.closest('.theme-option').classList.add('active');
-    
-    document.body.classList.remove('dark-theme');
-    if (theme === 'dark') {
-        document.body.classList.add('dark-theme');
-    } else if (theme === 'system') {
-        if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-            document.body.classList.add('dark-theme');
+    // Close mention list when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.mention-list') && !e.target.closest('.btn-mention')) {
+            document.getElementById('mention-list').style.display = 'none';
         }
+    });
+}
+
+// Utility functions
+function stringToColor(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
     }
-    
-    // Save theme preference
-    localStorage.setItem('theme', theme);
-    showNotification('Тема изменена', 'success');
+    const hue = hash % 360;
+    return `hsl(${hue}, 70%, 65%)`;
 }
 
-// Clear chat
-function clearChat() {
-    tg.showPopup({
-        title: 'Очистить историю',
-        message: 'Вы уверены? Это действие нельзя отменить.',
-        buttons: [
-            { id: 'clear', type: 'destructive', text: 'Очистить' },
-            { type: 'cancel' }
-        ]
-    }, async (buttonId) => {
-        if (buttonId === 'clear') {
-            try {
-                await fetch('/api/messages/clear', { method: 'POST' });
-                loadMessages();
-                showNotification('История очищена', 'success');
-            } catch (error) {
-                showNotification('Ошибка', 'error');
-            }
-        }
-    });
-}
-
-// Leave chat
-function leaveChat() {
-    tg.showPopup({
-        title: 'Покинуть чат',
-        message: 'Вы уверены, что хотите покинуть чат?',
-        buttons: [
-            { id: 'leave', type: 'destructive', text: 'Покинуть' },
-            { type: 'cancel' }
-        ]
-    }, (buttonId) => {
-        if (buttonId === 'leave') {
-            tg.close();
-        }
-    });
-}
-
-// Show notification
 function showNotification(message, type = 'info') {
     tg.showPopup({
         title: type === 'error' ? 'Ошибка' : 
@@ -819,126 +635,71 @@ function showNotification(message, type = 'info') {
     });
 }
 
-// Handle key press in message input
-function handleKeyPress(event) {
-    if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault();
-        sendMessage();
+function showError(message) {
+    const container = document.getElementById('messages-container');
+    container.innerHTML = `<div class="error-message">${message}</div>`;
+}
+
+// View management functions
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('overlay');
+    sidebar.classList.toggle('active');
+    overlay.classList.toggle('active');
+}
+
+function showChat() {
+    showView('chat-view');
+    updateMenuActive(0);
+}
+
+function showProfile() {
+    showView('profile-view');
+    updateMenuActive(1);
+}
+
+function showUsers() {
+    loadUsers();
+    showView('users-view');
+    updateMenuActive(2);
+}
+
+function showSettings() {
+    showView('settings-view');
+    updateMenuActive(3);
+}
+
+function showView(viewId) {
+    document.querySelectorAll('.chat-container, .profile-container, .users-container, .settings-container').forEach(view => {
+        view.classList.remove('active');
+    });
+    document.getElementById(viewId).classList.add('active');
+    
+    // Close sidebar on mobile
+    if (window.innerWidth <= 768) {
+        toggleSidebar();
     }
 }
 
-// Initialize voice recognition
-function initVoiceRecognition() {
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        voiceRecognition = new SpeechRecognition();
-        voiceRecognition.continuous = true;
-        voiceRecognition.interimResults = true;
-        
-        voiceRecognition.onresult = (event) => {
-            const transcript = Array.from(event.results)
-                .map(result => result[0].transcript)
-                .join('');
-            document.getElementById('message-input').value = transcript;
-        };
-        
-        voiceRecognition.onerror = (event) => {
-            console.error('Voice recognition error:', event.error);
-        };
-    }
-}
-
-// Setup event listeners
-function setupEventListeners() {
-    // Close sidebar when clicking overlay
-    document.getElementById('overlay').addEventListener('click', toggleSidebar);
-    
-    // Close attach menu when clicking outside
-    document.addEventListener('click', (event) => {
-        const attachMenu = document.getElementById('attach-menu');
-        const attachBtn = document.querySelector('.btn-attach');
-        
-        if (!attachMenu.contains(event.target) && !attachBtn.contains(event.target)) {
-            attachMenu.classList.remove('active');
-        }
-    });
-    
-    // Handle back button
-    tg.BackButton.onClick(() => {
-        if (document.getElementById('sidebar').classList.contains('active')) {
-            toggleSidebar();
-        } else if (!document.getElementById('chat-view').classList.contains('active')) {
-            showChat();
-        }
-    });
-    
-    // Update BackButton state
-    const updateBackButton = () => {
-        if (!document.getElementById('chat-view').classList.contains('active')) {
-            tg.BackButton.show();
+function updateMenuActive(index) {
+    document.querySelectorAll('.menu-item').forEach((item, i) => {
+        if (i === index) {
+            item.classList.add('active');
         } else {
-            tg.BackButton.hide();
+            item.classList.remove('active');
         }
-    };
-    
-    // Observe view changes
-    const observer = new MutationObserver(updateBackButton);
-    observer.observe(document.getElementById('main-content'), { 
-        attributes: true, 
-        attributeFilter: ['class'],
-        subtree: true 
     });
-    
-    // Set initial BackButton state
-    updateBackButton();
-}
-
-// Show sample messages for demo
-function showSampleMessages() {
-    const sampleMessages = [
-        {
-            id: 1,
-            user_id: 123456,
-            user: { first_name: 'Алексей', username: 'alexey' },
-            message_type: 'text',
-            content: 'Привет всем! Как дела?',
-            timestamp: new Date(Date.now() - 3600000).toISOString()
-        },
-        {
-            id: 2,
-            user_id: 789012,
-            user: { first_name: 'Мария', username: 'maria' },
-            message_type: 'text',
-            content: 'Всем привет! У меня все отлично :)',
-            timestamp: new Date(Date.now() - 3500000).toISOString()
-        },
-        {
-            id: 3,
-            user_id: currentUserId,
-            user: currentUser,
-            message_type: 'text',
-            content: 'Рад всех видеть в нашем чате!',
-            timestamp: new Date(Date.now() - 3400000).toISOString()
-        },
-        {
-            id: 4,
-            user_id: 345678,
-            user: { first_name: 'Иван', username: 'ivan' },
-            message_type: 'photo',
-            file_url: 'https://via.placeholder.com/200x150/5682a3/ffffff?text=Photo',
-            timestamp: new Date(Date.now() - 3300000).toISOString()
-        }
-    ];
-    
-    displayMessages(sampleMessages);
 }
 
 // Initialize when page loads
 document.addEventListener('DOMContentLoaded', initApp);
 
-// Handle beforeunload
+// Clean up on unload
 window.addEventListener('beforeunload', () => {
     if (messageInterval) {
         clearInterval(messageInterval);
+    }
+    if (recordingTimer) {
+        clearInterval(recordingTimer);
     }
 });
