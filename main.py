@@ -9,7 +9,23 @@ import core.database as db
 
 # Сначала создаем Flask app для gunicorn
 from flask import Flask, jsonify, request, send_from_directory
+import uuid
+import base64
+from datetime import datetime, timedelta
+import json
+
 flask_app = Flask(__name__)
+
+# Создаем директории для загрузок
+UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
+AVATARS_FOLDER = os.path.join(UPLOAD_FOLDER, 'avatars')
+VOICE_FOLDER = os.path.join(UPLOAD_FOLDER, 'voice')
+PHOTOS_FOLDER = os.path.join(UPLOAD_FOLDER, 'photos')
+DOCUMENTS_FOLDER = os.path.join(UPLOAD_FOLDER, 'documents')
+
+# Создаем директории если их нет
+for folder in [UPLOAD_FOLDER, AVATARS_FOLDER, VOICE_FOLDER, PHOTOS_FOLDER, DOCUMENTS_FOLDER]:
+    os.makedirs(folder, exist_ok=True)
 
 # Путь к веб-приложению
 WEBAPP_DIR = os.path.join(os.path.dirname(__file__), 'bot/webapp')
@@ -17,8 +33,18 @@ WEBAPP_DIR = os.path.join(os.path.dirname(__file__), 'bot/webapp')
 # Импортируем модели для создания таблиц
 from sqlalchemy import create_engine
 from core.models import Base
-from datetime import datetime, timedelta
-import json
+
+# Разрешенные расширения файлов
+ALLOWED_EXTENSIONS = {
+    'photos': {'png', 'jpg', 'jpeg', 'gif', 'webp'},
+    'documents': {'pdf', 'doc', 'docx', 'txt', 'zip', 'rar'},
+    'voice': {'mp3', 'wav', 'ogg', 'm4a'}
+}
+
+def allowed_file(filename, file_type):
+    """Проверка расширения файла"""
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS.get(file_type, set())
 
 @flask_app.route('/')
 def index():
@@ -68,8 +94,21 @@ def get_messages():
                 'user_id': user.user_id if user else message.user_id,
                 'username': user.username if user else None,
                 'first_name': user.first_name if user else 'User',
-                'last_name': user.last_name if user else None
+                'last_name': user.last_name if user else None,
+                'photo_url': user.photo_url if user else None
             }
+            
+            # Форматируем время для отображения
+            timestamp = None
+            if message.timestamp:
+                # Конвертируем в локальное время
+                local_time = message.timestamp
+                timestamp = {
+                    'iso': local_time.isoformat(),
+                    'display': local_time.strftime('%H:%M'),
+                    'date': local_time.strftime('%d.%m.%Y'),
+                    'full': local_time.strftime('%d.%m.%Y %H:%M')
+                }
             
             messages_data.append({
                 'id': message.id,
@@ -78,7 +117,8 @@ def get_messages():
                 'content': message.content,
                 'file_id': message.file_id,
                 'file_url': message.file_url,
-                'timestamp': message.timestamp.isoformat() if message.timestamp else None
+                'timestamp': timestamp,
+                'voice_duration': getattr(message, 'voice_duration', None)
             })
         
         return jsonify({
@@ -114,13 +154,257 @@ def send_message_api():
             file_url=data.get('file_url')
         )
         
+        # Добавляем голосовое сообщение если нужно
+        voice_duration = data.get('voice_duration')
+        if voice_duration and data['message_type'] == 'voice':
+            # Здесь можно сохранить продолжительность в БД
+            pass
+        
+        timestamp = None
+        if message.timestamp:
+            local_time = message.timestamp
+            timestamp = {
+                'iso': local_time.isoformat(),
+                'display': local_time.strftime('%H:%M'),
+                'full': local_time.strftime('%d.%m.%Y %H:%M')
+            }
+        
         return jsonify({
             'status': 'success', 
             'message_id': message.id,
-            'timestamp': message.timestamp.isoformat() if message.timestamp else None
+            'timestamp': timestamp
         })
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@flask_app.route('/api/upload/photo', methods=['POST'])
+def upload_photo():
+    """Загрузка фото"""
+    try:
+        if 'photo' not in request.files:
+            return jsonify({'status': 'error', 'message': 'No photo provided'}), 400
+        
+        photo = request.files['photo']
+        user_id = request.form.get('user_id')
+        
+        if not user_id:
+            return jsonify({'status': 'error', 'message': 'User ID required'}), 400
+        
+        if photo.filename == '':
+            return jsonify({'status': 'error', 'message': 'No selected file'}), 400
+        
+        if not allowed_file(photo.filename, 'photos'):
+            return jsonify({'status': 'error', 'message': 'File type not allowed'}), 400
+        
+        # Генерируем уникальное имя файла
+        filename = f"{uuid.uuid4()}.{photo.filename.rsplit('.', 1)[1].lower()}"
+        filepath = os.path.join(PHOTOS_FOLDER, filename)
+        photo.save(filepath)
+        
+        # URL для доступа к файлу
+        file_url = f"/uploads/photos/{filename}"
+        
+        # Сохраняем сообщение о фото
+        message = db.add_message(
+            user_id=int(user_id),
+            message_type='photo',
+            content='Фото',
+            file_url=file_url,
+            file_id=filename
+        )
+        
+        return jsonify({
+            'status': 'success',
+            'message_id': message.id,
+            'file_url': file_url,
+            'filename': filename
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@flask_app.route('/api/upload/voice', methods=['POST'])
+def upload_voice():
+    """Загрузка голосового сообщения"""
+    try:
+        if 'voice' not in request.files:
+            return jsonify({'status': 'error', 'message': 'No voice message provided'}), 400
+        
+        voice = request.files['voice']
+        user_id = request.form.get('user_id')
+        duration = request.form.get('duration', 0)
+        
+        if not user_id:
+            return jsonify({'status': 'error', 'message': 'User ID required'}), 400
+        
+        if voice.filename == '':
+            return jsonify({'status': 'error', 'message': 'No selected file'}), 400
+        
+        if not allowed_file(voice.filename, 'voice'):
+            return jsonify({'status': 'error', 'message': 'File type not allowed'}), 400
+        
+        # Генерируем уникальное имя файла
+        filename = f"{uuid.uuid4()}.{voice.filename.rsplit('.', 1)[1].lower()}"
+        filepath = os.path.join(VOICE_FOLDER, filename)
+        voice.save(filepath)
+        
+        # URL для доступа к файлу
+        file_url = f"/uploads/voice/{filename}"
+        
+        # Сохраняем сообщение о голосовом сообщении
+        message = db.add_message(
+            user_id=int(user_id),
+            message_type='voice',
+            content='Голосовое сообщение',
+            file_url=file_url,
+            file_id=filename
+        )
+        
+        return jsonify({
+            'status': 'success',
+            'message_id': message.id,
+            'file_url': file_url,
+            'filename': filename,
+            'duration': int(duration)
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@flask_app.route('/api/upload/document', methods=['POST'])
+def upload_document():
+    """Загрузка документа"""
+    try:
+        if 'document' not in request.files:
+            return jsonify({'status': 'error', 'message': 'No document provided'}), 400
+        
+        document = request.files['document']
+        user_id = request.form.get('user_id')
+        description = request.form.get('description', 'Документ')
+        
+        if not user_id:
+            return jsonify({'status': 'error', 'message': 'User ID required'}), 400
+        
+        if document.filename == '':
+            return jsonify({'status': 'error', 'message': 'No selected file'}), 400
+        
+        if not allowed_file(document.filename, 'documents'):
+            return jsonify({'status': 'error', 'message': 'File type not allowed'}), 400
+        
+        # Генерируем уникальное имя файла
+        ext = document.filename.rsplit('.', 1)[1].lower()
+        filename = f"{uuid.uuid4()}.{ext}"
+        filepath = os.path.join(DOCUMENTS_FOLDER, filename)
+        document.save(filepath)
+        
+        # Получаем размер файла
+        file_size = os.path.getsize(filepath)
+        
+        # URL для доступа к файлу
+        file_url = f"/uploads/documents/{filename}"
+        
+        # Сохраняем сообщение о документе
+        message = db.add_message(
+            user_id=int(user_id),
+            message_type='document',
+            content=description,
+            file_url=file_url,
+            file_id=filename
+        )
+        
+        return jsonify({
+            'status': 'success',
+            'message_id': message.id,
+            'file_url': file_url,
+            'filename': filename,
+            'original_name': document.filename,
+            'size': file_size,
+            'description': description
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@flask_app.route('/api/user/avatar', methods=['POST'])
+def upload_avatar():
+    """Загрузка аватарки пользователя"""
+    try:
+        if 'avatar' not in request.files:
+            return jsonify({'status': 'error', 'message': 'No avatar provided'}), 400
+        
+        avatar = request.files['avatar']
+        user_id = request.form.get('user_id')
+        
+        if not user_id:
+            return jsonify({'status': 'error', 'message': 'User ID required'}), 400
+        
+        if avatar.filename == '':
+            return jsonify({'status': 'error', 'message': 'No selected file'}), 400
+        
+        if not allowed_file(avatar.filename, 'photos'):
+            return jsonify({'status': 'error', 'message': 'File type not allowed'}), 400
+        
+        # Генерируем уникальное имя файла
+        filename = f"{uuid.uuid4()}.{avatar.filename.rsplit('.', 1)[1].lower()}"
+        filepath = os.path.join(AVATARS_FOLDER, filename)
+        avatar.save(filepath)
+        
+        # URL для доступа к файлу
+        avatar_url = f"/uploads/avatars/{filename}"
+        
+        # Обновляем пользователя в БД
+        user = db.get_user_by_id(int(user_id))
+        if user:
+            # Здесь нужно добавить метод для обновления фото пользователя
+            # Пока сохраняем в текущей структуре
+            user.photo_url = avatar_url
+            # В реальном приложении нужно сохранить изменения в БД
+        
+        return jsonify({
+            'status': 'success',
+            'avatar_url': avatar_url,
+            'filename': filename
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@flask_app.route('/api/voice/<filename>')
+def get_voice_file(filename):
+    """Получить голосовое сообщение"""
+    try:
+        return send_from_directory(VOICE_FOLDER, filename)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 404
+
+@flask_app.route('/api/photo/<filename>')
+def get_photo_file(filename):
+    """Получить фото"""
+    try:
+        return send_from_directory(PHOTOS_FOLDER, filename)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 404
+
+@flask_app.route('/api/document/<filename>')
+def get_document_file(filename):
+    """Получить документ"""
+    try:
+        return send_from_directory(DOCUMENTS_FOLDER, filename)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 404
+
+@flask_app.route('/api/avatar/<filename>')
+def get_avatar_file(filename):
+    """Получить аватар"""
+    try:
+        return send_from_directory(AVATARS_FOLDER, filename)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 404
+
+# Статические файлы загрузок
+@flask_app.route('/uploads/<path:filename>')
+def serve_upload(filename):
+    """Сервис загруженных файлов"""
+    upload_path = os.path.join(UPLOAD_FOLDER, filename)
+    if os.path.exists(upload_path):
+        return send_from_directory(UPLOAD_FOLDER, filename)
+    return "File not found", 404
 
 @flask_app.route('/api/users', methods=['GET'])
 def get_users_api():
