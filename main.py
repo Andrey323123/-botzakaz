@@ -6,26 +6,14 @@ from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from aiogram.utils import executor
 import core.database as db
+
+# Сначала создаем Flask app для gunicorn
 from flask import Flask, jsonify, request
-from threading import Thread
-from datetime import datetime
-
-# Настройка логирования
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-# Получаем порт из переменных окружения Railway
-PORT = int(os.getenv("PORT", 8080))
-
-# Инициализация Flask приложения для API
 flask_app = Flask(__name__)
 
 @flask_app.route('/')
 def index():
-    return "Telegram Bot API is running!"
+    return "Telegram Bot with Mini App is running!"
 
 @flask_app.route('/health')
 def health():
@@ -58,88 +46,17 @@ def get_messages():
             'messages': messages_data
         })
     except Exception as e:
-        logger.error(f"API error in get_messages: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-@flask_app.route('/api/messages/send', methods=['POST'])
-def send_message():
-    """Отправить сообщение через API"""
-    try:
-        data = request.json
-        if not data or 'user_id' not in data or 'message_type' not in data:
-            return jsonify({'status': 'error', 'message': 'Invalid request'}), 400
-        
-        # Сохраняем сообщение
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        message = loop.run_until_complete(db.add_message(
-            user_id=data['user_id'],
-            message_type=data['message_type'],
-            content=data.get('content'),
-            file_id=data.get('file_id'),
-            file_url=data.get('file_url')
-        ))
-        
-        return jsonify({'status': 'success', 'message_id': message.id})
-    except Exception as e:
-        logger.error(f"API error in send_message: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+# Экспортируем app для gunicorn
+app = flask_app
 
-@flask_app.route('/api/users', methods=['GET'])
-def get_users():
-    """Получить список пользователей"""
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        users = loop.run_until_complete(db.get_users())
-        
-        users_data = []
-        for user in users:
-            users_data.append({
-                'id': user.id,
-                'user_id': user.user_id,
-                'username': user.username,
-                'first_name': user.first_name,
-                'last_name': user.last_name,
-                'photo_url': user.photo_url
-            })
-        
-        return jsonify({'status': 'success', 'users': users_data})
-    except Exception as e:
-        logger.error(f"API error in get_users: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-
-@flask_app.route('/api/user/<int:user_id>', methods=['GET'])
-def get_user(user_id):
-    """Получить информацию о пользователе"""
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        user = loop.run_until_complete(db.get_or_create_user({
-            'id': user_id,
-            'username': None,
-            'first_name': None,
-            'last_name': None
-        }))
-        
-        return jsonify({
-            'status': 'success',
-            'user': {
-                'id': user.id,
-                'user_id': user.user_id,
-                'username': user.username,
-                'first_name': user.first_name,
-                'last_name': user.last_name,
-                'photo_url': user.photo_url
-            }
-        })
-    except Exception as e:
-        logger.error(f"API error in get_user: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-
-def run_flask():
-    """Запуск Flask сервера"""
-    flask_app.run(host='0.0.0.0', port=PORT, debug=False)
+# Настройка логирования для aiogram
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Инициализация Telegram бота
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -165,7 +82,7 @@ async def cmd_start(message: types.Message):
         user = await db.get_or_create_user(user_data)
         
         # Получаем домен из переменных окружения Railway
-        domain = os.getenv("RAILWAY_STATIC_URL", f"http://localhost:{PORT}")
+        domain = os.getenv("RAILWAY_STATIC_URL", f"http://localhost:{os.getenv('PORT', 8080)}")
         
         # Создаем URL для веб-приложения
         webapp_url = f"{domain}/index.html?user_id={message.from_user.id}&first_name={message.from_user.first_name}"
@@ -199,7 +116,7 @@ async def cmd_start(message: types.Message):
 @dp.message_handler(commands=['chat'])
 async def cmd_chat(message: types.Message):
     """Открыть чат"""
-    domain = os.getenv("RAILWAY_STATIC_URL", f"http://localhost:{PORT}")
+    domain = os.getenv("RAILWAY_STATIC_URL", f"http://localhost:{os.getenv('PORT', 8080)}")
     webapp_url = f"{domain}/index.html?user_id={message.from_user.id}"
     
     keyboard = InlineKeyboardMarkup(row_width=1)
@@ -224,9 +141,8 @@ async def cmd_help(message: types.Message):
 📱 **Мини-приложение чата:**
 • Групповой чат в стиле Telegram
 • Отправка текста, фото, голосовых сообщений
-• Упоминания пользователей (@username)
+• Упоминания пользователей
 • Профили пользователей
-• Настройки чата
 """
     await message.answer(help_text, parse_mode='Markdown')
 
@@ -256,7 +172,6 @@ async def handle_text(message: types.Message):
         # Если команда не распознана
         await message.answer("🤔 Неизвестная команда. Используйте /help для списка команд.")
     else:
-        # Можно добавить функционал отправки сообщений через бота
         await message.answer("💡 Для общения в чате используйте мини-приложение через команду /chat")
 
 async def on_startup(dp):
@@ -270,26 +185,18 @@ async def on_startup(dp):
     except Exception as e:
         logger.error(f"❌ Ошибка инициализации БД: {e}")
     
-    # Запуск Flask сервера
-    try:
-        logger.info(f"🌐 Запуск API сервера на порту {PORT}...")
-        flask_thread = Thread(target=run_flask, daemon=True)
-        flask_thread.start()
-        logger.info("✅ API сервер запущен")
-    except Exception as e:
-        logger.error(f"❌ Ошибка запуска API сервера: {e}")
-    
     # Информация о боте
     me = await bot.get_me()
     logger.info(f"✅ Бот @{me.username} успешно запущен!")
     logger.info("📱 Используйте команду /start для начала работы")
+    logger.info(f"🌐 Веб-приложение доступно по адресу: {os.getenv('RAILWAY_STATIC_URL', 'http://localhost:8080')}")
 
 async def on_shutdown(dp):
     """Действия при завершении работы"""
     logger.info("👋 Завершение работы бота...")
 
-def main():
-    """Основная функция запуска"""
+def run_bot():
+    """Запуск бота"""
     print("\n" + "="*50)
     print("🚀 Telegram Bot with Mini App")
     print("="*50)
@@ -301,8 +208,8 @@ def main():
         exit(1)
     
     print(f"\n🔑 Токен бота: {'✅ Найден' if BOT_TOKEN else '❌ Не найден'}")
-    print(f"🌐 Порт API: {PORT}")
-    print("🤖 Бот запускается...\n")
+    print(f"🌐 Порт: {os.getenv('PORT', 8080)}")
+    print("🤖 Запуск бота...\n")
     
     # Запуск поллинга
     executor.start_polling(
@@ -312,10 +219,14 @@ def main():
         on_shutdown=on_shutdown
     )
 
+# Если файл запускается напрямую (не через gunicorn)
 if __name__ == '__main__':
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\n\n👋 Завершено пользователем")
-    except Exception as e:
-        logger.error(f"Критическая ошибка: {e}")
+    import threading
+    
+    # Запускаем бота в отдельном потоке
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
+    
+    # Запускаем Flask app (для gunicorn)
+    port = int(os.getenv("PORT", 8080))
+    app.run(host='0.0.0.0', port=port, debug=False)
