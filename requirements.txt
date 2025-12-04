@@ -2,4 +2,5 @@ aiogram==2.25.1
 sqlalchemy==2.0.23
 aiosqlite==0.20.0
 python-dotenv==1.0.0
-# aiohttp будет установлен автоматически как зависимость aiogram
+flask==3.0.0
+gunicorn==21.2.0
