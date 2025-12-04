@@ -12,11 +12,20 @@ let isAdmin = false;
 let usersCache = {};
 let attachedFiles = [];
 let s3Status = 'Не проверено';
+let unreadCounts = {
+    main: 0,
+    news: 0
+};
+
 let s3Data = {
     users: {},
     messages_main: [],
     messages_news: [],
-    metadata: {}
+    metadata: {},
+    permissions: {
+        main: 'all',
+        news: 'all'
+    }
 };
 
 // ===== КОНФИГУРАЦИЯ SELECTEL S3 =====
@@ -26,7 +35,7 @@ const S3_CONFIG = {
     bucket: 'telegram-chat-files',
     accessKeyId: '7508531e4e684de2bc5d039c74c4441d',
     secretAccessKey: '9a9c1682a5b247019acafa4489060d61',
-    maxFileSize: 10 * 1024 * 1024, // 10MB
+    maxFileSize: 10 * 1024 * 1024,
     allowedTypes: {
         image: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
         document: ['application/pdf', 'text/plain', 'application/msword', 
@@ -231,37 +240,72 @@ const s3Storage = new S3DataStorage(S3_CONFIG);
 async function initApp() {
     console.log('🚀 Инициализация приложения с S3...');
     
-    // Инициализация Telegram
-    initTelegram();
+    try {
+        updateLoadingText('Подключение к Telegram...');
+        
+        // Инициализация Telegram
+        initTelegram();
+        
+        updateLoadingText('Настройка интерфейса...');
+        
+        // Настройка темы
+        initTheme();
+        
+        // Инициализация UI
+        initUI();
+        
+        updateLoadingText('Проверка S3...');
+        
+        // Проверка S3
+        await checkS3Connection();
+        
+        updateLoadingText('Загрузка данных из облака...');
+        
+        // Загрузка данных из S3
+        await loadDataFromS3();
+        
+        // Обновление интерфейса
+        updateUserInfo();
+        
+        // Загружаем пользователей
+        await loadUsers();
+        
+        // Загружаем сообщения
+        await loadMessages();
+        
+        // Скрываем экран загрузки
+        hideLoadingScreen();
+        
+        // Периодическая проверка новых сообщений
+        setInterval(checkForUpdates, 5000);
+        
+        console.log('✅ Приложение инициализировано с S3');
+        
+    } catch (error) {
+        console.error('❌ Ошибка инициализации:', error);
+        updateLoadingText(`Ошибка: ${error.message}`);
+        
+        // Через 3 секунды все равно показываем приложение
+        setTimeout(hideLoadingScreen, 3000);
+    }
+}
+
+function updateLoadingText(text) {
+    const loadingSubtext = document.getElementById('loading-subtext');
+    if (loadingSubtext) {
+        loadingSubtext.textContent = text;
+    }
+}
+
+function hideLoadingScreen() {
+    const loadingScreen = document.getElementById('loading-screen');
+    const app = document.getElementById('app');
     
-    // Настройка темы
-    initTheme();
-    
-    // Инициализация UI
-    initUI();
-    
-    // Проверка S3
-    await checkS3Connection();
-    
-    // Загрузка данных из S3
-    await loadDataFromS3();
-    
-    // Обновление интерфейса
-    updateUserInfo();
-    
-    // Загружаем пользователей
-    await loadUsers();
-    
-    // Загружаем сообщения
-    await loadMessages();
-    
-    // Периодическая проверка новых сообщений
-    setInterval(checkForUpdates, 5000);
-    
-    // Дебаг информация
-    setTimeout(showDebugInfo, 2000);
-    
-    console.log('✅ Приложение инициализировано с S3');
+    if (loadingScreen) loadingScreen.classList.add('hidden');
+    if (app) {
+        app.style.display = 'flex';
+        app.classList.add('active');
+    }
 }
 
 // ===== РАБОТА С S3 =====
@@ -332,7 +376,7 @@ async function loadDataFromS3() {
                 messages: [] 
             }),
             s3Storage.loadData(S3_PATHS.metadata, { 
-                app_name: 'Telegram Chat S3',
+                app_name: 'Botfs23 Chat',
                 version: '1.0',
                 initialized: true,
                 initialized_at: new Date().toISOString(),
@@ -919,9 +963,6 @@ function initUI() {
         });
     });
     
-    // Добавляем пункт для отладки S3
-    addDebugMenuItems();
-    
     // Кнопки заголовка
     const btnUsers = document.getElementById('btn-users');
     const btnAdmin = document.getElementById('btn-admin');
@@ -1007,80 +1048,6 @@ function initUI() {
     
     // Закрытие меню при клике вне
     document.addEventListener('click', closeMenus);
-}
-
-function addDebugMenuItems() {
-    const menuList = document.querySelector('.menu-list');
-    if (!menuList) return;
-    
-    const debugItem = document.createElement('div');
-    debugItem.className = 'menu-item';
-    debugItem.innerHTML = `
-        <i class="fas fa-cloud"></i>
-        <span>S3 Статус</span>
-    `;
-    debugItem.addEventListener('click', showS3StatusPanel);
-    menuList.appendChild(debugItem);
-}
-
-function showS3StatusPanel() {
-    const modal = document.createElement('div');
-    modal.className = 'modal';
-    
-    modal.innerHTML = `
-        <div class="modal-content" style="max-width: 700px;">
-            <div class="modal-header">
-                <h3>☁️ Статус Selectel S3</h3>
-                <button class="btn-close" onclick="this.closest('.modal').remove()">×</button>
-            </div>
-            <div class="modal-body">
-                <div class="debug-info">
-                    <h4>📊 Статистика данных в S3</h4>
-                    <div class="info-item">
-                        <strong>Статус S3:</strong> <span class="${s3Status === 'Работает' ? 'success' : 'error'}">${s3Status}</span>
-                    </div>
-                    <div class="info-item">
-                        <strong>Пользователей:</strong> ${Object.keys(s3Data.users).length}
-                    </div>
-                    <div class="info-item">
-                        <strong>Сообщений (main):</strong> ${s3Data.messages_main.length}
-                    </div>
-                    <div class="info-item">
-                        <strong>Сообщений (news):</strong> ${s3Data.messages_news.length}
-                    </div>
-                    <div class="info-item">
-                        <strong>Бакет:</strong> ${S3_CONFIG.bucket}
-                    </div>
-                    <div class="info-item">
-                        <strong>Endpoint:</strong> ${S3_CONFIG.endpoint}
-                    </div>
-                </div>
-                
-                <div class="debug-actions" style="margin-top: 20px;">
-                    <h4>⚡ Действия</h4>
-                    <div class="actions-grid">
-                        <button class="btn" onclick="checkS3Connection()">
-                            <i class="fas fa-sync"></i> Проверить S3
-                        </button>
-                        <button class="btn" onclick="loadDataFromS3()">
-                            <i class="fas fa-redo"></i> Перезагрузить данные
-                        </button>
-                        <button class="btn" onclick="exportS3Data()">
-                            <i class="fas fa-download"></i> Экспорт данных
-                        </button>
-                        <button class="btn btn-danger" onclick="clearS3TestData()">
-                            <i class="fas fa-trash"></i> Очистить тест
-                        </button>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn" onclick="this.closest('.modal').remove()">Закрыть</button>
-            </div>
-        </div>
-    `;
-    
-    document.body.appendChild(modal);
 }
 
 // ===== УТИЛИТЫ =====
@@ -1239,7 +1206,7 @@ function updateUserInfo() {
 
 function toggleAttachMenu() {
     const menu = document.getElementById('attach-menu');
-    if (menu) menu.classList.toggle('active');
+    if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
 }
 
 function attachFile(type) {
@@ -1385,7 +1352,7 @@ function initEmojiPicker() {
 
 function toggleEmojiPicker() {
     const picker = document.getElementById('emoji-picker');
-    if (picker) picker.classList.toggle('active');
+    if (picker) picker.style.display = picker.style.display === 'none' ? 'block' : 'none';
 }
 
 function insertEmoji(emoji) {
@@ -1397,7 +1364,7 @@ function insertEmoji(emoji) {
         input.style.height = (input.scrollHeight) + 'px';
         
         const picker = document.getElementById('emoji-picker');
-        if (picker) picker.classList.remove('active');
+        if (picker) picker.style.display = 'none';
     }
 }
 
@@ -1429,12 +1396,21 @@ function switchSection(sectionId) {
 }
 
 function switchView(viewId) {
+    // Скрываем все контейнеры
     document.querySelectorAll('.chat-container, .users-container, .admin-container, .settings-container, .profile-container')
-        .forEach(view => view.classList.remove('active'));
+        .forEach(view => {
+            view.classList.remove('active');
+            view.style.display = 'none';
+        });
     
+    // Показываем выбранный
     const targetView = document.getElementById(`${viewId}-view`);
-    if (targetView) targetView.classList.add('active');
+    if (targetView) {
+        targetView.style.display = 'block';
+        targetView.classList.add('active');
+    }
     
+    // Обновляем меню
     document.querySelectorAll('.menu-item').forEach(item => {
         item.classList.remove('active');
     });
@@ -1479,7 +1455,7 @@ function closeMenus(e) {
     
     if (attachMenu && btnAttach) {
         if (!attachMenu.contains(e.target) && !btnAttach.contains(e.target)) {
-            attachMenu.classList.remove('active');
+            attachMenu.style.display = 'none';
         }
     }
     
@@ -1488,23 +1464,9 @@ function closeMenus(e) {
     
     if (emojiPicker && btnEmoji) {
         if (!emojiPicker.contains(e.target) && !btnEmoji.contains(e.target)) {
-            emojiPicker.classList.remove('active');
+            emojiPicker.style.display = 'none';
         }
     }
-}
-
-function showDebugInfo() {
-    console.group('🔍 ДЕБАГ ИНФОРМАЦИЯ S3');
-    console.log('👤 Текущий пользователь:', currentUser);
-    console.log('☁️ Статус S3:', s3Status);
-    console.log('👥 Пользователей в S3:', Object.keys(s3Data.users).length);
-    console.log(`💬 Сообщений в S3 (${currentSection}):`, getAllMessages().length);
-    console.log('📊 Данные загружены из S3:', {
-        users: Object.keys(s3Data.users).length,
-        messages_main: s3Data.messages_main.length,
-        messages_news: s3Data.messages_news.length
-    });
-    console.groupEnd();
 }
 
 // ===== ГЛОБАЛЬНЫЕ ФУНКЦИИ =====
