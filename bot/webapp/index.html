@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram Chat</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="telegram-app">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-left">
+                <button class="btn-menu" onclick="toggleSidebar()">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <div class="chat-info">
+                    <div class="chat-title">Telegram Chat</div>
+                    <div class="chat-status">онлайн: <span id="online-count">0</span></div>
+                </div>
+            </div>
+            <div class="header-right">
+                <button class="btn-search" onclick="toggleSearch()">
+                    <i class="fas fa-search"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="user-profile">
+                    <div class="user-avatar" id="user-avatar">
+                        <i class="fas fa-user"></i>
+                    </div>
+                    <div class="user-info">
+                        <div class="user-name" id="user-name"></div>
+                        <div class="user-username" id="user-username"></div>
+                    </div>
+                </div>
+                <button class="btn-close-sidebar" onclick="toggleSidebar()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="sidebar-menu">
+                <div class="menu-item active" onclick="showChat()">
+                    <i class="fas fa-comments"></i>
+                    <span>Чат</span>
+                </div>
+                <div class="menu-item" onclick="showProfile()">
+                    <i class="fas fa-user"></i>
+                    <span>Профиль</span>
+                </div>
+                <div class="menu-item" onclick="showUsers()">
+                    <i class="fas fa-users"></i>
+                    <span>Участники</span>
+                </div>
+                <div class="menu-item" onclick="showSettings()">
+                    <i class="fas fa-cog"></i>
+                    <span>Настройки</span>
+                </div>
+            </div>
+            
+            <div class="sidebar-footer">
+                <div class="online-users">
+                    <i class="fas fa-circle online-dot"></i>
+                    <span id="sidebar-online-count">0</span> онлайн
+                </div>
+            </div>
+        </div>
+
+        <!-- Overlay for sidebar -->
+        <div class="overlay" id="overlay" onclick="toggleSidebar()"></div>
+
+        <!-- Search bar -->
+        <div class="search-bar" id="search-bar">
+            <input type="text" id="search-input" placeholder="Поиск сообщений...">
+            <button class="btn-close-search" onclick="toggleSearch()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <!-- Main content -->
+        <div class="main-content" id="main-content">
+            <!-- Chat view -->
+            <div class="chat-container active" id="chat-view">
+                <div class="messages-container" id="messages-container">
+                    <!-- Messages will be loaded here -->
+                </div>
+                
+                <div class="message-input-area">
+                    <button class="btn-attach" onclick="toggleAttachMenu()">
+                        <i class="fas fa-paperclip"></i>
+                    </button>
+                    
+                    <div class="attach-menu" id="attach-menu">
+                        <div class="attach-item" onclick="sendPhoto()">
+                            <i class="fas fa-image"></i>
+                            <span>Фото</span>
+                        </div>
+                        <div class="attach-item" onclick="sendVoice()">
+                            <i class="fas fa-microphone"></i>
+                            <span>Голосовое</span>
+                        </div>
+                        <div class="attach-item" onclick="sendDocument()">
+                            <i class="fas fa-file"></i>
+                            <span>Документ</span>
+                        </div>
+                        <div class="attach-item" onclick="mentionUser()">
+                            <i class="fas fa-at"></i>
+                            <span>Упомянуть</span>
+                        </div>
+                    </div>
+                    
+                    <div class="input-wrapper">
+                        <input type="text" 
+                               id="message-input" 
+                               placeholder="Сообщение..."
+                               onkeypress="handleKeyPress(event)">
+                        <div class="input-actions">
+                            <button class="btn-emoji" onclick="toggleEmojiPicker()">
+                                <i class="far fa-smile"></i>
+                            </button>
+                            <button class="btn-voice" onclick="startVoiceRecording()">
+                                <i class="fas fa-microphone"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <button class="btn-send" onclick="sendMessage()">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+                
+                <div class="voice-recording" id="voice-recording">
+                    <div class="voice-wave">
+                        <div class="wave-bar"></div>
+                        <div class="wave-bar"></div>
+                        <div class="wave-bar"></div>
+                        <div class="wave-bar"></div>
+                        <div class="wave-bar"></div>
+                    </div>
+                    <div class="voice-time">0:00</div>
+                    <button class="btn-cancel-voice" onclick="cancelVoiceRecording()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                    <button class="btn-send-voice" onclick="sendVoiceMessage()">
+                        <i class="fas fa-check"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Profile view -->
+            <div class="profile-container" id="profile-view">
+                <div class="profile-header">
+                    <div class="profile-avatar" id="profile-avatar">
+                        <i class="fas fa-user"></i>
+                        <button class="btn-change-avatar" onclick="changeAvatar()">
+                            <i class="fas fa-camera"></i>
+                        </button>
+                    </div>
+                    <div class="profile-name" id="profile-name"></div>
+                    <div class="profile-username" id="profile-username"></div>
+                </div>
+                
+                <div class="profile-info">
+                    <div class="info-item">
+                        <span class="info-label">ID:</span>
+                        <span class="info-value" id="profile-id"></span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">В чате с:</span>
+                        <span class="info-value" id="profile-joined"></span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Сообщений:</span>
+                        <span class="info-value" id="profile-messages"></span>
+                    </div>
+                </div>
+                
+                <div class="profile-actions">
+                    <button class="btn-action" onclick="editProfile()">
+                        <i class="fas fa-edit"></i> Редактировать профиль
+                    </button>
+                    <button class="btn-action" onclick="showNotificationSettings()">
+                        <i class="fas fa-bell"></i> Уведомления
+                    </button>
+                    <button class="btn-action" onclick="showPrivacySettings()">
+                        <i class="fas fa-lock"></i> Конфиденциальность
+                    </button>
+                </div>
+            </div>
+
+            <!-- Users view -->
+            <div class="users-container" id="users-view">
+                <div class="users-list" id="users-list">
+                    <!-- Users will be loaded here -->
+                </div>
+            </div>
+
+            <!-- Settings view -->
+            <div class="settings-container" id="settings-view">
+                <div class="settings-section">
+                    <h3>Настройки чата</h3>
+                    <div class="setting-item">
+                        <span>Уведомления</span>
+                        <label class="switch">
+                            <input type="checkbox" id="notifications-toggle" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <span>Звуки</span>
+                        <label class="switch">
+                            <input type="checkbox" id="sounds-toggle" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <span>Авто-загрузка медиа</span>
+                        <label class="switch">
+                            <input type="checkbox" id="media-toggle" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="settings-section">
+                    <h3>Внешний вид</h3>
+                    <div class="theme-selector">
+                        <div class="theme-option active" onclick="setTheme('light')">
+                            <i class="fas fa-sun"></i>
+                            <span>Светлая</span>
+                        </div>
+                        <div class="theme-option" onclick="setTheme('dark')">
+                            <i class="fas fa-moon"></i>
+                            <span>Темная</span>
+                        </div>
+                        <div class="theme-option" onclick="setTheme('system')">
+                            <i class="fas fa-desktop"></i>
+                            <span>Как система</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="settings-actions">
+                    <button class="btn-danger" onclick="clearChat()">
+                        <i class="fas fa-trash"></i> Очистить историю
+                    </button>
+                    <button class="btn-danger" onclick="leaveChat()">
+                        <i class="fas fa-sign-out-alt"></i> Покинуть чат
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
