@@ -1,5 +1,5 @@
 // Telegram Chat App - Botfs23
-// Рабочая версия с реальной загрузкой в S3 и общими сообщениями
+// Полная версия с отладкой S3 и общими данными
 
 // ===== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ =====
 let tg = null;
@@ -11,6 +11,7 @@ let userRoles = {};
 let isAdmin = false;
 let usersCache = {};
 let attachedFiles = [];
+let s3Status = 'Не проверено';
 
 // ===== КОНФИГУРАЦИЯ SELECTEL S3 =====
 const S3_CONFIG = {
@@ -28,7 +29,7 @@ const S3_CONFIG = {
 };
 
 // Префикс для хранения данных
-const STORAGE_PREFIX = 'telegram_chat_v1_';
+const STORAGE_PREFIX = 'telegram_chat_shared_v2_';
 
 // Эмодзи
 const EMOJI_CATEGORIES = {
@@ -41,6 +42,7 @@ const EMOJI_CATEGORIES = {
 // ===== ИНИЦИАЛИЗАЦИЯ ПРИЛОЖЕНИЯ =====
 async function initApp() {
     console.log('🚀 Инициализация приложения...');
+    console.log('👤 ID пользователя:', currentUserId);
     
     // Инициализация Telegram
     initTelegram();
@@ -56,13 +58,47 @@ async function initApp() {
     
     // Обновление интерфейса
     updateUserInfo();
-    loadMessages();
-    loadUsers();
     
-    // Периодическая проверка новых сообщений
-    setInterval(checkNewMessages, 2000);
+    // Загружаем пользователей ДО сообщений
+    await loadUsers();
+    
+    // Загружаем сообщения
+    loadMessages();
+    
+    // Периодическая проверка новых сообщений и пользователей
+    setInterval(checkForUpdates, 2000);
+    
+    // Проверка S3
+    setTimeout(checkS3Connection, 1000);
+    
+    // Дебаг информация
+    setTimeout(showDebugInfo, 2000);
     
     console.log('✅ Приложение инициализировано');
+}
+
+// ===== ОТЛАДОЧНАЯ ИНФОРМАЦИЯ =====
+function showDebugInfo() {
+    console.group('🔍 ДЕБАГ ИНФОРМАЦИЯ');
+    console.log('👤 Текущий пользователь:', currentUser);
+    console.log('🔑 Префикс хранилища:', STORAGE_PREFIX);
+    
+    // Проверяем сообщения
+    const messagesKey = `${STORAGE_PREFIX}messages_${currentSection}`;
+    const messages = localStorage.getItem(messagesKey);
+    console.log(`💬 Сообщения в ${currentSection}:`, messages ? JSON.parse(messages).length : 0);
+    
+    // Проверяем пользователей
+    const usersKey = `${STORAGE_PREFIX}users`;
+    const users = localStorage.getItem(usersKey);
+    console.log(`👥 Пользователей всего:`, users ? Object.keys(JSON.parse(users)).length : 0);
+    
+    // Проверяем файлы
+    const filesKey = `${STORAGE_PREFIX}files`;
+    const files = localStorage.getItem(filesKey);
+    console.log(`📁 Файлов в хранилище:`, files ? JSON.parse(files).length : 0);
+    
+    console.groupEnd();
 }
 
 // ===== TELEGRAM ИНИЦИАЛИЗАЦИЯ =====
@@ -80,9 +116,6 @@ function initTelegram() {
                 currentUser = tg.initDataUnsafe.user;
                 currentUserId = currentUser.id.toString();
                 console.log('👤 Telegram пользователь:', currentUser);
-                
-                // Обновляем онлайн статус
-                updateUserOnlineStatus();
             } else {
                 setupDemoUser();
             }
@@ -101,130 +134,368 @@ function setupDemoUser() {
     currentUser = {
         id: Math.floor(Math.random() * 1000000),
         first_name: 'Гость',
-        last_name: 'Тестовый'
+        last_name: 'Тестовый',
+        username: 'guest_' + Math.floor(Math.random() * 1000)
     };
     currentUserId = currentUser.id.toString();
-    updateUserOnlineStatus();
 }
 
-// ===== ОБНОВЛЕНИЕ СТАТУСА ПОЛЬЗОВАТЕЛЯ =====
-function updateUserOnlineStatus() {
-    const userData = {
-        ...currentUser,
-        is_online: true,
-        last_seen: Date.now(),
-        last_active: new Date().toISOString()
-    };
+// ===== ПРОВЕРКА ПОДКЛЮЧЕНИЯ S3 =====
+async function checkS3Connection() {
+    console.log('🔌 Проверка подключения к Selectel S3...');
+    updateS3Status('Проверка...', 'info');
     
-    saveUserToCache(currentUserId, userData);
-    
-    // Обновляем каждые 30 секунд
-    setInterval(() => {
-        if (usersCache[currentUserId]) {
-            usersCache[currentUserId].last_active = new Date().toISOString();
-            saveUsersToStorage();
+    try {
+        // Проверяем доступность endpoint
+        const testUrl = S3_CONFIG.endpoint;
+        
+        // Создаем простой запрос для проверки CORS
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        
+        const response = await fetch(testUrl, {
+            method: 'HEAD',
+            mode: 'cors',
+            signal: controller.signal
+        }).catch(e => {
+            if (e.name === 'AbortError') {
+                throw new Error('Таймаут подключения к S3');
+            }
+            throw e;
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.status) {
+            // Пробуем создать тестовый файл
+            const testResult = await testS3Upload();
+            
+            if (testResult.success) {
+                s3Status = 'Работает';
+                updateS3Status('✅ S3 доступен', 'success');
+                console.log('✅ S3 подключение успешно');
+                return true;
+            } else {
+                s3Status = 'Ошибка загрузки';
+                updateS3Status('⚠️ S3: Ошибка загрузки', 'warning');
+                console.warn('⚠️ S3: Можно подключиться, но ошибка загрузки');
+                return false;
+            }
         }
-    }, 30000);
+        
+    } catch (error) {
+        s3Status = 'Нет подключения';
+        updateS3Status('❌ Нет подключения к S3', 'error');
+        console.error('❌ Ошибка подключения к S3:', error.message);
+        return false;
+    }
 }
 
-// ===== ХРАНЕНИЕ СООБЩЕНИЙ (ОБЩЕЕ ДЛЯ ВСЕХ) =====
+async function testS3Upload() {
+    try {
+        // Создаем тестовый текстовый файл
+        const testContent = 'Test file for S3 connection check';
+        const testFile = new Blob([testContent], { type: 'text/plain' });
+        const testFileName = `test_connection_${Date.now()}.txt`;
+        
+        // Создаем FormData
+        const formData = new FormData();
+        formData.append('file', testFile, testFileName);
+        
+        // Пробуем загрузить через наш метод
+        const fileInfo = await uploadFileToS3Direct(testFile, 'document', testFileName);
+        
+        return {
+            success: true,
+            url: fileInfo.url,
+            message: 'Тестовый файл загружен'
+        };
+        
+    } catch (error) {
+        console.error('❌ Тестовая загрузка не удалась:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+}
 
+function updateS3Status(text, type = 'info') {
+    const statusElement = document.getElementById('s3-status');
+    if (statusElement) {
+        statusElement.textContent = text;
+        statusElement.className = `settings-status ${type}`;
+    }
+}
+
+// ===== ХРАНЕНИЕ ПОЛЬЗОВАТЕЛЕЙ (ОБЩЕЕ ДЛЯ ВСЕХ) =====
+async function loadUsers() {
+    console.log('👥 Загрузка пользователей...');
+    
+    try {
+        const usersKey = `${STORAGE_PREFIX}users`;
+        const savedUsers = localStorage.getItem(usersKey);
+        
+        if (savedUsers) {
+            usersCache = JSON.parse(savedUsers);
+            console.log(`📊 Загружено ${Object.keys(usersCache).length} пользователей`);
+        } else {
+            usersCache = {};
+            console.log('📭 Нет сохраненных пользователей');
+        }
+        
+        // Добавляем/обновляем текущего пользователя
+        if (!currentUser.id) {
+            console.error('❌ Нет ID пользователя!');
+            return;
+        }
+        
+        const userId = currentUser.id.toString();
+        
+        usersCache[userId] = {
+            ...currentUser,
+            id: userId,
+            role: userRoles[userId] || 'user',
+            is_online: true,
+            last_seen: Date.now(),
+            last_active: new Date().toISOString(),
+            device: navigator.userAgent.substring(0, 50),
+            updated_at: Date.now()
+        };
+        
+        // Убираем устаревших пользователей (неактивны более 5 минут)
+        cleanupOldUsers();
+        
+        // Сохраняем обратно
+        saveUsersToStorage();
+        
+        // Обновляем UI
+        updateUsersList();
+        updateOnlineCount();
+        
+        console.log(`✅ Пользователь ${currentUser.first_name} добавлен/обновлен`);
+        
+    } catch (error) {
+        console.error('❌ Ошибка загрузки пользователей:', error);
+    }
+}
+
+function cleanupOldUsers() {
+    const now = Date.now();
+    const fiveMinutes = 5 * 60 * 1000;
+    const usersToRemove = [];
+    
+    Object.keys(usersCache).forEach(userId => {
+        const user = usersCache[userId];
+        if (userId !== currentUserId && user.last_seen) {
+            const timeDiff = now - user.last_seen;
+            if (timeDiff > fiveMinutes) {
+                user.is_online = false;
+                
+                // Удаляем если неактивен более сутки
+                if (timeDiff > 24 * 60 * 60 * 1000) {
+                    usersToRemove.push(userId);
+                }
+            }
+        }
+    });
+    
+    // Удаляем старых пользователей
+    usersToRemove.forEach(userId => {
+        delete usersCache[userId];
+    });
+    
+    if (usersToRemove.length > 0) {
+        console.log(`🗑️ Удалено ${usersToRemove.length} неактивных пользователей`);
+    }
+}
+
+function saveUsersToStorage() {
+    try {
+        const usersKey = `${STORAGE_PREFIX}users`;
+        localStorage.setItem(usersKey, JSON.stringify(usersCache));
+        
+        // Также обновляем время последнего обновления
+        localStorage.setItem(`${STORAGE_PREFIX}users_updated`, Date.now().toString());
+        
+    } catch (error) {
+        console.error('❌ Ошибка сохранения пользователей:', error);
+    }
+}
+
+function updateUsersList(filter = '') {
+    const usersList = document.getElementById('users-list');
+    if (!usersList) return;
+    
+    // Обновляем статусы
+    updateUserStatuses();
+    
+    const sortedUsers = Object.values(usersCache).sort((a, b) => {
+        if (a.is_online !== b.is_online) return b.is_online - a.is_online;
+        return (a.first_name || '').localeCompare(b.first_name || '');
+    });
+    
+    const filteredUsers = sortedUsers.filter(user => {
+        if (!filter) return true;
+        const searchTerm = filter.toLowerCase();
+        return (
+            (user.first_name && user.first_name.toLowerCase().includes(searchTerm)) ||
+            (user.last_name && user.last_name.toLowerCase().includes(searchTerm)) ||
+            (user.username && user.username.toLowerCase().includes(searchTerm))
+        );
+    });
+    
+    usersList.innerHTML = '';
+    
+    if (filteredUsers.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'empty-chat';
+        empty.innerHTML = `
+            <i class="fas fa-user-slash"></i>
+            <p>Пользователи не найдены</p>
+        `;
+        usersList.appendChild(empty);
+        return;
+    }
+    
+    filteredUsers.forEach(user => {
+        const div = document.createElement('div');
+        div.className = 'user-item';
+        div.dataset.userId = user.id;
+        
+        const userName = user.first_name || 'User';
+        const lastSeen = user.last_seen ? 
+            new Date(user.last_seen).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'}) : '';
+        
+        let statusText = 'Не в сети';
+        let statusClass = '';
+        
+        if (user.is_online) {
+            statusText = 'В сети';
+            statusClass = 'online';
+        } else if (lastSeen) {
+            statusText = `Был(а) в ${lastSeen}`;
+        }
+        
+        div.innerHTML = `
+            <div class="user-item-avatar" style="background-color: ${stringToColor(user.id)}">
+                ${userName.charAt(0).toUpperCase()}
+            </div>
+            <div class="user-item-info">
+                <div class="user-item-name">
+                    ${userName}
+                    ${user.is_online ? '<i class="fas fa-circle online-dot"></i>' : ''}
+                    ${user.id === currentUserId ? '<span class="user-you">(Вы)</span>' : ''}
+                </div>
+                <div class="user-item-status ${statusClass}">
+                    ${statusText}
+                </div>
+            </div>
+        `;
+        
+        usersList.appendChild(div);
+    });
+}
+
+function updateUserStatuses() {
+    const now = Date.now();
+    const oneMinute = 60 * 1000;
+    
+    Object.keys(usersCache).forEach(userId => {
+        const user = usersCache[userId];
+        if (userId === currentUserId) {
+            user.is_online = true;
+            user.last_seen = now;
+            user.last_active = new Date().toISOString();
+        } else if (user.last_seen) {
+            const timeDiff = now - user.last_seen;
+            user.is_online = timeDiff < oneMinute;
+        }
+    });
+}
+
+function updateOnlineCount() {
+    const onlineUsers = Object.values(usersCache).filter(u => u.is_online).length;
+    const totalUsers = Object.keys(usersCache).length;
+    
+    console.log(`📊 Онлайн: ${onlineUsers}/${totalUsers}`);
+    
+    document.getElementById('online-count').textContent = onlineUsers;
+    document.getElementById('sidebar-online-count').textContent = `${onlineUsers}/${totalUsers}`;
+}
+
+// ===== ХРАНЕНИЕ СООБЩЕНИЙ =====
 function saveMessage(message) {
     try {
         const key = `${STORAGE_PREFIX}messages_${currentSection}`;
         let messages = getAllMessages();
         
-        // Проверяем, нет ли уже такого сообщения
+        // Проверяем дубликаты
         const existingIndex = messages.findIndex(m => m.id === message.id);
         if (existingIndex === -1) {
             messages.push(message);
         } else {
-            messages[existingIndex] = message; // Обновляем если уже есть
+            messages[existingIndex] = message;
         }
         
         // Сортируем по времени
         messages.sort((a, b) => a.timestamp - b.timestamp);
         
-        // Ограничиваем количество сообщений (например, последние 1000)
-        if (messages.length > 1000) {
-            messages = messages.slice(-1000);
-        }
-        
-        // Сохраняем в localStorage
+        // Сохраняем
         localStorage.setItem(key, JSON.stringify(messages));
         
-        // Обновляем ID последнего сообщения
-        const maxId = Math.max(...messages.map(m => m.id));
+        // Обновляем последний ID
+        const maxId = Math.max(...messages.map(m => m.id), 0);
         if (maxId > lastMessageId) {
             lastMessageId = maxId;
             localStorage.setItem(`${STORAGE_PREFIX}lastMessageId`, lastMessageId.toString());
         }
         
-        // Сохраняем информацию о пользователе
-        if (message.user) {
-            saveUserToCache(message.user_id, message.user);
-        }
-        
-        // Сохраняем информацию о файлах
-        if (message.files && message.files.length > 0) {
-            message.files.forEach(file => {
-                saveFileToStorage(file);
-            });
-        }
-        
-        console.log('💾 Сообщение сохранено:', message.id);
+        console.log(`💾 Сообщение #${message.id} сохранено`);
         return true;
         
     } catch (error) {
         console.error('❌ Ошибка сохранения сообщения:', error);
-        showNotification('Ошибка сохранения сообщения', 'error');
         return false;
     }
 }
 
 function loadMessages() {
-    try {
-        const container = document.getElementById('messages-container');
-        const emptyChat = document.getElementById('empty-chat');
-        
-        if (!container) return;
-        
-        const messages = getAllMessages();
-        
-        if (messages.length === 0) {
-            if (emptyChat) {
-                emptyChat.style.display = 'flex';
-                container.innerHTML = '';
-                container.appendChild(emptyChat);
-            }
-            return;
-        }
-        
-        if (emptyChat) emptyChat.style.display = 'none';
-        
-        // Проверяем, нужно ли обновлять
-        const currentIds = Array.from(container.querySelectorAll('.message'))
-            .map(el => parseInt(el.dataset.messageId))
-            .filter(id => !isNaN(id));
-        
-        // Находим новые сообщения
-        const newMessages = messages.filter(msg => !currentIds.includes(msg.id));
-        
-        if (newMessages.length > 0 || container.innerHTML === '') {
-            // Очищаем и перерисовываем все
+    const container = document.getElementById('messages-container');
+    const emptyChat = document.getElementById('empty-chat');
+    
+    if (!container) return;
+    
+    const messages = getAllMessages();
+    
+    if (messages.length === 0) {
+        if (emptyChat) {
+            emptyChat.style.display = 'flex';
             container.innerHTML = '';
-            
-            messages.forEach(msg => {
-                const element = createMessageElement(msg);
-                container.appendChild(element);
-            });
-            
-            scrollToBottom();
-            console.log(`📨 Загружено ${messages.length} сообщений`);
+            container.appendChild(emptyChat);
         }
+        return;
+    }
+    
+    if (emptyChat) emptyChat.style.display = 'none';
+    
+    // Проверяем, нужно ли обновлять
+    const currentIds = Array.from(container.querySelectorAll('.message'))
+        .map(el => parseInt(el.dataset.messageId))
+        .filter(id => !isNaN(id));
+    
+    const newMessages = messages.filter(msg => !currentIds.includes(msg.id));
+    
+    if (newMessages.length > 0 || container.innerHTML === '') {
+        container.innerHTML = '';
         
-    } catch (error) {
-        console.error('❌ Ошибка загрузки сообщений:', error);
+        messages.forEach(msg => {
+            const element = createMessageElement(msg);
+            container.appendChild(element);
+        });
+        
+        scrollToBottom();
+        console.log(`📨 Отображено ${messages.length} сообщений`);
     }
 }
 
@@ -234,19 +505,7 @@ function getAllMessages() {
         const savedMessages = localStorage.getItem(key);
         
         if (savedMessages) {
-            const messages = JSON.parse(savedMessages);
-            
-            // Восстанавливаем связи с файлами
-            return messages.map(msg => {
-                if (msg.files && msg.files.length > 0) {
-                    msg.files = msg.files.map(file => {
-                        // Проверяем, есть ли файл в хранилище
-                        const savedFile = getFileFromStorage(file.id || file.url);
-                        return savedFile || file;
-                    }).filter(file => file != null);
-                }
-                return msg;
-            });
+            return JSON.parse(savedMessages);
         }
     } catch (e) {
         console.error('Ошибка получения сообщений:', e);
@@ -255,8 +514,26 @@ function getAllMessages() {
     return [];
 }
 
+// ===== ПРОВЕРКА ОБНОВЛЕНИЙ =====
+function checkForUpdates() {
+    // Обновляем статус текущего пользователя
+    if (usersCache[currentUserId]) {
+        usersCache[currentUserId].last_seen = Date.now();
+        usersCache[currentUserId].last_active = new Date().toISOString();
+        saveUsersToStorage();
+    }
+    
+    // Проверяем новые сообщения
+    checkNewMessages();
+    
+    // Обновляем список пользователей каждые 10 секунд
+    if (Date.now() % 10000 < 2000) {
+        updateUsersList();
+        updateOnlineCount();
+    }
+}
+
 function checkNewMessages() {
-    // Эта функция будет вызываться периодически для проверки новых сообщений
     const container = document.getElementById('messages-container');
     if (!container || currentSection !== 'main') return;
     
@@ -266,99 +543,41 @@ function checkNewMessages() {
         .filter(id => !isNaN(id));
     
     if (messages.length > currentIds.length) {
-        console.log('🔄 Обновление сообщений...');
+        console.log('🔄 Обнаружены новые сообщения');
         loadMessages();
     }
 }
 
-// ===== ХРАНЕНИЕ ФАЙЛОВ =====
-
-function saveFileToStorage(fileInfo) {
-    try {
-        if (!fileInfo.id) {
-            fileInfo.id = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        }
-        
-        const key = `${STORAGE_PREFIX}files`;
-        let files = [];
-        
-        const savedFiles = localStorage.getItem(key);
-        if (savedFiles) {
-            files = JSON.parse(savedFiles);
-        }
-        
-        // Удаляем старую запись этого файла если есть
-        files = files.filter(f => f.id !== fileInfo.id && f.url !== fileInfo.url);
-        
-        files.push(fileInfo);
-        localStorage.setItem(key, JSON.stringify(files));
-        
-        console.log('💾 Файл сохранен в хранилище:', fileInfo.id);
-        return true;
-        
-    } catch (error) {
-        console.error('❌ Ошибка сохранения файла:', error);
-        return false;
-    }
-}
-
-function getFileFromStorage(fileIdOrUrl) {
-    try {
-        const key = `${STORAGE_PREFIX}files`;
-        const savedFiles = localStorage.getItem(key);
-        
-        if (savedFiles) {
-            const files = JSON.parse(savedFiles);
-            return files.find(f => f.id === fileIdOrUrl || f.url === fileIdOrUrl);
-        }
-    } catch (e) {
-        console.error('Ошибка получения файла:', e);
-    }
-    return null;
-}
-
-// ===== РЕАЛЬНАЯ ЗАГРУЗКА В S3 =====
-
-async function uploadFileToS3(file, type) {
+// ===== ЗАГРУЗКА В S3 (ПРЯМАЯ) =====
+async function uploadFileToS3Direct(file, type, customName = null) {
     return new Promise((resolve, reject) => {
-        showUploadProgress(true, `Загрузка ${file.name} в облако...`);
+        showUploadProgress(true, `Загрузка ${file.name}...`);
         
-        // Создаем уникальное имя файла
         const timestamp = Date.now();
         const randomStr = Math.random().toString(36).substr(2, 8);
         const fileExt = file.name.split('.').pop().toLowerCase();
-        const fileName = `chat_${timestamp}_${randomStr}.${fileExt}`;
+        const fileName = customName || `file_${timestamp}_${randomStr}.${fileExt}`;
         const filePath = `uploads/${currentUserId}/${fileName}`;
         
-        // Подготавливаем данные для загрузки
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('fileName', fileName);
-        formData.append('filePath', filePath);
-        formData.append('fileType', type);
-        formData.append('userId', currentUserId);
-        formData.append('section', currentSection);
-        
-        // Публичный URL для доступа к файлу (Selectel S3)
+        // Публичный URL
         const publicUrl = `${S3_CONFIG.endpoint}/${S3_CONFIG.bucket}/${filePath}`;
         
-        // Загружаем файл через XMLHttpRequest для отслеживания прогресса
-        const xhr = new XMLHttpRequest();
+        console.log(`📤 Загрузка в S3: ${fileName}`);
+        console.log(`📍 Путь: ${filePath}`);
         
-        // Используем прямой доступ к S3 API
+        // Используем PUT запрос
+        const xhr = new XMLHttpRequest();
         xhr.open('PUT', publicUrl, true);
         
-        // Устанавливаем заголовки для S3
+        // Устанавливаем заголовки
         xhr.setRequestHeader('Content-Type', file.type);
         xhr.setRequestHeader('x-amz-acl', 'public-read');
         
-        // Авторизация для S3 (используем подписанный URL в реальном приложении)
-        // ВНИМАНИЕ: В реальном приложении НЕ используйте ключи на фронтенде!
-        // Используйте бэкенд для подписи запросов
+        // Basic auth (небезопасно для продакшена!)
         const credentials = btoa(`${S3_CONFIG.accessKeyId}:${S3_CONFIG.secretAccessKey}`);
         xhr.setRequestHeader('Authorization', `Basic ${credentials}`);
         
-        // Отслеживаем прогресс
+        // Прогресс
         xhr.upload.onprogress = function(e) {
             if (e.lengthComputable) {
                 const percent = Math.round((e.loaded / e.total) * 100);
@@ -370,6 +589,8 @@ async function uploadFileToS3(file, type) {
             showUploadProgress(false);
             
             if (xhr.status === 200) {
+                console.log('✅ Файл загружен успешно');
+                
                 const fileInfo = {
                     id: `s3_${timestamp}_${randomStr}`,
                     url: publicUrl,
@@ -380,35 +601,36 @@ async function uploadFileToS3(file, type) {
                     mimeType: file.type,
                     uploadedBy: currentUserId,
                     uploadedAt: timestamp,
+                    uploadedByName: currentUser.first_name || 'Неизвестно',
                     section: currentSection
                 };
                 
-                console.log('✅ Файл загружен в S3:', fileInfo);
-                showNotification('Файл успешно загружен', 'success');
+                // Сохраняем информацию о файле
+                saveFileToStorage(fileInfo);
+                
                 resolve(fileInfo);
             } else {
-                console.error('❌ Ошибка загрузки в S3:', xhr.status, xhr.statusText);
-                reject(new Error(`Ошибка S3: ${xhr.status}`));
+                console.error(`❌ Ошибка S3: ${xhr.status}`, xhr.statusText);
+                reject(new Error(`S3 error: ${xhr.status}`));
             }
         };
         
         xhr.onerror = function() {
             showUploadProgress(false);
-            console.error('❌ Ошибка сети при загрузке в S3');
-            reject(new Error('Ошибка сети'));
+            console.error('❌ Ошибка сети');
+            reject(new Error('Network error'));
         };
         
         xhr.send(file);
-        
     });
 }
 
 async function uploadFile(file, type) {
     try {
-        // Проверка типа файла
-        if (!S3_CONFIG.allowedTypes.image.includes(file.type) && 
-            !S3_CONFIG.allowedTypes.document.includes(file.type)) {
-            throw new Error('Тип файла не поддерживается');
+        // Проверка типа
+        const allowedTypes = [...S3_CONFIG.allowedTypes.image, ...S3_CONFIG.allowedTypes.document];
+        if (!allowedTypes.includes(file.type)) {
+            throw new Error(`Тип файла ${file.type} не поддерживается`);
         }
         
         // Проверка размера
@@ -416,37 +638,73 @@ async function uploadFile(file, type) {
             throw new Error(`Файл слишком большой. Максимум: ${S3_CONFIG.maxFileSize / 1024 / 1024}MB`);
         }
         
-        // Загружаем в S3
-        return await uploadFileToS3(file, type);
+        console.log(`📤 Начало загрузки: ${file.name} (${formatFileSize(file.size)})`);
+        
+        // Пробуем загрузить в S3
+        try {
+            const fileInfo = await uploadFileToS3Direct(file, type);
+            showNotification('Файл загружен в облако', 'success');
+            return fileInfo;
+        } catch (s3Error) {
+            console.warn('⚠️ Не удалось загрузить в S3, использую локальное хранилище:', s3Error);
+            
+            // Fallback на локальное хранилище
+            return await uploadFileLocally(file, type);
+        }
         
     } catch (error) {
         console.error('❌ Ошибка загрузки файла:', error);
+        showNotification(error.message, 'error');
+        throw error;
+    }
+}
+
+async function uploadFileLocally(file, type) {
+    return new Promise((resolve) => {
+        const reader = new FileReader();
         
-        // Если не удалось загрузить в S3, используем локальное хранилище как fallback
-        showNotification('Используется локальное хранилище', 'warning');
-        
-        return new Promise((resolve) => {
-            const reader = new FileReader();
-            
-            reader.onload = function(e) {
-                const fileInfo = {
-                    id: `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                    url: e.target.result,
-                    name: file.name,
-                    type: type,
-                    size: file.size,
-                    mimeType: file.type,
-                    uploadedBy: currentUserId,
-                    uploadedAt: Date.now(),
-                    section: currentSection,
-                    isLocal: true
-                };
-                
-                resolve(fileInfo);
+        reader.onload = function(e) {
+            const fileInfo = {
+                id: `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                url: e.target.result,
+                name: file.name,
+                type: type,
+                size: file.size,
+                mimeType: file.type,
+                uploadedBy: currentUserId,
+                uploadedAt: Date.now(),
+                uploadedByName: currentUser.first_name || 'Неизвестно',
+                section: currentSection,
+                isLocal: true
             };
             
-            reader.readAsDataURL(file);
-        });
+            saveFileToStorage(fileInfo);
+            resolve(fileInfo);
+        };
+        
+        reader.readAsDataURL(file);
+    });
+}
+
+function saveFileToStorage(fileInfo) {
+    try {
+        const key = `${STORAGE_PREFIX}files`;
+        let files = [];
+        
+        const savedFiles = localStorage.getItem(key);
+        if (savedFiles) {
+            files = JSON.parse(savedFiles);
+        }
+        
+        // Удаляем дубликаты
+        files = files.filter(f => f.id !== fileInfo.id);
+        files.push(fileInfo);
+        
+        localStorage.setItem(key, JSON.stringify(files));
+        console.log(`💾 Информация о файле сохранена: ${fileInfo.name}`);
+        
+    } catch (error) {
+        console.error('❌ Ошибка сохранения файла:', error);
     }
 }
 
@@ -471,6 +729,9 @@ function initUI() {
             if (view) switchView(view);
         });
     });
+    
+    // Добавляем пункт для отладки
+    addDebugMenuItems();
     
     // Кнопки заголовка
     document.getElementById('btn-users').addEventListener('click', () => switchView('users'));
@@ -533,7 +794,221 @@ function initUI() {
     document.addEventListener('click', closeMenus);
 }
 
-// ===== ПРИКРЕПЛЕНИЕ ФАЙЛОВ =====
+function addDebugMenuItems() {
+    const menuList = document.querySelector('.menu-list');
+    if (!menuList) return;
+    
+    // Кнопка отладки
+    const debugItem = document.createElement('div');
+    debugItem.className = 'menu-item';
+    debugItem.innerHTML = `
+        <i class="fas fa-bug"></i>
+        <span>Отладка</span>
+    `;
+    debugItem.addEventListener('click', showDebugPanel);
+    menuList.appendChild(debugItem);
+    
+    // Кнопка файлов S3
+    const filesItem = document.createElement('div');
+    filesItem.className = 'menu-item';
+    filesItem.innerHTML = `
+        <i class="fas fa-cloud"></i>
+        <span>Файлы в S3</span>
+    `;
+    filesItem.addEventListener('click', showS3Files);
+    menuList.appendChild(filesItem);
+}
+
+// ===== ПАНЕЛЬ ОТЛАДКИ =====
+function showDebugPanel() {
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    
+    // Собираем статистику
+    const messages = getAllMessages();
+    const usersKey = `${STORAGE_PREFIX}users`;
+    const users = localStorage.getItem(usersKey) ? JSON.parse(localStorage.getItem(usersKey)) : {};
+    const filesKey = `${STORAGE_PREFIX}files`;
+    const files = localStorage.getItem(filesKey) ? JSON.parse(localStorage.getItem(filesKey)) : [];
+    
+    const s3Files = files.filter(f => f.url && f.url.includes('s3.ru-3.storage.selcloud.ru'));
+    const localFiles = files.filter(f => f.isLocal);
+    
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 700px;">
+            <div class="modal-header">
+                <h3>🔧 Панель отладки</h3>
+                <button class="btn-close" onclick="this.closest('.modal').remove()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="debug-stats">
+                    <h4>📊 Статистика</h4>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-label">Пользователи</div>
+                            <div class="stat-value">${Object.keys(users).length}</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Онлайн сейчас</div>
+                            <div class="stat-value">${Object.values(users).filter(u => u.is_online).length}</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Сообщения</div>
+                            <div class="stat-value">${messages.length}</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Файлы всего</div>
+                            <div class="stat-value">${files.length}</div>
+                        </div>
+                    </div>
+                    
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-label">Файлы в S3</div>
+                            <div class="stat-value">${s3Files.length}</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Локальные файлы</div>
+                            <div class="stat-value">${localFiles.length}</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Статус S3</div>
+                            <div class="stat-value ${s3Status === 'Работает' ? 'success' : 'error'}">${s3Status}</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="debug-actions">
+                    <h4>⚡ Действия</h4>
+                    <div class="actions-grid">
+                        <button class="btn" onclick="checkS3Connection()">
+                            <i class="fas fa-sync"></i> Проверить S3
+                        </button>
+                        <button class="btn" onclick="showDebugInfo()">
+                            <i class="fas fa-info-circle"></i> Консоль
+                        </button>
+                        <button class="btn" onclick="exportAllData()">
+                            <i class="fas fa-download"></i> Экспорт данных
+                        </button>
+                        <button class="btn btn-danger" onclick="clearTestData()">
+                            <i class="fas fa-trash"></i> Очистить тест
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="debug-info">
+                    <h4>ℹ️ Информация</h4>
+                    <div class="info-item">
+                        <strong>ID пользователя:</strong> ${currentUserId}
+                    </div>
+                    <div class="info-item">
+                        <strong>Имя:</strong> ${currentUser.first_name}
+                    </div>
+                    <div class="info-item">
+                        <strong>Префикс хранилища:</strong> ${STORAGE_PREFIX}
+                    </div>
+                    <div class="info-item">
+                        <strong>Раздел:</strong> ${currentSection}
+                    </div>
+                    <div class="info-item">
+                        <strong>S3 бакет:</strong> ${S3_CONFIG.bucket}
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="this.closest('.modal').remove()">Закрыть</button>
+                <button class="btn btn-primary" onclick="location.reload()">
+                    <i class="fas fa-redo"></i> Перезагрузить
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+}
+
+function showS3Files() {
+    const filesKey = `${STORAGE_PREFIX}files`;
+    const savedFiles = localStorage.getItem(filesKey);
+    
+    if (!savedFiles) {
+        showNotification('Нет файлов', 'warning');
+        return;
+    }
+    
+    const files = JSON.parse(savedFiles);
+    const s3Files = files.filter(f => f.url && f.url.includes('s3.ru-3.storage.selcloud.ru'));
+    
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 900px;">
+            <div class="modal-header">
+                <h3>☁️ Файлы в Selectel S3 (${s3Files.length})</h3>
+                <button class="btn-close" onclick="this.closest('.modal').remove()">×</button>
+            </div>
+            <div class="modal-body" style="max-height: 500px; overflow-y: auto;">
+                <table class="files-table">
+                    <thead>
+                        <tr>
+                            <th>Имя файла</th>
+                            <th>Тип</th>
+                            <th>Размер</th>
+                            <th>Загрузил</th>
+                            <th>Дата</th>
+                            <th>URL</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${s3Files.map(file => `
+                            <tr>
+                                <td>
+                                    <i class="fas fa-${file.type === 'photo' ? 'image' : 'file'}"></i>
+                                    ${file.name}
+                                </td>
+                                <td>${file.type}</td>
+                                <td>${formatFileSize(file.size)}</td>
+                                <td>${file.uploadedByName || file.uploadedBy}</td>
+                                <td>${new Date(file.uploadedAt).toLocaleString('ru-RU')}</td>
+                                <td class="url-cell">
+                                    <input type="text" readonly value="${file.url}" 
+                                        onclick="this.select()" style="width: 250px; font-size: 12px;">
+                                </td>
+                                <td>
+                                    <button class="btn-small" onclick="window.open('${file.url}', '_blank')" title="Открыть">
+                                        <i class="fas fa-external-link-alt"></i>
+                                    </button>
+                                    <button class="btn-small" onclick="copyToClipboard('${file.url}')" title="Копировать URL">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+                
+                ${s3Files.length === 0 ? `
+                    <div class="empty-state">
+                        <i class="fas fa-cloud"></i>
+                        <p>Нет файлов в S3</p>
+                    </div>
+                ` : ''}
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="this.closest('.modal').remove()">Закрыть</button>
+                <button class="btn btn-primary" onclick="checkS3Connection()">
+                    <i class="fas fa-sync"></i> Проверить S3
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+}
+
+// ===== ОСТАЛЬНЫЕ ФУНКЦИИ =====
 function toggleAttachMenu() {
     const menu = document.getElementById('attach-menu');
     menu.classList.toggle('active');
@@ -545,7 +1020,6 @@ function attachFile(type) {
     const input = document.createElement('input');
     input.type = 'file';
     
-    // Устанавливаем accept в зависимости от типа
     if (type === 'photo') {
         input.accept = 'image/*';
     } else if (type === 'document') {
@@ -559,20 +1033,12 @@ function attachFile(type) {
         if (!file) return;
         
         try {
-            // Загружаем файл
             const fileInfo = await uploadFile(file, type);
-            
-            // Добавляем в прикрепленные файлы
             attachedFiles.push(fileInfo);
-            
-            // Показываем превью
             showFilePreview(fileInfo);
-            
             showNotification('Файл прикреплен', 'success');
-            
         } catch (error) {
-            console.error('❌ Ошибка загрузки файла:', error);
-            showNotification(error.message || 'Ошибка загрузки файла', 'error');
+            showNotification('Ошибка загрузки файла', 'error');
         }
     };
     
@@ -604,6 +1070,7 @@ function showFilePreview(fileInfo) {
         <div class="file-preview-header">
             <i class="fas ${icon}"></i>
             <span class="file-name">${fileInfo.name}</span>
+            <span class="file-source">${fileInfo.isLocal ? 'Локальный' : 'S3'}</span>
             <button class="btn-remove-file" onclick="removeFilePreview(this)">
                 <i class="fas fa-times"></i>
             </button>
@@ -613,18 +1080,17 @@ function showFilePreview(fileInfo) {
         </div>
         <div class="file-preview-footer">
             <span class="file-size">${formatFileSize(fileInfo.size)}</span>
-            <span class="file-status">✓ Готово</span>
+            <span class="file-status ${fileInfo.isLocal ? 'local' : 's3'}">
+                ${fileInfo.isLocal ? 'Локальный' : 'S3'}
+            </span>
         </div>
     `;
     
-    // Сохраняем информацию о файле
     preview.dataset.fileInfo = JSON.stringify(fileInfo);
-    
     container.appendChild(preview);
     document.getElementById('file-preview').style.display = 'block';
 }
 
-// ===== EMOJI PICKER =====
 function initEmojiPicker() {
     const emojiGrid = document.getElementById('emoji-grid');
     const categories = document.querySelectorAll('.emoji-category');
@@ -667,7 +1133,6 @@ function insertEmoji(emoji) {
     document.getElementById('emoji-picker').classList.remove('active');
 }
 
-// ===== SIDEBAR =====
 function toggleSidebar() {
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('overlay');
@@ -675,7 +1140,6 @@ function toggleSidebar() {
     overlay.classList.toggle('active');
 }
 
-// ===== SECTION MANAGEMENT =====
 function switchSection(sectionId) {
     currentSection = sectionId;
     document.querySelectorAll('.section-item').forEach(item => {
@@ -687,7 +1151,6 @@ function switchSection(sectionId) {
     toggleSidebar();
 }
 
-// ===== VIEW MANAGEMENT =====
 function switchView(viewId) {
     document.querySelectorAll('.chat-container, .users-container, .admin-container, .settings-container, .profile-container')
         .forEach(view => view.classList.remove('active'));
@@ -708,7 +1171,6 @@ function switchView(viewId) {
     }
 }
 
-// ===== ОТПРАВКА СООБЩЕНИЙ =====
 function sendMessage() {
     const input = document.getElementById('message-input');
     const text = input.value.trim();
@@ -718,10 +1180,8 @@ function sendMessage() {
         return;
     }
     
-    // Создаем уникальный ID для сообщения
     const messageId = Date.now() + Math.floor(Math.random() * 1000);
     
-    // Создаем сообщение
     const message = {
         id: messageId,
         user_id: currentUserId,
@@ -738,11 +1198,9 @@ function sendMessage() {
         reactions: {}
     };
     
-    // Сохраняем
     const saved = saveMessage(message);
     
     if (saved) {
-        // Отображаем
         const container = document.getElementById('messages-container');
         const emptyChat = document.getElementById('empty-chat');
         
@@ -752,19 +1210,25 @@ function sendMessage() {
         
         container.appendChild(createMessageElement(message));
         
-        // Очищаем
         input.value = '';
         input.style.height = 'auto';
         clearAttachments();
         
-        // Прокручиваем
         scrollToBottom();
         
-        // Обновляем статус пользователя
-        updateUserOnlineStatus();
+        // Обновляем статус
+        if (usersCache[currentUserId]) {
+            usersCache[currentUserId].last_seen = Date.now();
+            saveUsersToStorage();
+        }
         
-        // Уведомление
         showNotification('Сообщение отправлено', 'success');
+        
+        // Консоль логи
+        console.log(`📤 Сообщение отправлено: ${text.substring(0, 50)}...`);
+        if (attachedFiles.length > 0) {
+            console.log(`📎 Прикреплено файлов: ${attachedFiles.length}`);
+        }
     }
 }
 
@@ -792,6 +1256,9 @@ function createMessageElement(message) {
                 <div class="message-file-header">
                     <i class="fas fa-${file.type === 'photo' ? 'image' : 'file'}"></i>
                     <span class="message-file-name">${escapeHtml(file.name)}</span>
+                    <span class="file-source-badge ${file.isLocal ? 'local' : 's3'}">
+                        ${file.isLocal ? 'локальный' : 'S3'}
+                    </span>
                     <a href="${file.url}" target="_blank" class="download-btn" title="Открыть">
                         <i class="fas fa-external-link-alt"></i>
                     </a>
@@ -812,6 +1279,7 @@ function createMessageElement(message) {
                 <div class="message-header">
                     <div class="message-sender">
                         ${userName}
+                        ${user.id === currentUserId ? '<span class="you-badge">(Вы)</span>' : ''}
                     </div>
                     <div class="message-time">${time}</div>
                 </div>
@@ -830,139 +1298,6 @@ function createMessageElement(message) {
     return div;
 }
 
-// ===== USER MANAGEMENT =====
-function loadUsers() {
-    // Загружаем из localStorage
-    const savedUsers = localStorage.getItem(`${STORAGE_PREFIX}users`);
-    if (savedUsers) {
-        try {
-            usersCache = JSON.parse(savedUsers);
-        } catch (e) {
-            console.error('Ошибка:', e);
-            usersCache = {};
-        }
-    }
-    
-    // Добавляем текущего пользователя
-    if (!usersCache[currentUserId]) {
-        usersCache[currentUserId] = {
-            ...currentUser,
-            role: 'user',
-            is_online: true,
-            last_seen: Date.now(),
-            last_active: new Date().toISOString()
-        };
-    } else {
-        // Обновляем статус
-        usersCache[currentUserId].is_online = true;
-        usersCache[currentUserId].last_seen = Date.now();
-        usersCache[currentUserId].last_active = new Date().toISOString();
-    }
-    
-    saveUsersToStorage();
-    
-    // Обновляем UI
-    updateUsersList();
-    updateOnlineCount();
-    
-    // Обновляем статусы пользователей (помечаем неактивных)
-    updateUserStatuses();
-}
-
-function saveUserToCache(userId, userData) {
-    usersCache[userId] = {
-        ...usersCache[userId],
-        ...userData,
-        last_updated: Date.now()
-    };
-    saveUsersToStorage();
-}
-
-function saveUsersToStorage() {
-    localStorage.setItem(`${STORAGE_PREFIX}users`, JSON.stringify(usersCache));
-}
-
-function updateUserStatuses() {
-    const now = Date.now();
-    const fiveMinutes = 5 * 60 * 1000;
-    
-    Object.keys(usersCache).forEach(userId => {
-        if (userId !== currentUserId) {
-            const user = usersCache[userId];
-            if (user.last_seen && (now - user.last_seen) > fiveMinutes) {
-                user.is_online = false;
-            }
-        }
-    });
-}
-
-function updateUsersList(filter = '') {
-    const usersList = document.getElementById('users-list');
-    if (!usersList) return;
-    
-    usersList.innerHTML = '';
-    
-    // Обновляем статусы перед отображением
-    updateUserStatuses();
-    
-    const sortedUsers = Object.values(usersCache).sort((a, b) => {
-        if (a.is_online !== b.is_online) return b.is_online - a.is_online;
-        return (a.first_name || '').localeCompare(b.first_name || '');
-    });
-    
-    const filteredUsers = sortedUsers.filter(user => {
-        if (!filter) return true;
-        const searchTerm = filter.toLowerCase();
-        return (
-            (user.first_name && user.first_name.toLowerCase().includes(searchTerm)) ||
-            (user.last_name && user.last_name.toLowerCase().includes(searchTerm))
-        );
-    });
-    
-    if (filteredUsers.length === 0) {
-        const empty = document.createElement('div');
-        empty.className = 'empty-chat';
-        empty.innerHTML = `
-            <i class="fas fa-user-slash"></i>
-            <p>Пользователи не найдены</p>
-        `;
-        usersList.appendChild(empty);
-        return;
-    }
-    
-    filteredUsers.forEach(user => {
-        const div = document.createElement('div');
-        div.className = 'user-item';
-        div.dataset.userId = user.id;
-        
-        const userName = user.first_name || 'User';
-        const lastSeen = user.last_seen ? new Date(user.last_seen).toLocaleTimeString('ru-RU') : '';
-        const statusText = user.is_online ? 'В сети' : `Был(а) в ${lastSeen}`;
-        
-        div.innerHTML = `
-            <div class="user-item-avatar" style="background-color: ${stringToColor(user.id)}">
-                ${userName.charAt(0).toUpperCase()}
-            </div>
-            <div class="user-item-info">
-                <div class="user-item-name">
-                    ${userName}
-                    ${user.is_online ? '<i class="fas fa-circle online-dot"></i>' : ''}
-                </div>
-                <div class="user-item-status ${user.is_online ? 'online' : ''}">
-                    ${statusText}
-                </div>
-            </div>
-        `;
-        
-        usersList.appendChild(div);
-    });
-}
-
-function searchUsers(query) {
-    updateUsersList(query);
-}
-
-// ===== THEME MANAGEMENT =====
 function initTheme() {
     const savedTheme = localStorage.getItem(`${STORAGE_PREFIX}theme`) || 'auto';
     applyTheme(savedTheme);
@@ -993,7 +1328,7 @@ function applyTheme(theme) {
     }
 }
 
-// ===== UTILITY FUNCTIONS =====
+// ===== УТИЛИТЫ =====
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
@@ -1054,19 +1389,22 @@ function scrollToBottom() {
 }
 
 function mentionAllOnline() {
-    const onlineUsers = Object.values(usersCache).filter(u => u.is_online);
-    const mentions = onlineUsers.map(u => `@${u.first_name}`).join(' ');
+    const onlineUsers = Object.values(usersCache).filter(u => u.is_online && u.id !== currentUserId);
     
-    const input = document.getElementById('message-input');
-    if (mentions) {
-        input.value = mentions + ' ' + (input.value || '');
-        input.focus();
-        input.style.height = 'auto';
-        input.style.height = (input.scrollHeight) + 'px';
-        showNotification('Упомянуты все онлайн', 'info');
-    } else {
-        showNotification('Нет пользователей онлайн', 'warning');
+    if (onlineUsers.length === 0) {
+        showNotification('Нет других пользователей онлайн', 'warning');
+        return;
     }
+    
+    const mentions = onlineUsers.map(u => `@${u.first_name}`).join(' ');
+    const input = document.getElementById('message-input');
+    
+    input.value = mentions + ' ' + (input.value || '');
+    input.focus();
+    input.style.height = 'auto';
+    input.style.height = (input.scrollHeight) + 'px';
+    
+    showNotification(`Упомянуто ${onlineUsers.length} пользователей`, 'info');
 }
 
 function showNotification(message, type = 'info') {
@@ -1097,38 +1435,29 @@ function showNotification(message, type = 'info') {
     }, 3000);
 }
 
-// ===== DATA MANAGEMENT =====
 function loadData() {
-    // Последний ID сообщения
     const savedLastId = localStorage.getItem(`${STORAGE_PREFIX}lastMessageId`);
     if (savedLastId) {
         lastMessageId = parseInt(savedLastId) || 0;
     }
     
-    // Роли
     const savedRoles = localStorage.getItem(`${STORAGE_PREFIX}userRoles`);
     if (savedRoles) {
         try {
             userRoles = JSON.parse(savedRoles);
         } catch (e) {
-            console.error('Ошибка:', e);
             userRoles = {};
         }
     }
     
     if (!userRoles[currentUserId]) {
         userRoles[currentUserId] = 'user';
-        saveRolesToStorage();
+        localStorage.setItem(`${STORAGE_PREFIX}userRoles`, JSON.stringify(userRoles));
     }
 }
 
-function saveRolesToStorage() {
-    localStorage.setItem(`${STORAGE_PREFIX}userRoles`, JSON.stringify(userRoles));
-}
-
 function clearCache() {
-    if (confirm('Очистить весь кэш? Все сообщения и файлы будут удалены.')) {
-        // Удаляем только данные приложения, оставляя настройки
+    if (confirm('Очистить ВЕСЬ кэш? Все сообщения, пользователи и файлы будут удалены!')) {
         const keysToRemove = [];
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
@@ -1139,12 +1468,11 @@ function clearCache() {
         
         keysToRemove.forEach(key => localStorage.removeItem(key));
         
-        showNotification('Кэш очищен', 'success');
+        showNotification('Кэш полностью очищен', 'success');
         setTimeout(() => location.reload(), 1000);
     }
 }
 
-// ===== USER INFO =====
 function updateUserInfo() {
     const userName = document.getElementById('user-name');
     const userRole = document.getElementById('user-role');
@@ -1161,16 +1489,9 @@ function updateUserInfo() {
     if (userAvatar && currentUser.first_name) {
         userAvatar.style.backgroundColor = stringToColor(currentUserId);
         userAvatar.textContent = currentUser.first_name.charAt(0).toUpperCase();
-        document.getElementById('user-avatar-icon').style.display = 'none';
+        const icon = document.getElementById('user-avatar-icon');
+        if (icon) icon.style.display = 'none';
     }
-}
-
-function updateOnlineCount() {
-    const onlineUsers = Object.values(usersCache).filter(u => u.is_online).length;
-    const totalUsers = Object.keys(usersCache).length;
-    
-    document.getElementById('online-count').textContent = onlineUsers;
-    document.getElementById('sidebar-online-count').textContent = `${onlineUsers}/${totalUsers}`;
 }
 
 function updateProfile() {
@@ -1187,29 +1508,28 @@ function updateProfile() {
     }
 }
 
-// ===== FILE FUNCTIONS (ГЛОБАЛЬНЫЕ) =====
+function searchUsers(query) {
+    updateUsersList(query);
+}
+
 function removeFilePreview(button) {
     const preview = button.closest('.file-preview-item');
     const fileInfo = JSON.parse(preview.dataset.fileInfo);
     
-    // Удаляем из массива
     attachedFiles = attachedFiles.filter(file => file.id !== fileInfo.id);
     
-    // Освобождаем URL если это локальный файл
     if (fileInfo.isLocal && fileInfo.url.startsWith('data:')) {
         URL.revokeObjectURL(fileInfo.url);
     }
     
     preview.remove();
     
-    // Скрываем панель если файлов больше нет
     if (document.querySelectorAll('.file-preview-item').length === 0) {
         document.getElementById('file-preview').style.display = 'none';
     }
 }
 
 function clearAttachments() {
-    // Освобождаем все локальные URL
     attachedFiles.forEach(file => {
         if (file.isLocal && file.url.startsWith('data:')) {
             URL.revokeObjectURL(file.url);
@@ -1221,9 +1541,7 @@ function clearAttachments() {
     document.getElementById('file-preview').style.display = 'none';
 }
 
-// ===== HELPER FUNCTIONS =====
 function closeMenus(e) {
-    // Закрываем меню прикрепления
     const attachMenu = document.getElementById('attach-menu');
     const btnAttach = document.getElementById('btn-attach');
     
@@ -1233,7 +1551,6 @@ function closeMenus(e) {
         }
     }
     
-    // Закрываем эмодзи пикер
     const emojiPicker = document.getElementById('emoji-picker');
     const btnEmoji = document.getElementById('btn-emoji');
     
@@ -1244,7 +1561,103 @@ function closeMenus(e) {
     }
 }
 
-// ===== START APPLICATION =====
+// ===== ДЕБАГ ФУНКЦИИ ДЛЯ КОНСОЛИ =====
+window.debug = {
+    showUsers: function() {
+        console.table(Object.values(usersCache).map(u => ({
+            ID: u.id,
+            Имя: u.first_name,
+            Онлайн: u.is_online ? '✅' : '❌',
+            'Последний раз': new Date(u.last_seen).toLocaleTimeString(),
+            'Всего сообщений': getAllMessages().filter(m => m.user_id === u.id).length
+        })));
+    },
+    
+    showMessages: function() {
+        const messages = getAllMessages();
+        console.log(`Всего сообщений: ${messages.length}`);
+        messages.forEach((msg, i) => {
+            console.log(`${i+1}. [${new Date(msg.timestamp).toLocaleTimeString()}] ${msg.user.first_name}: ${msg.content.substring(0, 50)}...`);
+        });
+    },
+    
+    showFiles: function() {
+        const filesKey = `${STORAGE_PREFIX}files`;
+        const savedFiles = localStorage.getItem(filesKey);
+        if (savedFiles) {
+            const files = JSON.parse(savedFiles);
+            console.table(files.map(f => ({
+                Имя: f.name,
+                Тип: f.type,
+                Размер: formatFileSize(f.size),
+                Источник: f.isLocal ? 'Локальный' : 'S3',
+                URL: f.url.substring(0, 50) + '...'
+            })));
+        }
+    },
+    
+    checkStorage: function() {
+        console.group('📦 Хранилище');
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key.startsWith(STORAGE_PREFIX)) {
+                const value = localStorage.getItem(key);
+                console.log(`${key}: ${value.length} chars`);
+            }
+        }
+        console.groupEnd();
+    },
+    
+    testS3: function() {
+        checkS3Connection();
+    }
+};
+
+// Глобальные функции
+window.copyToClipboard = function(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        showNotification('Скопировано в буфер', 'success');
+    });
+};
+
+window.exportAllData = function() {
+    const data = {
+        users: usersCache,
+        messages_main: getAllMessages(),
+        files: JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}files`) || '[]'),
+        timestamp: new Date().toISOString(),
+        s3_status: s3Status
+    };
+    
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `telegram_chat_backup_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    showNotification('Данные экспортированы', 'success');
+};
+
+window.clearTestData = function() {
+    if (confirm('Очистить только тестовые данные (сообщения и файлы)? Пользователи останутся.')) {
+        const keys = [
+            `${STORAGE_PREFIX}messages_main`,
+            `${STORAGE_PREFIX}messages_news`,
+            `${STORAGE_PREFIX}files`
+        ];
+        
+        keys.forEach(key => localStorage.removeItem(key));
+        
+        showNotification('Тестовые данные очищены', 'success');
+        setTimeout(() => location.reload(), 1000);
+    }
+};
+
+// ===== ЗАПУСК ПРИЛОЖЕНИЯ =====
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initApp);
 } else {
