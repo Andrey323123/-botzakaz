@@ -7,6 +7,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
 </head>
 <body>
     <!-- Экран загрузки -->
@@ -28,7 +29,7 @@
                     <i class="fas fa-bars"></i>
                 </button>
                 <div class="chat-info">
-                    <div class="chat-title" id="chat-title">Botfs23</div>
+                    <div class="chat-title" id="chat-title">Botfs23 Chat</div>
                     <div class="chat-status">онлайн: <span id="online-count">0</span></div>
                 </div>
             </div>
@@ -122,7 +123,7 @@
                     <i class="fas fa-circle online-dot"></i>
                     <span id="sidebar-online-count">0</span> онлайн
                 </div>
-                <div class="app-version">v3.2</div>
+                <div class="app-version">v4.0</div>
             </div>
         </div>
 
@@ -133,13 +134,20 @@
         <div class="main-content">
             <!-- Чат -->
             <div class="chat-container active" id="chat-view">
-                <div class="messages-container" id="messages-container"></div>
+                <div class="messages-container" id="messages-container">
+                    <div class="empty-chat" id="empty-chat">
+                        <i class="fas fa-comments"></i>
+                        <p>Чат пустой</p>
+                        <small>Начните общение первым!</small>
+                    </div>
+                </div>
                
                 <!-- Превью прикреплённых файлов -->
                 <div class="file-preview" id="file-preview" style="display: none;">
                     <div id="file-preview-container"></div>
                     <div class="file-preview-actions">
                         <button onclick="clearAttachments()" class="btn-admin-action danger">Отмена</button>
+                        <button onclick="sendMessageWithFiles()" class="btn-admin-action primary">Отправить</button>
                     </div>
                 </div>
                
@@ -173,7 +181,7 @@
                         </div>
                     </div>
                    
-                    <button class="btn-send" id="send-button">
+                    <button class="btn-send" id="send-button" onclick="sendMessage()">
                         <i class="fas fa-paper-plane"></i>
                     </button>
                 </div>
@@ -216,13 +224,35 @@
                         <div class="sections-admin-list">
                             <div class="permission-item">
                                 <span>Основной чат</span>
-                                <select class="permission-select" onchange="updateSectionPermission('main', 'write', this.value)">
+                                <select class="permission-select" id="main-permission-select" onchange="updateSectionPermission('main', 'write', this.value)">
+                                    <option value="all">Все</option>
+                                    <option value="moderators">Модераторы+</option>
+                                    <option value="admins">Только админы</option>
+                                </select>
+                            </div>
+                            <div class="permission-item">
+                                <span>Новости</span>
+                                <select class="permission-select" id="news-permission-select" onchange="updateSectionPermission('news', 'write', this.value)">
+                                    <option value="all">Все</option>
+                                    <option value="moderators">Модераторы+</option>
+                                    <option value="admins">Только админы</option>
+                                </select>
+                            </div>
+                            <div class="permission-item">
+                                <span>Объявления</span>
+                                <select class="permission-select" id="announcements-permission-select" onchange="updateSectionPermission('announcements', 'write', this.value)">
                                     <option value="all">Все</option>
                                     <option value="moderators">Модераторы+</option>
                                     <option value="admins">Только админы</option>
                                 </select>
                             </div>
                         </div>
+                    </div>
+                    <div class="admin-section">
+                        <h3><i class="fas fa-trash"></i> Очистка</h3>
+                        <button class="btn-admin-action danger" onclick="clearAllMessages()">
+                            <i class="fas fa-trash"></i> Очистить все сообщения
+                        </button>
                     </div>
                 </div>
             </div>
@@ -243,6 +273,25 @@
                     <div class="settings-item">
                         <span class="settings-label">S3 Хранилище (Selectel)</span>
                         <span class="settings-status" id="s3-status">Проверка...</span>
+                    </div>
+                    <div class="settings-item">
+                        <span class="settings-label">Уведомления</span>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="notifications-toggle" checked onchange="toggleNotifications()">
+                            <span class="settings-toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="settings-item">
+                        <span class="settings-label">Звуки сообщений</span>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="sounds-toggle" checked onchange="toggleSounds()">
+                            <span class="settings-toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="settings-item">
+                        <button class="btn-admin-action primary" onclick="clearLocalStorage()">
+                            <i class="fas fa-trash"></i> Очистить кэш
+                        </button>
                     </div>
                 </div>
             </div>
@@ -270,6 +319,19 @@
                             <span class="detail-label">Роль:</span>
                             <span class="detail-value" id="profile-role">участник</span>
                         </div>
+                        <div class="profile-detail">
+                            <span class="detail-label">Сообщений:</span>
+                            <span class="detail-value" id="profile-messages">0</span>
+                        </div>
+                        <div class="profile-detail">
+                            <span class="detail-label">В сети:</span>
+                            <span class="detail-value" id="profile-online">только что</span>
+                        </div>
+                    </div>
+                    <div class="profile-actions">
+                        <button class="btn-admin-action primary" onclick="editProfile()">
+                            <i class="fas fa-edit"></i> Изменить профиль
+                        </button>
                     </div>
                 </div>
             </div>
@@ -295,13 +357,44 @@
     <script src="script.js"></script>
 
     <script>
+        // Инициализация при загрузке
         document.addEventListener('DOMContentLoaded', function() {
+            // Установка высоты для мобильных устройств
+            function setVh() {
+                let vh = window.innerHeight * 0.01;
+                document.documentElement.style.setProperty('--vh', `${vh}px`);
+            }
+            
+            setVh();
+            window.addEventListener('resize', setVh);
+            
+            // Задержка для показа загрузки
             setTimeout(() => {
-                document.getElementById('loading-screen').classList.add('hidden');
-                document.getElementById('app').style.display = 'flex';
-                initApp();
-            }, 800);
+                const loadingScreen = document.getElementById('loading-screen');
+                const app = document.getElementById('app');
+                
+                if (loadingScreen) {
+                    loadingScreen.classList.add('hidden');
+                }
+                if (app) {
+                    app.style.display = 'flex';
+                }
+                
+                // Инициализация приложения
+                if (typeof initApp === 'function') {
+                    initApp();
+                }
+            }, 1000);
         });
+        
+        // Поддержка PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').catch(err => {
+                    console.log('Service Worker не зарегистрирован:', err);
+                });
+            });
+        }
     </script>
 </body>
 </html>
