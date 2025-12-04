@@ -17,11 +17,15 @@
                     <i class="fas fa-bars"></i>
                 </button>
                 <div class="chat-info">
-                    <div class="chat-title">Botfs23</div>
+                    <div class="chat-title" id="chat-title">Botfs23</div>
                     <div class="chat-status">онлайн: <span id="online-count">2</span></div>
                 </div>
             </div>
             <div class="header-right">
+                <!-- Кнопка созыва -->
+                <button class="btn-mention-all" id="btn-mention-all" onclick="mentionAll()" title="Упомянуть всех онлайн">
+                    <i class="fas fa-at"></i>
+                </button>
                 <!-- Кнопка прыжка к непрочитанным -->
                 <button class="btn-jump" id="btn-jump" onclick="jumpToUnread()">
                     <i class="fas fa-arrow-down"></i>
@@ -99,7 +103,7 @@
                     <i class="fas fa-circle online-dot"></i>
                     <span id="sidebar-online-count">2</span> онлайн
                 </div>
-                <div class="app-version">v2.0</div>
+                <div class="app-version">v3.0</div>
             </div>
         </div>
 
@@ -110,84 +114,7 @@
         <div class="chat-container active" id="chat-view">
             <!-- Сообщения -->
             <div class="messages-container" id="messages-container">
-                <!-- Пример сообщения -->
-                <div class="message system" data-message-id="1">
-                    <div class="message-content">
-                        <div class="message-system">
-                            <i class="fas fa-info-circle"></i>
-                            <div class="message-text">Добро пожаловать в чат! Начните общение.</div>
-                            <div class="message-time">13:47</div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Пример сообщения с реакциями -->
-                <div class="message incoming" data-message-id="2">
-                    <div class="message-avatar" style="background-color: #4caf50;">П</div>
-                    <div class="message-content">
-                        <div class="message-header">
-                            <div class="message-sender">
-                                Петр
-                                <span class="message-sender-role admin">админ</span>
-                            </div>
-                            <div class="message-time">13:48</div>
-                        </div>
-                        <div class="message-text">Привет всем! Добро пожаловать в наш чат.</div>
-                        
-                        <!-- Реакции под сообщением -->
-                        <div class="message-reactions">
-                            <div class="reaction">
-                                👍 <span class="reaction-count">3</span>
-                            </div>
-                            <div class="reaction">
-                                ❤️ <span class="reaction-count">2</span>
-                            </div>
-                        </div>
-                        
-                        <!-- Время и статус прочтения -->
-                        <div class="message-status">
-                            <i class="fas fa-check-double"></i>
-                            <div class="message-time">13:48</div>
-                        </div>
-                    </div>
-                    
-                    <!-- Кнопка для контекстного меню -->
-                    <button class="btn-message-menu" onclick="showMessageMenu(this, 2)">
-                        <i class="fas fa-ellipsis-v"></i>
-                    </button>
-                </div>
-                
-                <!-- Пример сообщения с голосовым -->
-                <div class="message outgoing" data-message-id="3">
-                    <div class="message-content">
-                        <div class="message-text">Вот голосовое сообщение:</div>
-                        
-                        <!-- Голосовое сообщение -->
-                        <div class="message-voice">
-                            <button class="voice-play-btn" onclick="toggleVoicePlayback(this)">
-                                <i class="fas fa-play"></i>
-                            </button>
-                            <div class="voice-waveform"></div>
-                            <div class="voice-duration">0:15</div>
-                        </div>
-                        
-                        <!-- Реакции -->
-                        <div class="message-reactions">
-                            <div class="reaction user-reacted">
-                                ❤️ <span class="reaction-count">1</span>
-                            </div>
-                        </div>
-                        
-                        <div class="message-status">
-                            <i class="fas fa-check-double"></i>
-                            <div class="message-time">13:55</div>
-                        </div>
-                    </div>
-                    
-                    <button class="btn-message-menu" onclick="showMessageMenu(this, 3)">
-                        <i class="fas fa-ellipsis-v"></i>
-                    </button>
-                </div>
+                <!-- Сообщения будут загружаться динамически -->
             </div>
             
             <!-- Поле ввода -->
@@ -209,13 +136,19 @@
                         <i class="fas fa-file"></i>
                         <span>Документ</span>
                     </div>
+                    <div class="attach-item" onclick="attachFile('sticker')">
+                        <i class="far fa-smile"></i>
+                        <span>Стикер</span>
+                    </div>
                 </div>
                 
                 <div class="input-wrapper">
-                    <input type="text" 
-                           id="message-input" 
-                           placeholder="Сообщение..."
-                           onkeypress="handleKeyPress(event)">
+                    <textarea 
+                        id="message-input" 
+                        placeholder="Сообщение..."
+                        rows="1"
+                        onkeypress="handleKeyPress(event)"
+                        oninput="autoResize(this)"></textarea>
                     <div class="input-actions">
                         <button class="btn-emoji" onclick="toggleEmojiPicker()">
                             <i class="far fa-smile"></i>
@@ -223,7 +156,7 @@
                     </div>
                 </div>
                 
-                <button class="btn-send" onclick="sendMessage()">
+                <button class="btn-send" onclick="sendMessage()" id="send-button">
                     <i class="fas fa-paper-plane"></i>
                 </button>
             </div>
@@ -234,48 +167,21 @@
                     <button class="emoji-category active" onclick="showEmojiCategory('smileys')">😀</button>
                     <button class="emoji-category" onclick="showEmojiCategory('people')">👋</button>
                     <button class="emoji-category" onclick="showEmojiCategory('symbols')">❤️</button>
+                    <button class="emoji-category" onclick="showEmojiCategory('nature')">🐶</button>
+                    <button class="emoji-category" onclick="showEmojiCategory('food')">🍕</button>
                 </div>
                 <div class="emoji-grid" id="emoji-grid"></div>
             </div>
+            
+            <!-- Превью ответа (будет показываться динамически) -->
+            <div class="reply-preview-container" id="reply-preview-container"></div>
         </div>
 
-        <!-- Контекстное меню сообщения (как в Telegram) -->
-        <div class="message-context-menu" id="message-context-menu">
-            <div class="context-menu-item" onclick="replyToMessage()">
-                <i class="fas fa-reply"></i>
-                <span>Ответить</span>
-            </div>
-            <div class="context-menu-item" onclick="copyMessageLink()">
-                <i class="fas fa-link"></i>
-                <span>Копировать ссылку</span>
-            </div>
-            <div class="context-menu-item" onclick="addToFavorites()">
-                <i class="fas fa-star"></i>
-                <span>Добавить в избранное</span>
-            </div>
-            <div class="context-menu-item" onclick="forwardMessage()">
-                <i class="fas fa-share"></i>
-                <span>Переслать</span>
-            </div>
-            <div class="context-menu-item" onclick="addReactionMenu()">
-                <i class="far fa-smile"></i>
-                <span>Реакция</span>
-            </div>
-            <div class="context-menu-divider"></div>
-            <div class="context-menu-item" onclick="deleteMessage()">
-                <i class="fas fa-trash"></i>
-                <span>Удалить</span>
-            </div>
-            <div class="context-menu-item" onclick="reportMessage()">
-                <i class="fas fa-flag"></i>
-                <span>Пожаловаться</span>
-            </div>
-        </div>
-
-        <!-- Админ панель (скрыта по умолчанию) -->
+        <!-- Админ панель -->
         <div class="admin-container" id="admin-view">
             <div class="admin-header">
                 <h2><i class="fas fa-user-shield"></i> Админ панель</h2>
+                <p>Управление чатом и пользователями</p>
             </div>
             
             <div class="admin-sections">
@@ -283,20 +189,19 @@
                 <div class="admin-section">
                     <h3><i class="fas fa-users-cog"></i> Управление участниками</h3>
                     <div class="admin-users-list" id="admin-users-list">
-                        <!-- Список пользователей для админа -->
-                        <div class="admin-user-item">
-                            <div class="admin-user-info">
-                                <div class="admin-user-avatar" style="background-color: #4caf50;">П</div>
-                                <div>
-                                    <div class="admin-user-name">Петр <span class="user-role-badge admin">админ</span></div>
-                                    <div class="admin-user-id">ID: 123456</div>
-                                </div>
-                            </div>
-                            <div class="admin-user-actions">
-                                <button class="btn-admin-action" onclick="changeUserRole(123456, 'user')">
-                                    <i class="fas fa-user"></i> Снять
-                                </button>
-                            </div>
+                        <!-- Список пользователей будет загружаться динамически -->
+                    </div>
+                </div>
+                
+                <!-- Приглашения -->
+                <div class="admin-section">
+                    <h3><i class="fas fa-user-plus"></i> Приглашения</h3>
+                    <div class="admin-actions">
+                        <button class="btn-admin-action large" onclick="createInvite()">
+                            <i class="fas fa-plus"></i> Создать приглашение
+                        </button>
+                        <div class="invites-list" id="invites-list">
+                            <!-- Список активных приглашений -->
                         </div>
                     </div>
                 </div>
@@ -307,15 +212,69 @@
                     <div class="sections-admin-list">
                         <div class="section-permissions">
                             <div class="permission-item">
+                                <span>Основной чат:</span>
+                                <select class="permission-select" onchange="updateSectionPermission('main', 'write', this.value)">
+                                    <option value="all">Все участники</option>
+                                    <option value="moderators">Модераторы+</option>
+                                    <option value="admins">Только админы</option>
+                                </select>
+                            </div>
+                            <div class="permission-item">
+                                <span>Новости:</span>
+                                <select class="permission-select" onchange="updateSectionPermission('news', 'write', this.value)">
+                                    <option value="all">Все участники</option>
+                                    <option value="moderators">Модераторы+</option>
+                                    <option value="admins">Только админы</option>
+                                </select>
+                            </div>
+                            <div class="permission-item">
                                 <span>Правила:</span>
                                 <select class="permission-select" onchange="updateSectionPermission('rules', 'write', this.value)">
                                     <option value="admins">Только админы</option>
+                                    <option value="moderators">Модераторы+</option>
+                                    <option value="all">Все участники</option>
+                                </select>
+                            </div>
+                            <div class="permission-item">
+                                <span>Объявления:</span>
+                                <select class="permission-select" onchange="updateSectionPermission('announcements', 'write', this.value)">
+                                    <option value="admins">Только админы</option>
+                                    <option value="moderators">Модераторы+</option>
                                     <option value="all">Все участники</option>
                                 </select>
                             </div>
                         </div>
                     </div>
                 </div>
+                
+                <!-- Админ действия -->
+                <div class="admin-section">
+                    <h3><i class="fas fa-tools"></i> Действия</h3>
+                    <div class="admin-actions">
+                        <button class="btn-admin-action danger" onclick="clearChatHistory()">
+                            <i class="fas fa-trash"></i> Очистить историю чата
+                        </button>
+                        <button class="btn-admin-action danger" onclick="exportChatData()">
+                            <i class="fas fa-download"></i> Экспорт данных
+                        </button>
+                        <button class="btn-admin-action" onclick="createBackup()">
+                            <i class="fas fa-save"></i> Создать резервную копию
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Контейнер списка пользователей -->
+        <div class="users-container" id="users-view">
+            <div class="users-header">
+                <h2><i class="fas fa-users"></i> Участники</h2>
+                <div class="users-search">
+                    <input type="text" id="users-search-input" placeholder="Поиск участников..." oninput="searchUsers(this.value)">
+                </div>
+            </div>
+            <div class="users-list" id="users-list">
+                <!-- Список пользователей будет загружаться динамически -->
             </div>
         </div>
     </div>
@@ -328,7 +287,66 @@
             <button class="reaction-option" onclick="addReaction('😂')">😂</button>
             <button class="reaction-option" onclick="addReaction('😮')">😮</button>
             <button class="reaction-option" onclick="addReaction('😢')">😢</button>
+            <button class="reaction-option" onclick="addReaction('😡')">😡</button>
             <button class="reaction-option" onclick="addReaction('🎉')">🎉</button>
+            <button class="reaction-option" onclick="addReaction('🔥')">🔥</button>
+            <button class="reaction-option" onclick="addReaction('👏')">👏</button>
+            <button class="reaction-option" onclick="addReaction('🙏')">🙏</button>
+        </div>
+    </div>
+
+    <!-- Контекстное меню сообщения -->
+    <div class="message-context-menu" id="message-context-menu">
+        <div class="context-menu-item" onclick="contextMenuReply()">
+            <i class="fas fa-reply"></i>
+            <span>Ответить</span>
+        </div>
+        <div class="context-menu-item" onclick="contextMenuCopyLink()">
+            <i class="fas fa-link"></i>
+            <span>Копировать ссылку</span>
+        </div>
+        <div class="context-menu-item" onclick="contextMenuAddToFavorites()">
+            <i class="fas fa-star"></i>
+            <span>Добавить в избранное</span>
+        </div>
+        <div class="context-menu-item" onclick="contextMenuForward()">
+            <i class="fas fa-share"></i>
+            <span>Переслать</span>
+        </div>
+        <div class="context-menu-item" onclick="contextMenuReaction()">
+            <i class="far fa-smile"></i>
+            <span>Реакция</span>
+        </div>
+        <div class="context-menu-divider"></div>
+        <div class="context-menu-item" onclick="contextMenuEdit()">
+            <i class="fas fa-edit"></i>
+            <span>Редактировать</span>
+        </div>
+        <div class="context-menu-item" onclick="contextMenuDelete()">
+            <i class="fas fa-trash"></i>
+            <span>Удалить</span>
+        </div>
+        <div class="context-menu-divider"></div>
+        <div class="context-menu-item" onclick="contextMenuReport()">
+            <i class="fas fa-flag"></i>
+            <span>Пожаловаться</span>
+        </div>
+        <div class="context-menu-item" onclick="contextMenuSelect()">
+            <i class="fas fa-check-square"></i>
+            <span>Выбрать</span>
+        </div>
+    </div>
+
+    <!-- Попикер для пересылки -->
+    <div class="forward-popup" id="forward-popup">
+        <div class="forward-header">
+            <h3>Переслать в...</h3>
+            <button class="btn-close-forward" onclick="closeForwardPopup()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="forward-options" id="forward-options">
+            <!-- Опции будут загружены динамически -->
         </div>
     </div>
 
@@ -336,7 +354,78 @@
         // Вспомогательная функция
         function hideImage(img) {
             img.style.display = 'none';
-            document.getElementById('user-avatar-icon').style.display = 'block';
+            const icon = document.getElementById('user-avatar-icon');
+            if (icon) icon.style.display = 'block';
+        }
+        
+        // Функция для авто-ресайза textarea
+        function autoResize(textarea) {
+            textarea.style.height = 'auto';
+            textarea.style.height = (textarea.scrollHeight) + 'px';
+        }
+        
+        // Функция для открытия меню сообщения
+        function showMessageMenu(button, messageId) {
+            const menu = document.getElementById('message-context-menu');
+            const rect = button.getBoundingClientRect();
+            
+            menu.style.left = (rect.left - 150) + 'px';
+            menu.style.top = (rect.top) + 'px';
+            menu.style.display = 'block';
+            menu.dataset.messageId = messageId;
+            
+            // Закрытие при клике вне меню
+            setTimeout(() => {
+                const closeHandler = (e) => {
+                    if (!menu.contains(e.target) && e.target !== button) {
+                        menu.style.display = 'none';
+                        document.removeEventListener('click', closeHandler);
+                    }
+                };
+                document.addEventListener('click', closeHandler);
+            }, 100);
+        }
+        
+        // Заглушки для функций контекстного меню
+        function contextMenuReply() {
+            const menu = document.getElementById('message-context-menu');
+            const messageId = menu.dataset.messageId;
+            if (window.replyToMessage) window.replyToMessage(messageId);
+            menu.style.display = 'none';
+        }
+        
+        function contextMenuCopyLink() {
+            const menu = document.getElementById('message-context-menu');
+            const messageId = menu.dataset.messageId;
+            // Здесь будет логика копирования ссылки
+            navigator.clipboard.writeText(`https://t.me/botfs23/message/${messageId}`);
+            alert('Ссылка скопирована в буфер обмена');
+            menu.style.display = 'none';
+        }
+        
+        function contextMenuForward() {
+            const menu = document.getElementById('message-context-menu');
+            const messageId = menu.dataset.messageId;
+            if (window.forwardMessage) window.forwardMessage(messageId);
+            menu.style.display = 'none';
+        }
+        
+        function contextMenuReaction() {
+            const menu = document.getElementById('message-context-menu');
+            const messageId = menu.dataset.messageId;
+            if (window.showReactionPopup) window.showReactionPopup(messageId);
+            menu.style.display = 'none';
+        }
+        
+        function contextMenuDelete() {
+            const menu = document.getElementById('message-context-menu');
+            const messageId = menu.dataset.messageId;
+            if (window.deleteMessage) window.deleteMessage(messageId);
+            menu.style.display = 'none';
+        }
+        
+        function closeForwardPopup() {
+            document.getElementById('forward-popup').style.display = 'none';
         }
         
         // Инициализация
@@ -350,16 +439,35 @@
                     const img = document.getElementById('user-avatar-img');
                     img.src = user.photo_url;
                     img.style.display = 'block';
-                    document.getElementById('user-avatar-icon').style.display = 'none';
+                    const icon = document.getElementById('user-avatar-icon');
+                    if (icon) icon.style.display = 'none';
                 }
             }
             
-            // Скрываем админку по умолчанию
+            // Скрываем элементы, которые нужно скрыть по умолчанию
             document.getElementById('admin-menu-item').style.display = 'none';
             document.getElementById('btn-admin').style.display = 'none';
+            document.getElementById('btn-mention-all').style.display = 'none';
+            document.getElementById('admin-view').style.display = 'none';
+            document.getElementById('users-view').style.display = 'none';
+            
+            // Прячем контекстное меню
+            document.getElementById('message-context-menu').style.display = 'none';
+            document.getElementById('forward-popup').style.display = 'none';
+            
+            // Инициализируем эмодзи пикер
+            if (window.showEmojiCategory) {
+                window.showEmojiCategory('smileys');
+            }
+            
+            // Инициализируем приложение
+            if (window.initApp) {
+                setTimeout(() => window.initApp(), 100);
+            }
         });
     </script>
     
-    <script src="script.js"></script>
+    <!-- Подключаем основной скрипт -->
+    <script src="telegram-chat-extended.js"></script>
 </body>
 </html>
