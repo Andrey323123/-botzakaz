@@ -7,452 +7,6 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
-    <style>
-        /* Дополнительные стили для конкретных элементов */
-        .loading-screen {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 9999;
-            color: white;
-        }
-        
-        .loading-logo {
-            font-size: 48px;
-            margin-bottom: 20px;
-            animation: pulse 2s infinite;
-        }
-        
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.1); }
-            100% { transform: scale(1); }
-        }
-        
-        .loading-text {
-            font-size: 18px;
-            margin-bottom: 10px;
-        }
-        
-        .loading-subtext {
-            font-size: 14px;
-            opacity: 0.8;
-        }
-        
-        .custom-alert {
-            display: none;
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: #ff3b30;
-            color: white;
-            padding: 12px 20px;
-            border-radius: 10px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            z-index: 2000;
-            animation: slideInRight 0.3s ease;
-        }
-        
-        @keyframes slideInRight {
-            from {
-                transform: translateX(100%);
-                opacity: 0;
-            }
-            to {
-                transform: translateX(0);
-                opacity: 1;
-            }
-        }
-        
-        /* Кастомные стили для лучшего отображения */
-        .telegram-app {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-        }
-        
-        /* Плавные переходы */
-        .chat-container, .users-container, .admin-container {
-            transition: opacity 0.3s ease;
-        }
-        
-        /* Улучшенный скроллбар для сообщений */
-        .messages-container::-webkit-scrollbar {
-            width: 5px;
-        }
-        
-        .messages-container::-webkit-scrollbar-track {
-            background: rgba(0,0,0,0.05);
-        }
-        
-        .messages-container::-webkit-scrollbar-thumb {
-            background: rgba(0,0,0,0.2);
-            border-radius: 10px;
-        }
-        
-        .messages-container::-webkit-scrollbar-thumb:hover {
-            background: rgba(0,0,0,0.3);
-        }
-        
-        /* Стили для демо пользователей */
-        .demo-user {
-            position: relative;
-        }
-        
-        .demo-user::after {
-            content: "DEMO";
-            position: absolute;
-            top: 5px;
-            right: 5px;
-            background: #ff9500;
-            color: white;
-            font-size: 8px;
-            padding: 2px 4px;
-            border-radius: 3px;
-            font-weight: bold;
-        }
-        
-        /* Анимация для новых сообщений */
-        .new-message {
-            animation: highlight 2s ease;
-        }
-        
-        @keyframes highlight {
-            0% { background-color: rgba(52, 199, 89, 0.1); }
-            100% { background-color: transparent; }
-        }
-        
-        /* Стили для выбора раздела */
-        .section-selector {
-            display: none;
-            position: fixed;
-            bottom: 80px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-            padding: 10px;
-            z-index: 1000;
-        }
-        
-        .section-selector.active {
-            display: block;
-        }
-        
-        .section-selector-item {
-            display: flex;
-            align-items: center;
-            padding: 10px 15px;
-            cursor: pointer;
-            border-radius: 8px;
-            transition: background 0.2s;
-        }
-        
-        .section-selector-item:hover {
-            background: #f5f5f5;
-        }
-        
-        /* Стили для статуса загрузки */
-        .upload-progress {
-            display: none;
-            position: absolute;
-            bottom: 70px;
-            left: 20px;
-            right: 20px;
-            background: white;
-            border-radius: 10px;
-            padding: 15px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-            z-index: 1000;
-        }
-        
-        .upload-progress.active {
-            display: block;
-        }
-        
-        .progress-bar-container {
-            width: 100%;
-            height: 6px;
-            background: #e0e0e0;
-            border-radius: 3px;
-            overflow: hidden;
-            margin-top: 10px;
-        }
-        
-        .progress-bar-fill {
-            height: 100%;
-            background: #34c759;
-            transition: width 0.3s ease;
-        }
-        
-        /* Стили для предпросмотра файлов */
-        .file-preview {
-            display: none;
-            position: absolute;
-            bottom: 70px;
-            left: 20px;
-            right: 20px;
-            background: white;
-            border-radius: 10px;
-            padding: 15px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-            z-index: 1000;
-        }
-        
-        .file-preview.active {
-            display: block;
-        }
-        
-        .file-preview-content {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-        
-        .file-preview-icon {
-            font-size: 32px;
-            color: #3390ec;
-        }
-        
-        .file-preview-info {
-            flex: 1;
-        }
-        
-        .file-preview-name {
-            font-weight: 600;
-            margin-bottom: 5px;
-            word-break: break-all;
-        }
-        
-        .file-preview-size {
-            font-size: 12px;
-            color: #666;
-        }
-        
-        .file-preview-actions {
-            display: flex;
-            gap: 10px;
-        }
-        
-        /* Стили для поиска по сообщениям */
-        .search-results {
-            display: none;
-            position: absolute;
-            top: 56px;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: white;
-            z-index: 100;
-        }
-        
-        .search-results.active {
-            display: block;
-        }
-        
-        .search-results-header {
-            background: #3390ec;
-            color: white;
-            padding: 15px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        .search-results-count {
-            font-size: 14px;
-            opacity: 0.9;
-        }
-        
-        .search-results-list {
-            padding: 15px;
-            overflow-y: auto;
-            height: calc(100% - 60px);
-        }
-        
-        /* Стили для выбора реакции */
-        .reaction-selector {
-            display: none;
-            position: absolute;
-            bottom: 70px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: white;
-            border-radius: 24px;
-            padding: 10px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-            z-index: 1000;
-        }
-        
-        .reaction-selector.active {
-            display: block;
-        }
-        
-        /* Стили для меню пользователя */
-        .user-menu {
-            display: none;
-            position: fixed;
-            top: 60px;
-            right: 10px;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-            z-index: 1000;
-            min-width: 200px;
-        }
-        
-        .user-menu.active {
-            display: block;
-        }
-        
-        .user-menu-item {
-            padding: 12px 15px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            transition: background 0.2s;
-            border-radius: 8px;
-            margin: 5px;
-        }
-        
-        .user-menu-item:hover {
-            background: #f5f5f5;
-        }
-        
-        .user-menu-item i {
-            width: 20px;
-            color: #3390ec;
-        }
-        
-        /* Стили для настроек */
-        .settings-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 15px 0;
-            border-bottom: 1px solid #eee;
-        }
-        
-        .settings-item:last-child {
-            border-bottom: none;
-        }
-        
-        .settings-label {
-            font-weight: 500;
-        }
-        
-        .settings-value {
-            color: #666;
-            font-size: 14px;
-        }
-        
-        .settings-toggle {
-            position: relative;
-            width: 50px;
-            height: 26px;
-        }
-        
-        .settings-toggle input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-        
-        .settings-toggle-slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: #ccc;
-            transition: .4s;
-            border-radius: 34px;
-        }
-        
-        .settings-toggle-slider:before {
-            position: absolute;
-            content: "";
-            height: 18px;
-            width: 18px;
-            left: 4px;
-            bottom: 4px;
-            background-color: white;
-            transition: .4s;
-            border-radius: 50%;
-        }
-        
-        .settings-toggle input:checked + .settings-toggle-slider {
-            background-color: #3390ec;
-        }
-        
-        .settings-toggle input:checked + .settings-toggle-slider:before {
-            transform: translateX(24px);
-        }
-        
-        /* Стили для статистики */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 15px;
-            margin-top: 20px;
-        }
-        
-        .stats-card {
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            text-align: center;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-        }
-        
-        .stats-number {
-            font-size: 28px;
-            font-weight: 600;
-            color: #3390ec;
-            margin-bottom: 5px;
-        }
-        
-        .stats-label {
-            font-size: 14px;
-            color: #666;
-        }
-        
-        /* Стили для темной темы */
-        body.dark-theme .section-selector,
-        body.dark-theme .upload-progress,
-        body.dark-theme .file-preview,
-        body.dark-theme .search-results,
-        body.dark-theme .reaction-selector,
-        body.dark-theme .user-menu,
-        body.dark-theme .settings-item {
-            background: #1c1c1e;
-            color: white;
-        }
-        
-        body.dark-theme .section-selector-item:hover,
-        body.dark-theme .user-menu-item:hover {
-            background: #2c2c2e;
-        }
-        
-        body.dark-theme .stats-card {
-            background: #2c2c2e;
-            color: white;
-        }
-        
-        body.dark-theme .stats-label {
-            color: #aaa;
-        }
-    </style>
 </head>
 <body>
     <!-- Экран загрузки -->
@@ -462,7 +16,7 @@
         </div>
         <div class="loading-text">Botfs23 Chat</div>
         <div class="loading-subtext">Загрузка...</div>
-        <div class="loading-spinner" style="margin-top: 20px;"></div>
+        <div class="loading-spinner"></div>
     </div>
 
     <!-- Кастомные уведомления -->
@@ -473,7 +27,7 @@
         <!-- Header -->
         <div class="header">
             <div class="header-left">
-                <button class="btn-menu" onclick="toggleSidebar()">
+                <button class="btn-menu" id="btn-menu">
                     <i class="fas fa-bars"></i>
                 </button>
                 <div class="chat-info">
@@ -482,17 +36,17 @@
                 </div>
             </div>
             <div class="header-right">
-                <button class="header-btn btn-mention-all" id="btn-mention-all" onclick="mentionAll()" title="Упомянуть всех онлайн" style="display: none;">
+                <button class="header-btn btn-mention-all" id="btn-mention-all" title="Упомянуть всех онлайн" style="display: none;">
                     <i class="fas fa-at"></i>
                 </button>
-                <button class="header-btn btn-jump" id="btn-jump" onclick="jumpToUnread()" title="Перейти к непрочитанным">
+                <button class="header-btn btn-jump" id="btn-jump" title="Перейти к непрочитанным">
                     <i class="fas fa-arrow-down"></i>
                     <span class="unread-badge" id="unread-badge"></span>
                 </button>
-                <button class="header-btn btn-admin" id="btn-admin" onclick="showAdminPanel()" title="Админ панель" style="display: none;">
+                <button class="header-btn btn-admin" id="btn-admin" title="Админ панель" style="display: none;">
                     <i class="fas fa-user-shield"></i>
                 </button>
-                <button class="header-btn btn-users" onclick="showUsersList()" title="Список участников">
+                <button class="header-btn btn-users" id="btn-users" title="Список участников">
                     <i class="fas fa-users"></i>
                 </button>
             </div>
@@ -511,29 +65,29 @@
                         <div class="user-role" id="user-role">участник</div>
                     </div>
                 </div>
-                <button class="btn-close-sidebar" onclick="toggleSidebar()">
+                <button class="btn-close-sidebar" id="btn-close-sidebar">
                     <i class="fas fa-times"></i>
                 </button>
             </div>
             
             <!-- Список разделов -->
             <div class="sections-list">
-                <div class="section-item active" onclick="switchSection('main')">
+                <div class="section-item active" data-section="main">
                     <i class="fas fa-comments"></i>
                     <span class="section-name">Основной чат</span>
                     <span class="section-unread" id="main-unread"></span>
                 </div>
-                <div class="section-item" onclick="switchSection('news')">
+                <div class="section-item" data-section="news">
                     <i class="fas fa-newspaper"></i>
                     <span class="section-name">Новости</span>
                     <span class="section-unread" id="news-unread"></span>
                 </div>
-                <div class="section-item" onclick="switchSection('rules')">
+                <div class="section-item" data-section="rules">
                     <i class="fas fa-book"></i>
                     <span class="section-name">Правила</span>
                     <span class="section-locked"><i class="fas fa-lock"></i></span>
                 </div>
-                <div class="section-item" onclick="switchSection('announcements')">
+                <div class="section-item" data-section="announcements">
                     <i class="fas fa-bullhorn"></i>
                     <span class="section-name">Объявления</span>
                     <span class="section-unread" id="announcements-unread"></span>
@@ -542,25 +96,25 @@
             
             <!-- Меню навигации -->
             <div class="sidebar-menu">
-                <div class="menu-item active" onclick="showChat()">
+                <div class="menu-item active" data-view="chat">
                     <i class="fas fa-comments"></i>
                     <span>Чат</span>
                     <span class="menu-badge" id="chat-badge"></span>
                 </div>
-                <div class="menu-item" onclick="showUsersList()">
+                <div class="menu-item" data-view="users">
                     <i class="fas fa-users"></i>
                     <span>Участники</span>
                     <span class="menu-badge" id="users-badge"></span>
                 </div>
-                <div class="menu-item" onclick="showAdminPanel()" id="admin-menu-item" style="display: none;">
+                <div class="menu-item" data-view="admin" id="admin-menu-item" style="display: none;">
                     <i class="fas fa-user-shield"></i>
                     <span>Админка</span>
                 </div>
-                <div class="menu-item" onclick="showSettings()">
+                <div class="menu-item" data-view="settings">
                     <i class="fas fa-cog"></i>
                     <span>Настройки</span>
                 </div>
-                <div class="menu-item" onclick="showProfile()">
+                <div class="menu-item" data-view="profile">
                     <i class="fas fa-user"></i>
                     <span>Профиль</span>
                 </div>
@@ -576,7 +130,7 @@
         </div>
 
         <!-- Overlay для сайдбара -->
-        <div class="overlay" id="overlay" onclick="toggleSidebar()"></div>
+        <div class="overlay" id="overlay"></div>
 
         <!-- Основной контент -->
         <div class="main-content">
@@ -597,25 +151,25 @@
                 
                 <!-- Поле ввода сообщения -->
                 <div class="message-input-area">
-                    <button class="btn-attach" onclick="toggleAttachMenu()">
+                    <button class="btn-attach" id="btn-attach">
                         <i class="fas fa-paperclip"></i>
                     </button>
                     
                     <!-- Меню прикрепления файлов -->
                     <div class="attach-menu" id="attach-menu">
-                        <div class="attach-item" onclick="attachFile('photo')">
+                        <div class="attach-item" data-type="photo">
                             <i class="fas fa-image"></i>
                             <span>Фото</span>
                         </div>
-                        <div class="attach-item" onclick="attachFile('document')">
+                        <div class="attach-item" data-type="document">
                             <i class="fas fa-file"></i>
                             <span>Документ</span>
                         </div>
-                        <div class="attach-item" onclick="attachFile('sticker')">
+                        <div class="attach-item" data-type="sticker">
                             <i class="far fa-smile"></i>
                             <span>Стикер</span>
                         </div>
-                        <div class="attach-item" onclick="attachFile('voice')">
+                        <div class="attach-item" data-type="voice">
                             <i class="fas fa-microphone"></i>
                             <span>Голосовое</span>
                         </div>
@@ -625,17 +179,15 @@
                         <textarea 
                             id="message-input" 
                             placeholder="Сообщение..."
-                            rows="1"
-                            onkeypress="handleKeyPress(event)"
-                            oninput="autoResize(this)"></textarea>
+                            rows="1"></textarea>
                         <div class="input-actions">
-                            <button class="btn-emoji" onclick="toggleEmojiPicker()">
+                            <button class="btn-emoji" id="btn-emoji">
                                 <i class="far fa-smile"></i>
                             </button>
                         </div>
                     </div>
                     
-                    <button class="btn-send" onclick="sendMessage()" id="send-button">
+                    <button class="btn-send" id="send-button">
                         <i class="fas fa-paper-plane"></i>
                     </button>
                 </div>
@@ -643,11 +195,11 @@
                 <!-- Эмодзи пикер -->
                 <div class="emoji-picker" id="emoji-picker">
                     <div class="emoji-categories">
-                        <button class="emoji-category active" onclick="showEmojiCategory('smileys')">😀</button>
-                        <button class="emoji-category" onclick="showEmojiCategory('people')">👋</button>
-                        <button class="emoji-category" onclick="showEmojiCategory('symbols')">❤️</button>
-                        <button class="emoji-category" onclick="showEmojiCategory('nature')">🐶</button>
-                        <button class="emoji-category" onclick="showEmojiCategory('food')">🍕</button>
+                        <button class="emoji-category active" data-category="smileys">😀</button>
+                        <button class="emoji-category" data-category="people">👋</button>
+                        <button class="emoji-category" data-category="symbols">❤️</button>
+                        <button class="emoji-category" data-category="nature">🐶</button>
+                        <button class="emoji-category" data-category="food">🍕</button>
                     </div>
                     <div class="emoji-grid" id="emoji-grid"></div>
                 </div>
@@ -658,8 +210,8 @@
                 <div class="users-header">
                     <h2><i class="fas fa-users"></i> Участники</h2>
                     <div class="users-search">
-                        <input type="text" id="users-search-input" placeholder="Поиск участников..." oninput="searchUsers(this.value)">
-                        <button class="btn-close-search" onclick="clearUserSearch()">
+                        <input type="text" id="users-search-input" placeholder="Поиск участников...">
+                        <button class="btn-close-search" id="btn-close-search">
                             <i class="fas fa-times"></i>
                         </button>
                     </div>
@@ -689,7 +241,7 @@
                     <div class="admin-section">
                         <h3><i class="fas fa-user-plus"></i> Приглашения</h3>
                         <div class="admin-actions">
-                            <button class="btn-admin-action primary large" onclick="createInvite()">
+                            <button class="btn-admin-action primary large" id="btn-create-invite">
                                 <i class="fas fa-plus"></i> Создать приглашение
                             </button>
                             <div class="invites-list" id="invites-list">
@@ -710,7 +262,7 @@
                             <div class="section-permissions">
                                 <div class="permission-item">
                                     <span>Основной чат:</span>
-                                    <select class="permission-select" onchange="updateSectionPermission('main', 'write', this.value)">
+                                    <select class="permission-select" data-section="main" data-permission="write">
                                         <option value="all">Все участники</option>
                                         <option value="moderators">Модераторы+</option>
                                         <option value="admins">Только админы</option>
@@ -718,7 +270,7 @@
                                 </div>
                                 <div class="permission-item">
                                     <span>Новости:</span>
-                                    <select class="permission-select" onchange="updateSectionPermission('news', 'write', this.value)">
+                                    <select class="permission-select" data-section="news" data-permission="write">
                                         <option value="all">Все участники</option>
                                         <option value="moderators">Модераторы+</option>
                                         <option value="admins">Только админы</option>
@@ -726,7 +278,7 @@
                                 </div>
                                 <div class="permission-item">
                                     <span>Правила:</span>
-                                    <select class="permission-select" onchange="updateSectionPermission('rules', 'write', this.value)">
+                                    <select class="permission-select" data-section="rules" data-permission="write">
                                         <option value="admins">Только админы</option>
                                         <option value="moderators">Модераторы+</option>
                                         <option value="all">Все участники</option>
@@ -734,7 +286,7 @@
                                 </div>
                                 <div class="permission-item">
                                     <span>Объявления:</span>
-                                    <select class="permission-select" onchange="updateSectionPermission('announcements', 'write', this.value)">
+                                    <select class="permission-select" data-section="announcements" data-permission="write">
                                         <option value="admins">Только админы</option>
                                         <option value="moderators">Модераторы+</option>
                                         <option value="all">Все участники</option>
@@ -748,13 +300,13 @@
                     <div class="admin-section">
                         <h3><i class="fas fa-tools"></i> Действия</h3>
                         <div class="admin-actions">
-                            <button class="btn-admin-action danger" onclick="clearChatHistory()">
+                            <button class="btn-admin-action danger" id="btn-clear-chat">
                                 <i class="fas fa-trash"></i> Очистить историю чата
                             </button>
-                            <button class="btn-admin-action primary" onclick="exportChatData()">
+                            <button class="btn-admin-action primary" id="btn-export-data">
                                 <i class="fas fa-download"></i> Экспорт данных
                             </button>
-                            <button class="btn-admin-action primary" onclick="createBackup()">
+                            <button class="btn-admin-action primary" id="btn-create-backup">
                                 <i class="fas fa-save"></i> Создать резервную копию
                             </button>
                         </div>
@@ -763,7 +315,7 @@
             </div>
 
             <!-- Настройки -->
-            <div class="settings-container" id="settings-view" style="display: none;">
+            <div class="settings-container" id="settings-view">
                 <div class="admin-header">
                     <h2><i class="fas fa-cog"></i> Настройки</h2>
                     <p>Настройте приложение под себя</p>
@@ -777,13 +329,13 @@
                             <div class="settings-item">
                                 <div class="settings-label">Темная тема</div>
                                 <label class="settings-toggle">
-                                    <input type="checkbox" id="dark-theme-toggle" onchange="toggleTheme()">
+                                    <input type="checkbox" id="dark-theme-toggle">
                                     <span class="settings-toggle-slider"></span>
                                 </label>
                             </div>
                             <div class="settings-item">
                                 <div class="settings-label">Размер шрифта</div>
-                                <select class="permission-select" id="font-size-select" onchange="changeFontSize(this.value)">
+                                <select class="permission-select" id="font-size-select">
                                     <option value="small">Маленький</option>
                                     <option value="medium" selected>Средний</option>
                                     <option value="large">Большой</option>
@@ -872,7 +424,7 @@
             </div>
 
             <!-- Профиль -->
-            <div class="profile-container" id="profile-view" style="display: none;">
+            <div class="profile-container" id="profile-view">
                 <div class="admin-header">
                     <h2><i class="fas fa-user"></i> Профиль</h2>
                     <p>Информация о вашем аккаунте</p>
@@ -923,13 +475,13 @@
                     <div class="admin-section">
                         <h3><i class="fas fa-user-edit"></i> Действия</h3>
                         <div class="admin-actions">
-                            <button class="btn-admin-action primary" onclick="editProfile()">
+                            <button class="btn-admin-action primary" id="btn-edit-profile">
                                 <i class="fas fa-edit"></i> Редактировать профиль
                             </button>
-                            <button class="btn-admin-action primary" onclick="changePassword()">
+                            <button class="btn-admin-action primary" id="btn-change-password">
                                 <i class="fas fa-key"></i> Сменить пароль
                             </button>
-                            <button class="btn-admin-action danger" onclick="logout()">
+                            <button class="btn-admin-action danger" id="btn-logout">
                                 <i class="fas fa-sign-out-alt"></i> Выйти
                             </button>
                         </div>
@@ -944,60 +496,60 @@
     <!-- Реакции попап -->
     <div class="reactions-popup" id="reactions-popup">
         <div class="reactions-options">
-            <button class="reaction-option" onclick="addReaction('👍')">👍</button>
-            <button class="reaction-option" onclick="addReaction('❤️')">❤️</button>
-            <button class="reaction-option" onclick="addReaction('😂')">😂</button>
-            <button class="reaction-option" onclick="addReaction('😮')">😮</button>
-            <button class="reaction-option" onclick="addReaction('😢')">😢</button>
-            <button class="reaction-option" onclick="addReaction('😡')">😡</button>
-            <button class="reaction-option" onclick="addReaction('🎉')">🎉</button>
-            <button class="reaction-option" onclick="addReaction('🔥')">🔥</button>
-            <button class="reaction-option" onclick="addReaction('👏')">👏</button>
-            <button class="reaction-option" onclick="addReaction('🙏')">🙏</button>
+            <button class="reaction-option" data-emoji="👍">👍</button>
+            <button class="reaction-option" data-emoji="❤️">❤️</button>
+            <button class="reaction-option" data-emoji="😂">😂</button>
+            <button class="reaction-option" data-emoji="😮">😮</button>
+            <button class="reaction-option" data-emoji="😢">😢</button>
+            <button class="reaction-option" data-emoji="😡">😡</button>
+            <button class="reaction-option" data-emoji="🎉">🎉</button>
+            <button class="reaction-option" data-emoji="🔥">🔥</button>
+            <button class="reaction-option" data-emoji="👏">👏</button>
+            <button class="reaction-option" data-emoji="🙏">🙏</button>
         </div>
     </div>
 
     <!-- Контекстное меню сообщения -->
     <div class="message-context-menu" id="message-context-menu">
-        <div class="context-menu-item" onclick="contextMenuReply()">
+        <div class="context-menu-item" data-action="reply">
             <i class="fas fa-reply"></i>
             <span>Ответить</span>
         </div>
-        <div class="context-menu-item" onclick="contextMenuCopy()">
+        <div class="context-menu-item" data-action="copy">
             <i class="fas fa-copy"></i>
             <span>Копировать текст</span>
         </div>
-        <div class="context-menu-item" onclick="contextMenuCopyLink()">
+        <div class="context-menu-item" data-action="copy-link">
             <i class="fas fa-link"></i>
             <span>Копировать ссылку</span>
         </div>
-        <div class="context-menu-item" onclick="contextMenuAddToFavorites()">
+        <div class="context-menu-item" data-action="favorite">
             <i class="fas fa-star"></i>
             <span>Добавить в избранное</span>
         </div>
-        <div class="context-menu-item" onclick="contextMenuForward()">
+        <div class="context-menu-item" data-action="forward">
             <i class="fas fa-share"></i>
             <span>Переслать</span>
         </div>
-        <div class="context-menu-item" onclick="contextMenuReaction()">
+        <div class="context-menu-item" data-action="reaction">
             <i class="far fa-smile"></i>
             <span>Реакция</span>
         </div>
         <div class="context-menu-divider"></div>
-        <div class="context-menu-item" onclick="contextMenuEdit()">
+        <div class="context-menu-item" data-action="edit">
             <i class="fas fa-edit"></i>
             <span>Редактировать</span>
         </div>
-        <div class="context-menu-item" onclick="contextMenuDelete()">
+        <div class="context-menu-item" data-action="delete">
             <i class="fas fa-trash"></i>
             <span>Удалить</span>
         </div>
         <div class="context-menu-divider"></div>
-        <div class="context-menu-item" onclick="contextMenuReport()">
+        <div class="context-menu-item" data-action="report">
             <i class="fas fa-flag"></i>
             <span>Пожаловаться</span>
         </div>
-        <div class="context-menu-item" onclick="contextMenuSelect()">
+        <div class="context-menu-item" data-action="select">
             <i class="fas fa-check-square"></i>
             <span>Выбрать</span>
         </div>
@@ -1007,7 +559,7 @@
     <div class="forward-popup" id="forward-popup">
         <div class="forward-header">
             <h3>Переслать в...</h3>
-            <button class="btn-close-forward" onclick="closeForwardPopup()">
+            <button class="btn-close-forward" id="btn-close-forward">
                 <i class="fas fa-times"></i>
             </button>
         </div>
@@ -1018,7 +570,7 @@
 
     <!-- Прогресс загрузки -->
     <div class="upload-progress" id="upload-progress">
-        <div>Загрузка файла...</div>
+        <div id="upload-text">Загрузка файла...</div>
         <div class="progress-bar-container">
             <div class="progress-bar-fill" id="progress-bar-fill" style="width: 0%;"></div>
         </div>
@@ -1035,10 +587,10 @@
                 <div class="file-preview-size" id="file-preview-size">2.4 MB</div>
             </div>
             <div class="file-preview-actions">
-                <button class="btn-admin-action primary" onclick="sendFile()">
+                <button class="btn-admin-action primary" id="btn-send-file">
                     <i class="fas fa-paper-plane"></i> Отправить
                 </button>
-                <button class="btn-admin-action danger" onclick="cancelFile()">
+                <button class="btn-admin-action danger" id="btn-cancel-file">
                     <i class="fas fa-times"></i> Отмена
                 </button>
             </div>
@@ -1046,12 +598,1823 @@
     </div>
 
     <!-- Тогглер темы -->
-    <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()">
+    <button class="theme-toggle" id="theme-toggle">
         <i class="fas fa-moon" id="theme-icon"></i>
     </button>
 
     <script>
-        // Вспомогательные функции для HTML
+        // Основной JavaScript для управления UI
+        
+        // Константы и глобальные переменные
+        const APP = {
+            currentView: 'chat',
+            currentSection: 'main',
+            activeMessageMenu: null,
+            userData: null,
+            settings: {
+                darkTheme: false,
+                fontSize: 'medium',
+                autoScroll: true,
+                soundEnabled: true,
+                vibrationEnabled: false,
+                previewEnabled: true
+            }
+        };
+        
+        // DOM элементы
+        const elements = {
+            loadingScreen: document.getElementById('loading-screen'),
+            telegramApp: document.getElementById('telegram-app'),
+            sidebar: document.getElementById('sidebar'),
+            overlay: document.getElementById('overlay'),
+            chatView: document.getElementById('chat-view'),
+            usersView: document.getElementById('users-view'),
+            adminView: document.getElementById('admin-view'),
+            settingsView: document.getElementById('settings-view'),
+            profileView: document.getElementById('profile-view'),
+            messagesContainer: document.getElementById('messages-container'),
+            messageInput: document.getElementById('message-input'),
+            sendButton: document.getElementById('send-button'),
+            attachMenu: document.getElementById('attach-menu'),
+            emojiPicker: document.getElementById('emoji-picker'),
+            usersList: document.getElementById('users-list'),
+            usersSearchInput: document.getElementById('users-search-input'),
+            reactionsPopup: document.getElementById('reactions-popup'),
+            messageContextMenu: document.getElementById('message-context-menu'),
+            forwardPopup: document.getElementById('forward-popup'),
+            uploadProgress: document.getElementById('upload-progress'),
+            filePreview: document.getElementById('file-preview'),
+            themeToggle: document.getElementById('theme-toggle'),
+            themeIcon: document.getElementById('theme-icon'),
+            darkThemeToggle: document.getElementById('dark-theme-toggle'),
+            fontSizeSelect: document.getElementById('font-size-select'),
+            autoScrollToggle: document.getElementById('auto-scroll-toggle'),
+            soundToggle: document.getElementById('sound-toggle'),
+            vibrationToggle: document.getElementById('vibration-toggle'),
+            previewToggle: document.getElementById('preview-toggle'),
+            adminMenuItem: document.getElementById('admin-menu-item'),
+            btnAdmin: document.getElementById('btn-admin'),
+            btnMentionAll: document.getElementById('btn-mention-all')
+        };
+        
+        // Инициализация приложения
+        function initApp() {
+            console.log('Инициализация приложения...');
+            
+            // Загрузка настроек
+            loadSettings();
+            
+            // Настройка событий
+            setupEventListeners();
+            
+            // Инициализация Telegram WebApp
+            initTelegramWebApp();
+            
+            // Загрузка демо данных
+            loadDemoData();
+            
+            // Обновление UI
+            updateUI();
+            
+            console.log('Приложение инициализировано');
+        }
+        
+        // Загрузка настроек из localStorage
+        function loadSettings() {
+            const savedSettings = localStorage.getItem('tgChatSettings');
+            if (savedSettings) {
+                APP.settings = { ...APP.settings, ...JSON.parse(savedSettings) };
+            }
+            
+            // Применяем настройки
+            applySettings();
+        }
+        
+        // Сохранение настроек в localStorage
+        function saveSettings() {
+            localStorage.setItem('tgChatSettings', JSON.stringify(APP.settings));
+        }
+        
+        // Применение настроек
+        function applySettings() {
+            // Тема
+            if (APP.settings.darkTheme) {
+                document.body.classList.add('dark-theme');
+                elements.themeIcon.className = 'fas fa-sun';
+            } else {
+                document.body.classList.remove('dark-theme');
+                elements.themeIcon.className = 'fas fa-moon';
+            }
+            
+            // Размер шрифта
+            const fontSizeMap = {
+                small: '13px',
+                medium: '14px',
+                large: '16px'
+            };
+            document.body.style.fontSize = fontSizeMap[APP.settings.fontSize] || '14px';
+            
+            // Элементы управления
+            elements.darkThemeToggle.checked = APP.settings.darkTheme;
+            elements.fontSizeSelect.value = APP.settings.fontSize;
+            elements.autoScrollToggle.checked = APP.settings.autoScroll;
+            elements.soundToggle.checked = APP.settings.soundEnabled;
+            elements.vibrationToggle.checked = APP.settings.vibrationEnabled;
+            elements.previewToggle.checked = APP.settings.previewEnabled;
+        }
+        
+        // Настройка обработчиков событий
+        function setupEventListeners() {
+            // Меню
+            document.getElementById('btn-menu').addEventListener('click', toggleSidebar);
+            document.getElementById('btn-close-sidebar').addEventListener('click', toggleSidebar);
+            elements.overlay.addEventListener('click', toggleSidebar);
+            
+            // Навигация по меню
+            document.querySelectorAll('.menu-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const view = item.dataset.view;
+                    switchView(view);
+                });
+            });
+            
+            // Навигация по разделам
+            document.querySelectorAll('.section-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const section = item.dataset.section;
+                    switchSection(section);
+                    toggleSidebar();
+                });
+            });
+            
+            // Отправка сообщения
+            elements.sendButton.addEventListener('click', sendMessage);
+            elements.messageInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+            
+            // Авто-размер textarea
+            elements.messageInput.addEventListener('input', autoResizeTextarea);
+            
+            // Прикрепление файлов
+            document.getElementById('btn-attach').addEventListener('click', toggleAttachMenu);
+            document.querySelectorAll('.attach-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const type = item.dataset.type;
+                    attachFile(type);
+                });
+            });
+            
+            // Эмодзи
+            document.getElementById('btn-emoji').addEventListener('click', toggleEmojiPicker);
+            document.querySelectorAll('.emoji-category').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const category = btn.dataset.category;
+                    showEmojiCategory(category);
+                });
+            });
+            
+            // Поиск пользователей
+            elements.usersSearchInput.addEventListener('input', (e) => {
+                searchUsers(e.target.value);
+            });
+            document.getElementById('btn-close-search').addEventListener('click', () => {
+                elements.usersSearchInput.value = '';
+                searchUsers('');
+            });
+            
+            // Кнопки пользователей
+            document.getElementById('btn-users').addEventListener('click', () => switchView('users'));
+            
+            // Кнопки админки
+            document.getElementById('btn-admin').addEventListener('click', () => switchView('admin'));
+            document.getElementById('btn-create-invite').addEventListener('click', createInvite);
+            document.getElementById('btn-clear-chat').addEventListener('click', clearChatHistory);
+            document.getElementById('btn-export-data').addEventListener('click', exportChatData);
+            document.getElementById('btn-create-backup').addEventListener('click', createBackup);
+            
+            // Кнопки упоминания
+            document.getElementById('btn-mention-all').addEventListener('click', mentionAll);
+            document.getElementById('btn-jump').addEventListener('click', jumpToUnread);
+            
+            // Реакции
+            document.querySelectorAll('.reaction-option').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const emoji = btn.dataset.emoji;
+                    addReaction(emoji);
+                });
+            });
+            
+            // Контекстное меню сообщений
+            document.querySelectorAll('.context-menu-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const action = item.dataset.action;
+                    handleContextMenuAction(action);
+                });
+            });
+            
+            // Закрытие попапов
+            document.getElementById('btn-close-forward').addEventListener('click', closeForwardPopup);
+            
+            // Файлы
+            document.getElementById('btn-send-file').addEventListener('click', sendFile);
+            document.getElementById('btn-cancel-file').addEventListener('click', cancelFile);
+            
+            // Настройки
+            elements.themeToggle.addEventListener('click', toggleTheme);
+            elements.darkThemeToggle.addEventListener('change', toggleTheme);
+            elements.fontSizeSelect.addEventListener('change', changeFontSize);
+            elements.autoScrollToggle.addEventListener('change', toggleAutoScroll);
+            elements.soundToggle.addEventListener('change', toggleSound);
+            elements.vibrationToggle.addEventListener('change', toggleVibration);
+            elements.previewToggle.addEventListener('change', togglePreview);
+            
+            // Профиль
+            document.getElementById('btn-edit-profile').addEventListener('click', editProfile);
+            document.getElementById('btn-change-password').addEventListener('click', changePassword);
+            document.getElementById('btn-logout').addEventListener('click', logout);
+            
+            // Закрытие контекстных меню при клике вне
+            document.addEventListener('click', (e) => {
+                if (!elements.attachMenu.contains(e.target) && 
+                    !e.target.closest('.btn-attach')) {
+                    elements.attachMenu.classList.remove('active');
+                }
+                
+                if (!elements.emojiPicker.contains(e.target) && 
+                    !e.target.closest('.btn-emoji')) {
+                    elements.emojiPicker.classList.remove('active');
+                }
+                
+                if (!elements.messageContextMenu.contains(e.target) && 
+                    !e.target.closest('.btn-more')) {
+                    elements.messageContextMenu.style.display = 'none';
+                }
+                
+                if (!elements.reactionsPopup.contains(e.target) && 
+                    !e.target.closest('.btn-reaction')) {
+                    elements.reactionsPopup.style.display = 'none';
+                }
+            });
+            
+            // Обработка ошибок
+            window.addEventListener('error', handleError);
+            window.addEventListener('unhandledrejection', handleUnhandledRejection);
+        }
+        
+        // Инициализация Telegram WebApp
+        function initTelegramWebApp() {
+            if (window.Telegram && window.Telegram.WebApp) {
+                const tg = window.Telegram.WebApp;
+                
+                // Расширяем на весь экран
+                tg.expand();
+                
+                // Получаем данные пользователя
+                const user = tg.initDataUnsafe?.user;
+                if (user) {
+                    APP.userData = user;
+                    
+                    // Обновляем профиль
+                    updateUserProfile(user);
+                    
+                    // Проверяем права
+                    checkUserPermissions(user);
+                }
+                
+                // Устанавливаем цвет темы Telegram
+                if (tg.colorScheme) {
+                    if (tg.colorScheme === 'dark') {
+                        APP.settings.darkTheme = true;
+                        applySettings();
+                    }
+                }
+                
+                // Обработка закрытия
+                tg.onEvent('viewportChanged', () => {
+                    console.log('Viewport changed');
+                });
+                
+                // Включаем кнопку назад
+                tg.BackButton.onClick(() => {
+                    if (APP.currentView !== 'chat') {
+                        switchView('chat');
+                    } else {
+                        tg.close();
+                    }
+                });
+                
+                console.log('Telegram WebApp инициализирован');
+            } else {
+                console.warn('Telegram WebApp SDK не загружен, работаем в демо-режиме');
+                // Демо-пользователь
+                APP.userData = {
+                    id: 123456789,
+                    first_name: 'Демо',
+                    last_name: 'Пользователь',
+                    username: 'demo_user',
+                    photo_url: '',
+                    is_premium: false
+                };
+                updateUserProfile(APP.userData);
+            }
+        }
+        
+        // Обновление профиля пользователя
+        function updateUserProfile(user) {
+            // Аватар
+            const avatarImg = document.getElementById('user-avatar-img');
+            const avatarIcon = document.getElementById('user-avatar-icon');
+            const profileAvatarImg = document.getElementById('profile-avatar-img');
+            const profileAvatarIcon = document.getElementById('profile-avatar-icon');
+            
+            if (user.photo_url) {
+                avatarImg.src = user.photo_url;
+                avatarImg.style.display = 'block';
+                avatarIcon.style.display = 'none';
+                
+                profileAvatarImg.src = user.photo_url;
+                profileAvatarImg.style.display = 'block';
+                profileAvatarIcon.style.display = 'none';
+            }
+            
+            // Имя
+            const userName = user.first_name + (user.last_name ? ' ' + user.last_name : '');
+            document.getElementById('user-name').textContent = userName;
+            document.getElementById('profile-name').textContent = userName;
+            
+            // Username
+            const username = user.username ? '@' + user.username : '@user';
+            document.getElementById('profile-username').textContent = username;
+            
+            // ID
+            document.getElementById('profile-id').textContent = user.id;
+            
+            // Премиум статус
+            if (user.is_premium) {
+                const roleElement = document.getElementById('user-role');
+                roleElement.textContent = 'премиум участник';
+                roleElement.style.color = 'var(--tg-yellow)';
+            }
+            
+            // Профиль
+            updateProfileInfo();
+        }
+        
+        // Проверка прав пользователя
+        function checkUserPermissions(user) {
+            // В демо-режиме делаем админом
+            const isAdmin = user.id === 123456789; // Демо-админ
+            const isModerator = user.id === 987654321; // Демо-модератор
+            
+            if (isAdmin || isModerator) {
+                // Показываем админские элементы
+                elements.adminMenuItem.style.display = 'flex';
+                elements.btnAdmin.style.display = 'flex';
+                elements.btnMentionAll.style.display = 'flex';
+                
+                // Обновляем роль
+                const role = isAdmin ? 'главный админ' : 'модератор';
+                document.getElementById('user-role').textContent = role;
+                document.getElementById('profile-role').textContent = role;
+                
+                // Цвет роли
+                const roleColor = isAdmin ? 'linear-gradient(135deg, #ff9500, #ff5e3a)' : 'var(--tg-purple)';
+                document.getElementById('user-role').style.background = roleColor;
+                document.getElementById('user-role').style.color = 'white';
+                document.getElementById('user-role').style.padding = '2px 8px';
+                document.getElementById('user-role').style.borderRadius = '4px';
+            }
+        }
+        
+        // Загрузка демо данных
+        function loadDemoData() {
+            // Демо сообщения
+            addDemoMessages();
+            
+            // Демо пользователи
+            addDemoUsers();
+            
+            // Демо приглашения
+            addDemoInvites();
+            
+            // Обновляем статистику
+            updateStats();
+        }
+        
+        // Добавление демо сообщений
+        function addDemoMessages() {
+            const demoMessages = [
+                {
+                    id: 1,
+                    sender: 'Система',
+                    avatar: 'B',
+                    role: 'system',
+                    text: 'Добро пожаловать в чат Botfs23! Это демо-режим.',
+                    time: '10:00',
+                    incoming: true,
+                    system: true
+                },
+                {
+                    id: 2,
+                    sender: 'Демо Админ',
+                    avatar: 'A',
+                    role: 'main_admin',
+                    text: 'Привет всем! Я администратор этого чата.',
+                    time: '10:05',
+                    incoming: false,
+                    reactions: { '👍': 2, '❤️': 1 }
+                },
+                {
+                    id: 3,
+                    sender: 'Демо Пользователь',
+                    avatar: 'U',
+                    role: 'user',
+                    text: 'Привет! Отличный чат! Когда можно будет отправить файл?',
+                    time: '10:10',
+                    incoming: true,
+                    mention: '@admin'
+                },
+                {
+                    id: 4,
+                    sender: 'Демо Админ',
+                    avatar: 'A',
+                    role: 'main_admin',
+                    text: 'Файлы можно отправлять уже сейчас! Нажмите на скрепку рядом с полем ввода.',
+                    time: '10:15',
+                    incoming: false,
+                    replyTo: 3
+                },
+                {
+                    id: 5,
+                    sender: 'Демо Модератор',
+                    avatar: 'M',
+                    role: 'moderator',
+                    text: 'Напоминаю правила: будьте вежливы и уважайте друг друга!',
+                    time: '10:20',
+                    incoming: true,
+                    isPinned: true
+                }
+            ];
+            
+            const messagesContainer = elements.messagesContainer;
+            messagesContainer.innerHTML = '';
+            
+            demoMessages.forEach(msg => {
+                const messageElement = createMessageElement(msg);
+                messagesContainer.appendChild(messageElement);
+            });
+            
+            // Прокрутка вниз
+            if (APP.settings.autoScroll) {
+                scrollToBottom();
+            }
+        }
+        
+        // Создание элемента сообщения
+        function createMessageElement(message) {
+            const isOutgoing = !message.incoming;
+            const isSystem = message.system;
+            const messageClass = isSystem ? 'message system' : `message ${isOutgoing ? 'outgoing' : 'incoming'}`;
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = messageClass;
+            messageDiv.dataset.id = message.id;
+            
+            if (isSystem) {
+                messageDiv.innerHTML = `
+                    <div class="message-system">
+                        <i class="fas fa-info-circle"></i>
+                        <span>${message.text}</span>
+                    </div>
+                `;
+            } else {
+                // Аватар
+                const avatarHtml = isOutgoing ? '' : `
+                    <div class="message-avatar" style="background: ${getAvatarColor(message.sender)};">
+                        ${message.avatar}
+                    </div>
+                `;
+                
+                // Заголовок
+                const headerHtml = isOutgoing ? '' : `
+                    <div class="message-header">
+                        <div class="message-sender">
+                            <span>${message.sender}</span>
+                            ${message.role ? `<span class="message-sender-role ${message.role}">${getRoleText(message.role)}</span>` : ''}
+                        </div>
+                        <div class="message-time">${message.time}</div>
+                    </div>
+                `;
+                
+                // Текст с упоминаниями
+                let text = message.text;
+                if (message.mention) {
+                    text = text.replace(message.mention, `<span class="mention">${message.mention}</span>`);
+                }
+                
+                // Реакции
+                let reactionsHtml = '';
+                if (message.reactions) {
+                    reactionsHtml = `
+                        <div class="message-reactions">
+                            ${Object.entries(message.reactions).map(([emoji, count]) => `
+                                <div class="reaction ${message.myReaction === emoji ? 'user-reacted' : ''}" 
+                                     onclick="toggleReaction(${message.id}, '${emoji}')">
+                                    <span>${emoji}</span>
+                                    <span class="reaction-count">${count}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                }
+                
+                // Действия
+                const actionsHtml = `
+                    <div class="message-actions">
+                        <button class="btn-reaction" onclick="showReactionPopup(${message.id})">
+                            <i class="far fa-smile"></i>
+                        </button>
+                        <button class="btn-reply" onclick="replyToMessage(${message.id})">
+                            <i class="fas fa-reply"></i>
+                        </button>
+                        <button class="btn-forward" onclick="forwardMessage(${message.id})">
+                            <i class="fas fa-share"></i>
+                        </button>
+                        <button class="btn-more" onclick="showMessageMenu(${message.id})">
+                            <i class="fas fa-ellipsis-h"></i>
+                        </button>
+                    </div>
+                `;
+                
+                // Статус отправки
+                const statusHtml = isOutgoing ? `
+                    <div class="message-status">
+                        <i class="fas fa-check"></i>
+                        <span>${message.time}</span>
+                    </div>
+                ` : '';
+                
+                messageDiv.innerHTML = `
+                    ${avatarHtml}
+                    <div class="message-content">
+                        ${headerHtml}
+                        <div class="message-text">${text}</div>
+                        ${reactionsHtml}
+                        ${actionsHtml}
+                        ${statusHtml}
+                    </div>
+                `;
+                
+                // Пин
+                if (message.isPinned) {
+                    messageDiv.classList.add('pinned');
+                }
+                
+                // Ответ
+                if (message.replyTo) {
+                    // Можно добавить превью ответа
+                }
+            }
+            
+            return messageDiv;
+        }
+        
+        // Получение цвета для аватара
+        function getAvatarColor(senderName) {
+            const colors = [
+                'var(--tg-primary)',
+                'var(--tg-green)',
+                'var(--tg-red)',
+                'var(--tg-orange)',
+                'var(--tg-purple)',
+                'var(--tg-pink)'
+            ];
+            const hash = senderName.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+            return colors[hash % colors.length];
+        }
+        
+        // Получение текста роли
+        function getRoleText(role) {
+            const roles = {
+                'main_admin': 'Гл. Админ',
+                'admin': 'Админ',
+                'moderator': 'Модератор',
+                'user': 'Участник'
+            };
+            return roles[role] || role;
+        }
+        
+        // Добавление демо пользователей
+        function addDemoUsers() {
+            const demoUsers = [
+                {
+                    id: 123456789,
+                    name: 'Демо Админ',
+                    username: '@admin',
+                    role: 'main_admin',
+                    status: 'online',
+                    avatar: 'A',
+                    messages: 42
+                },
+                {
+                    id: 987654321,
+                    name: 'Демо Модератор',
+                    username: '@moderator',
+                    role: 'moderator',
+                    status: 'online',
+                    avatar: 'M',
+                    messages: 24
+                },
+                {
+                    id: 555555555,
+                    name: 'Демо Пользователь',
+                    username: '@user',
+                    role: 'user',
+                    status: 'online',
+                    avatar: 'U',
+                    messages: 15
+                },
+                {
+                    id: 666666666,
+                    name: 'Алексей',
+                    username: '@alexey',
+                    role: 'user',
+                    status: 'был 5 мин назад',
+                    avatar: 'А',
+                    messages: 8
+                },
+                {
+                    id: 777777777,
+                    name: 'Мария',
+                    username: '@maria',
+                    role: 'user',
+                    status: 'был 1 час назад',
+                    avatar: 'М',
+                    messages: 12
+                },
+                {
+                    id: 888888888,
+                    name: 'Иван',
+                    username: '@ivan',
+                    role: 'user',
+                    status: 'был 2 часа назад',
+                    avatar: 'И',
+                    messages: 5
+                }
+            ];
+            
+            APP.users = demoUsers;
+            renderUsersList(demoUsers);
+            
+            // Обновляем счетчики
+            updateOnlineCount();
+        }
+        
+        // Рендер списка пользователей
+        function renderUsersList(users) {
+            const usersList = elements.usersList;
+            const adminUsersList = document.getElementById('admin-users-list');
+            
+            usersList.innerHTML = '';
+            
+            // Разделяем на онлайн и офлайн
+            const onlineUsers = users.filter(u => u.status === 'online');
+            const offlineUsers = users.filter(u => u.status !== 'online');
+            
+            // Онлайн пользователи
+            if (onlineUsers.length > 0) {
+                const onlineHeader = document.createElement('div');
+                onlineHeader.className = 'users-header-title';
+                onlineHeader.innerHTML = `<i class="fas fa-circle online-dot"></i> Онлайн (${onlineUsers.length})`;
+                usersList.appendChild(onlineHeader);
+                
+                onlineUsers.forEach(user => {
+                    const userElement = createUserElement(user);
+                    usersList.appendChild(userElement);
+                });
+            }
+            
+            // Офлайн пользователи
+            if (offlineUsers.length > 0) {
+                const offlineHeader = document.createElement('div');
+                offlineHeader.className = 'users-header-title';
+                offlineHeader.innerHTML = `<i class="fas fa-clock"></i> Не в сети (${offlineUsers.length})`;
+                usersList.appendChild(offlineHeader);
+                
+                offlineUsers.forEach(user => {
+                    const userElement = createUserElement(user);
+                    usersList.appendChild(userElement);
+                });
+            }
+            
+            // Админ список
+            if (adminUsersList) {
+                adminUsersList.innerHTML = '';
+                users.forEach(user => {
+                    const adminUserElement = createAdminUserElement(user);
+                    adminUsersList.appendChild(adminUserElement);
+                });
+            }
+        }
+        
+        // Создание элемента пользователя
+        function createUserElement(user) {
+            const userDiv = document.createElement('div');
+            userDiv.className = 'user-item';
+            userDiv.dataset.id = user.id;
+            
+            const isOnline = user.status === 'online';
+            
+            userDiv.innerHTML = `
+                <div class="user-item-avatar" style="background: ${getAvatarColor(user.name)};">
+                    ${user.avatar}
+                </div>
+                <div class="user-item-info">
+                    <div class="user-item-name">
+                        <span>${user.name}</span>
+                        <span class="user-role-badge ${user.role}">${getRoleText(user.role)}</span>
+                    </div>
+                    <div class="user-item-status ${isOnline ? 'online' : ''}">
+                        ${isOnline ? '<i class="fas fa-circle"></i> онлайн' : user.status}
+                    </div>
+                </div>
+            `;
+            
+            return userDiv;
+        }
+        
+        // Создание админ элемента пользователя
+        function createAdminUserElement(user) {
+            const userDiv = document.createElement('div');
+            userDiv.className = 'admin-user-item';
+            userDiv.dataset.id = user.id;
+            
+            const isOnline = user.status === 'online';
+            
+            userDiv.innerHTML = `
+                <div class="admin-user-info">
+                    <div class="admin-user-avatar" style="background: ${getAvatarColor(user.name)};">
+                        ${user.avatar}
+                    </div>
+                    <div>
+                        <div class="admin-user-name">
+                            <span>${user.name}</span>
+                            <span class="user-role-badge ${user.role}">${getRoleText(user.role)}</span>
+                        </div>
+                        <div class="admin-user-id">ID: ${user.id}</div>
+                    </div>
+                </div>
+                <div class="admin-user-actions">
+                    <select class="permission-select" onchange="updateUserRole(${user.id}, this.value)">
+                        <option value="user" ${user.role === 'user' ? 'selected' : ''}>Участник</option>
+                        <option value="moderator" ${user.role === 'moderator' ? 'selected' : ''}>Модератор</option>
+                        <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Админ</option>
+                    </select>
+                    <span class="admin-user-status ${isOnline ? 'online' : 'offline'}">
+                        ${isOnline ? 'онлайн' : 'офлайн'}
+                    </span>
+                </div>
+            `;
+            
+            return userDiv;
+        }
+        
+        // Добавление демо приглашений
+        function addDemoInvites() {
+            const demoInvites = [
+                {
+                    code: 'BOTFS23-WELCOME',
+                    uses: 15,
+                    maxUses: 50,
+                    created: '2024-01-15',
+                    creator: 'Демо Админ'
+                },
+                {
+                    code: 'BOTFS23-FRIENDS',
+                    uses: 3,
+                    maxUses: 10,
+                    created: '2024-01-20',
+                    creator: 'Демо Модератор'
+                }
+            ];
+            
+            renderInvitesList(demoInvites);
+        }
+        
+        // Рендер списка приглашений
+        function renderInvitesList(invites) {
+            const invitesList = document.getElementById('invites-list');
+            
+            if (invites.length === 0) {
+                invitesList.innerHTML = `
+                    <div class="empty-chat">
+                        <i class="fas fa-envelope"></i>
+                        <p>Нет активных приглашений</p>
+                        <small>Создайте первое приглашение</small>
+                    </div>
+                `;
+                return;
+            }
+            
+            invitesList.innerHTML = invites.map(invite => `
+                <div class="invite-item">
+                    <div>
+                        <div class="invite-code">${invite.code}</div>
+                        <div class="invite-stats">
+                            Использовано: ${invite.uses}/${invite.maxUses} | Создано: ${invite.created}
+                        </div>
+                    </div>
+                    <button class="btn-copy-invite" onclick="copyInviteCode('${invite.code}')">
+                        <i class="fas fa-copy"></i> Копировать
+                    </button>
+                </div>
+            `).join('');
+        }
+        
+        // Поиск пользователей
+        function searchUsers(query) {
+            if (!APP.users) return;
+            
+            const normalizedQuery = query.toLowerCase().trim();
+            
+            if (!normalizedQuery) {
+                renderUsersList(APP.users);
+                return;
+            }
+            
+            const filteredUsers = APP.users.filter(user => 
+                user.name.toLowerCase().includes(normalizedQuery) ||
+                user.username.toLowerCase().includes(normalizedQuery) ||
+                user.role.toLowerCase().includes(normalizedQuery)
+            );
+            
+            renderUsersList(filteredUsers);
+        }
+        
+        // Переключение вида
+        function switchView(view) {
+            APP.currentView = view;
+            
+            // Скрываем все виды
+            elements.chatView.classList.remove('active');
+            elements.chatView.style.display = 'none';
+            elements.usersView.classList.remove('active');
+            elements.usersView.style.display = 'none';
+            elements.adminView.classList.remove('active');
+            elements.adminView.style.display = 'none';
+            elements.settingsView.classList.remove('active');
+            elements.settingsView.style.display = 'none';
+            elements.profileView.classList.remove('active');
+            elements.profileView.style.display = 'none';
+            
+            // Показываем выбранный вид
+            switch(view) {
+                case 'chat':
+                    elements.chatView.classList.add('active');
+                    elements.chatView.style.display = 'flex';
+                    updateMenuActive(0);
+                    if (APP.settings.autoScroll) {
+                        setTimeout(() => scrollToBottom(), 100);
+                    }
+                    break;
+                    
+                case 'users':
+                    elements.usersView.classList.add('active');
+                    elements.usersView.style.display = 'flex';
+                    updateMenuActive(1);
+                    searchUsers('');
+                    break;
+                    
+                case 'admin':
+                    elements.adminView.classList.add('active');
+                    elements.adminView.style.display = 'flex';
+                    updateMenuActive(2);
+                    break;
+                    
+                case 'settings':
+                    elements.settingsView.classList.add('active');
+                    elements.settingsView.style.display = 'flex';
+                    updateMenuActive(3);
+                    updateStats();
+                    break;
+                    
+                case 'profile':
+                    elements.profileView.classList.add('active');
+                    elements.profileView.style.display = 'flex';
+                    updateMenuActive(4);
+                    updateProfileInfo();
+                    break;
+            }
+            
+            // Скрываем все попапы
+            hideAllPopups();
+        }
+        
+        // Переключение раздела
+        function switchSection(sectionId) {
+            APP.currentSection = sectionId;
+            
+            // Обновляем активный раздел
+            document.querySelectorAll('.section-item').forEach(item => {
+                item.classList.toggle('active', item.dataset.section === sectionId);
+            });
+            
+            // Обновляем заголовок чата
+            const sectionNames = {
+                main: 'Основной чат',
+                news: 'Новости',
+                rules: 'Правила',
+                announcements: 'Объявления'
+            };
+            
+            document.getElementById('chat-title').textContent = sectionNames[sectionId] || 'Чат';
+            
+            // Здесь должна быть загрузка сообщений раздела
+            // loadSectionMessages(sectionId);
+            
+            // Показываем уведомление
+            showCustomAlert(`Переключен на раздел: ${sectionNames[sectionId]}`, 'info');
+        }
+        
+        // Обновление активного пункта меню
+        function updateMenuActive(activeIndex) {
+            document.querySelectorAll('.menu-item').forEach((item, index) => {
+                item.classList.toggle('active', index === activeIndex);
+            });
+        }
+        
+        // Отправка сообщения
+        function sendMessage() {
+            const input = elements.messageInput;
+            const text = input.value.trim();
+            
+            if (!text) return;
+            
+            // Создаем объект сообщения
+            const newMessage = {
+                id: Date.now(),
+                sender: APP.userData?.first_name || 'Вы',
+                avatar: APP.userData?.first_name?.charAt(0) || 'Я',
+                role: 'user', // Это будет обновлено в зависимости от прав
+                text: text,
+                time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+                incoming: false
+            };
+            
+            // Добавляем сообщение в чат
+            addMessageToChat(newMessage);
+            
+            // Очищаем поле ввода
+            input.value = '';
+            autoResizeTextarea();
+            
+            // Прокручиваем вниз
+            if (APP.settings.autoScroll) {
+                scrollToBottom();
+            }
+            
+            // Звук отправки
+            if (APP.settings.soundEnabled) {
+                playMessageSound();
+            }
+            
+            console.log('Сообщение отправлено:', text);
+        }
+        
+        // Добавление сообщения в чат
+        function addMessageToChat(message) {
+            const messageElement = createMessageElement(message);
+            elements.messagesContainer.appendChild(messageElement);
+            
+            // Анимация появления
+            messageElement.classList.add('new-message');
+            
+            // Обновляем статистику
+            updateStats();
+        }
+        
+        // Авто-размер textarea
+        function autoResizeTextarea() {
+            const textarea = elements.messageInput;
+            textarea.style.height = 'auto';
+            textarea.style.height = textarea.scrollHeight + 'px';
+        }
+        
+        // Прокрутка вниз
+        function scrollToBottom() {
+            const container = elements.messagesContainer;
+            container.scrollTop = container.scrollHeight;
+        }
+        
+        // Переключение сайдбара
+        function toggleSidebar() {
+            elements.sidebar.classList.toggle('active');
+            elements.overlay.classList.toggle('active');
+        }
+        
+        // Переключение меню прикрепления
+        function toggleAttachMenu() {
+            elements.attachMenu.classList.toggle('active');
+        }
+        
+        // Переключение эмодзи пикера
+        function toggleEmojiPicker() {
+            elements.emojiPicker.classList.toggle('active');
+            
+            if (elements.emojiPicker.classList.contains('active')) {
+                // Загружаем эмодзи при первом открытии
+                if (!elements.emojiPicker.dataset.loaded) {
+                    loadEmojis();
+                    elements.emojiPicker.dataset.loaded = 'true';
+                }
+            }
+        }
+        
+        // Загрузка эмодзи
+        function loadEmojis() {
+            const emojis = {
+                smileys: ['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚'],
+                people: ['👋', '🤚', '🖐️', '✋', '🖖', '👌', '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '👍', '👎', '✊'],
+                symbols: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❤️‍🔥', '❤️‍🩹', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟'],
+                nature: ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐵', '🙈', '🙉', '🙊', '🐒', '🐔'],
+                food: ['🍕', '🍔', '🍟', '🌭', '🍿', '🥓', '🥚', '🍳', '🧇', '🥞', '🧈', '🍞', '🥐', '🥨', '🥯', '🥖', '🧀', '🥗', '🥙', '🌮']
+            };
+            
+            const grid = document.getElementById('emoji-grid');
+            grid.innerHTML = '';
+            
+            // Показываем смайлики по умолчанию
+            showEmojiCategory('smileys');
+        }
+        
+        // Показ категории эмодзи
+        function showEmojiCategory(category) {
+            const categories = {
+                smileys: ['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚'],
+                people: ['👋', '🤚', '🖐️', '✋', '🖖', '👌', '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '👍', '👎', '✊'],
+                symbols: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❤️‍🔥', '❤️‍🩹', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟'],
+                nature: ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐵', '🙈', '🙉', '🙊', '🐒', '🐔'],
+                food: ['🍕', '🍔', '🍟', '🌭', '🍿', '🥓', '🥚', '🍳', '🧇', '🥞', '🧈', '🍞', '🥐', '🥨', '🥯', '🥖', '🧀', '🥗', '🥙', '🌮']
+            };
+            
+            const emojis = categories[category] || categories.smileys;
+            const grid = document.getElementById('emoji-grid');
+            
+            grid.innerHTML = emojis.map(emoji => `
+                <button class="emoji-option" data-emoji="${emoji}">${emoji}</button>
+            `).join('');
+            
+            // Обновляем активную категорию
+            document.querySelectorAll('.emoji-category').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.category === category);
+            });
+            
+            // Добавляем обработчики для эмодзи
+            document.querySelectorAll('.emoji-option').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const emoji = btn.dataset.emoji;
+                    insertEmoji(emoji);
+                });
+            });
+        }
+        
+        // Вставка эмодзи в поле ввода
+        function insertEmoji(emoji) {
+            const input = elements.messageInput;
+            const cursorPos = input.selectionStart;
+            const textBefore = input.value.substring(0, cursorPos);
+            const textAfter = input.value.substring(cursorPos);
+            
+            input.value = textBefore + emoji + textAfter;
+            input.focus();
+            input.selectionStart = input.selectionEnd = cursorPos + emoji.length;
+            
+            autoResizeTextarea();
+            toggleEmojiPicker();
+        }
+        
+        // Прикрепление файла
+        function attachFile(type) {
+            toggleAttachMenu();
+            
+            switch(type) {
+                case 'photo':
+                    // Имитация выбора фото
+                    simulateFileSelect('photo', 'example.jpg', '2.1 MB');
+                    break;
+                    
+                case 'document':
+                    // Имитация выбора документа
+                    simulateFileSelect('document', 'документ.pdf', '1.8 MB');
+                    break;
+                    
+                case 'sticker':
+                    // Отправка стикера
+                    sendSticker();
+                    break;
+                    
+                case 'voice':
+                    // Запись голосового
+                    recordVoice();
+                    break;
+            }
+        }
+        
+        // Имитация выбора файла
+        function simulateFileSelect(type, name, size) {
+            const fileType = type === 'photo' ? 'image/jpeg' : 'application/pdf';
+            const icon = type === 'photo' ? 'fas fa-image' : 'fas fa-file';
+            
+            // Показываем превью
+            document.getElementById('file-preview-name').textContent = name;
+            document.getElementById('file-preview-size').textContent = size;
+            document.querySelector('.file-preview-icon i').className = icon;
+            elements.filePreview.classList.add('active');
+            
+            // Имитируем загрузку
+            showUploadProgress();
+            simulateUpload();
+        }
+        
+        // Имитация загрузки
+        function simulateUpload() {
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += 5;
+                updateProgress(progress);
+                
+                if (progress >= 100) {
+                    clearInterval(interval);
+                    hideUploadProgress();
+                }
+            }, 100);
+        }
+        
+        // Отправка стикера
+        function sendSticker() {
+            const stickers = ['😂', '😍', '🤔', '🎉', '🔥', '👍', '❤️', '🙏'];
+            const randomSticker = stickers[Math.floor(Math.random() * stickers.length)];
+            
+            const stickerMessage = {
+                id: Date.now(),
+                sender: APP.userData?.first_name || 'Вы',
+                avatar: APP.userData?.first_name?.charAt(0) || 'Я',
+                role: 'user',
+                type: 'sticker',
+                sticker: randomSticker,
+                time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+                incoming: false
+            };
+            
+            addStickerToChat(stickerMessage);
+            showCustomAlert('Стикер отправлен!', 'success');
+        }
+        
+        // Добавление стикера в чат
+        function addStickerToChat(stickerMessage) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${stickerMessage.incoming ? 'incoming' : 'outgoing'}`;
+            messageDiv.dataset.id = stickerMessage.id;
+            
+            messageDiv.innerHTML = `
+                <div class="message-content" style="text-align: center;">
+                    <div class="message-sticker" style="font-size: 64px;">
+                        ${stickerMessage.sticker}
+                    </div>
+                    <div class="message-time" style="text-align: center; margin-top: 5px; opacity: 0.7;">
+                        ${stickerMessage.time}
+                    </div>
+                </div>
+            `;
+            
+            elements.messagesContainer.appendChild(messageDiv);
+            
+            if (APP.settings.autoScroll) {
+                scrollToBottom();
+            }
+        }
+        
+        // Запись голосового
+        function recordVoice() {
+            showCustomAlert('Запись голосовых сообщений в разработке', 'info');
+        }
+        
+        // Отправка файла
+        function sendFile() {
+            const fileName = document.getElementById('file-preview-name').textContent;
+            
+            const fileMessage = {
+                id: Date.now(),
+                sender: APP.userData?.first_name || 'Вы',
+                avatar: APP.userData?.first_name?.charAt(0) || 'Я',
+                role: 'user',
+                type: 'document',
+                fileName: fileName,
+                fileSize: document.getElementById('file-preview-size').textContent,
+                time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+                incoming: false
+            };
+            
+            addFileToChat(fileMessage);
+            elements.filePreview.classList.remove('active');
+            showCustomAlert('Файл отправлен!', 'success');
+        }
+        
+        // Добавление файла в чат
+        function addFileToChat(fileMessage) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${fileMessage.incoming ? 'incoming' : 'outgoing'}`;
+            messageDiv.dataset.id = fileMessage.id;
+            
+            const avatarHtml = fileMessage.incoming ? `
+                <div class="message-avatar" style="background: ${getAvatarColor(fileMessage.sender)};">
+                    ${fileMessage.avatar}
+                </div>
+            ` : '';
+            
+            messageDiv.innerHTML = `
+                ${avatarHtml}
+                <div class="message-content">
+                    ${fileMessage.incoming ? `
+                        <div class="message-header">
+                            <div class="message-sender">
+                                <span>${fileMessage.sender}</span>
+                                ${fileMessage.role ? `<span class="message-sender-role ${fileMessage.role}">${getRoleText(fileMessage.role)}</span>` : ''}
+                            </div>
+                        </div>
+                    ` : ''}
+                    <div class="message-document">
+                        <i class="fas fa-file"></i>
+                        <div class="document-info">
+                            <div class="document-name">${fileMessage.fileName}</div>
+                            <div class="document-size">${fileMessage.fileSize}</div>
+                        </div>
+                        <button class="download-btn">
+                            <i class="fas fa-download"></i>
+                        </button>
+                    </div>
+                    <div class="message-time" style="margin-top: 5px; text-align: ${fileMessage.incoming ? 'left' : 'right'}">
+                        ${fileMessage.time}
+                    </div>
+                </div>
+            `;
+            
+            elements.messagesContainer.appendChild(messageDiv);
+            
+            if (APP.settings.autoScroll) {
+                scrollToBottom();
+            }
+        }
+        
+        // Отмена отправки файла
+        function cancelFile() {
+            elements.filePreview.classList.remove('active');
+            hideUploadProgress();
+        }
+        
+        // Обновление прогресса загрузки
+        function updateProgress(percent) {
+            document.getElementById('progress-bar-fill').style.width = percent + '%';
+        }
+        
+        // Показать прогресс загрузки
+        function showUploadProgress() {
+            elements.uploadProgress.classList.add('active');
+        }
+        
+        // Скрыть прогресс загрузки
+        function hideUploadProgress() {
+            elements.uploadProgress.classList.remove('active');
+            document.getElementById('progress-bar-fill').style.width = '0%';
+        }
+        
+        // Упоминание всех онлайн
+        function mentionAll() {
+            if (!APP.users) return;
+            
+            const onlineUsers = APP.users.filter(u => u.status === 'online');
+            const mentions = onlineUsers.map(u => `@${u.username.replace('@', '')}`).join(' ');
+            
+            if (mentions) {
+                elements.messageInput.value = mentions + ' ';
+                elements.messageInput.focus();
+                autoResizeTextarea();
+                showCustomAlert('Все онлайн пользователи упомянуты', 'success');
+            }
+        }
+        
+        // Переход к непрочитанным
+        function jumpToUnread() {
+            // В демо-режиме просто прокручиваем вверх
+            elements.messagesContainer.scrollTop = 0;
+            showCustomAlert('Переход к началу чата', 'info');
+        }
+        
+        // Создание приглашения
+        function createInvite() {
+            const code = 'BOTFS23-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+            
+            const newInvite = {
+                code: code,
+                uses: 0,
+                maxUses: 25,
+                created: new Date().toLocaleDateString('ru-RU'),
+                creator: APP.userData?.first_name || 'Админ'
+            };
+            
+            // Добавляем в список
+            const invitesList = document.getElementById('invites-list');
+            if (invitesList.querySelector('.empty-chat')) {
+                invitesList.innerHTML = '';
+            }
+            
+            const inviteElement = document.createElement('div');
+            inviteElement.className = 'invite-item';
+            inviteElement.innerHTML = `
+                <div>
+                    <div class="invite-code">${newInvite.code}</div>
+                    <div class="invite-stats">
+                        Использовано: ${newInvite.uses}/${newInvite.maxUses} | Создано: ${newInvite.created}
+                    </div>
+                </div>
+                <button class="btn-copy-invite" onclick="copyInviteCode('${newInvite.code}')">
+                    <i class="fas fa-copy"></i> Копировать
+                </button>
+            `;
+            
+            invitesList.prepend(inviteElement);
+            showCustomAlert('Приглашение создано!', 'success');
+        }
+        
+        // Копирование кода приглашения
+        function copyInviteCode(code) {
+            navigator.clipboard.writeText(code).then(() => {
+                showCustomAlert('Код приглашения скопирован', 'success');
+            }).catch(err => {
+                console.error('Ошибка при копировании:', err);
+                showCustomAlert('Не удалось скопировать код', 'error');
+            });
+        }
+        
+        // Очистка истории чата
+        function clearChatHistory() {
+            if (confirm('Вы уверены, что хотите очистить всю историю чата? Это действие нельзя отменить.')) {
+                elements.messagesContainer.innerHTML = `
+                    <div class="empty-chat">
+                        <i class="fas fa-comments"></i>
+                        <p>Чат пуст</p>
+                        <small>История чата была очищена</small>
+                    </div>
+                `;
+                showCustomAlert('История чата очищена', 'success');
+                updateStats();
+            }
+        }
+        
+        // Экспорт данных
+        function exportChatData() {
+            showCustomAlert('Экспорт данных в разработке', 'info');
+        }
+        
+        // Создание резервной копии
+        function createBackup() {
+            showCustomAlert('Резервная копия создана', 'success');
+        }
+        
+        // Обновление роли пользователя
+        function updateUserRole(userId, newRole) {
+            // В реальном приложении здесь был бы запрос на сервер
+            showCustomAlert(`Роль пользователя обновлена на: ${getRoleText(newRole)}`, 'success');
+        }
+        
+        // Обновление разрешений раздела
+        function updateSectionPermission(sectionId, type, value) {
+            showCustomAlert(`Разрешения для раздела обновлены: ${sectionId} → ${value}`, 'success');
+        }
+        
+        // Ответ на сообщение
+        function replyToMessage(messageId) {
+            const messageElement = document.querySelector(`.message[data-id="${messageId}"]`);
+            if (!messageElement) return;
+            
+            const sender = messageElement.querySelector('.message-sender span')?.textContent || 'Пользователь';
+            const text = messageElement.querySelector('.message-text')?.textContent || '';
+            
+            // Создаем превью ответа
+            const replyPreview = document.getElementById('reply-preview-container');
+            replyPreview.style.display = 'block';
+            replyPreview.innerHTML = `
+                <div class="reply-preview">
+                    <div class="reply-header">
+                        <div class="reply-sender">Ответ ${sender}</div>
+                        <button class="btn-close-reply" onclick="closeReplyPreview()">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="reply-content">${text.substring(0, 100)}${text.length > 100 ? '...' : ''}</div>
+                </div>
+            `;
+            
+            // Добавляем обработчик для кнопки закрытия
+            replyPreview.querySelector('.btn-close-reply').addEventListener('click', closeReplyPreview);
+            
+            // Сохраняем ID сообщения для ответа
+            replyPreview.dataset.replyTo = messageId;
+            
+            // Фокусируем поле ввода
+            elements.messageInput.focus();
+            showCustomAlert('Ответ на сообщение', 'info');
+        }
+        
+        // Закрытие превью ответа
+        function closeReplyPreview() {
+            const replyPreview = document.getElementById('reply-preview-container');
+            replyPreview.style.display = 'none';
+            delete replyPreview.dataset.replyTo;
+        }
+        
+        // Пересылка сообщения
+        function forwardMessage(messageId) {
+            const forwardOptions = [
+                { name: 'Основной чат', icon: 'fas fa-comments' },
+                { name: 'Новости', icon: 'fas fa-newspaper' },
+                { name: 'Объявления', icon: 'fas fa-bullhorn' },
+                { name: 'Избранное', icon: 'fas fa-star' },
+                { name: 'Сохраненные', icon: 'fas fa-bookmark' }
+            ];
+            
+            const optionsContainer = document.getElementById('forward-options');
+            optionsContainer.innerHTML = forwardOptions.map(option => `
+                <div class="forward-option" onclick="completeForward('${messageId}', '${option.name}')">
+                    <i class="${option.icon}"></i>
+                    <span>${option.name}</span>
+                </div>
+            `).join('');
+            
+            elements.forwardPopup.style.display = 'flex';
+        }
+        
+        // Завершение пересылки
+        function completeForward(messageId, destination) {
+            closeForwardPopup();
+            showCustomAlert(`Сообщение переслано в: ${destination}`, 'success');
+        }
+        
+        // Закрытие попапа пересылки
+        function closeForwardPopup() {
+            elements.forwardPopup.style.display = 'none';
+        }
+        
+        // Показ меню сообщения
+        function showMessageMenu(messageId) {
+            APP.activeMessageMenu = messageId;
+            
+            const button = event.target.closest('.btn-more');
+            const rect = button.getBoundingClientRect();
+            
+            elements.messageContextMenu.style.left = (rect.left - 180) + 'px';
+            elements.messageContextMenu.style.top = (rect.top + 30) + 'px';
+            elements.messageContextMenu.style.display = 'block';
+        }
+        
+        // Обработка действий контекстного меню
+        function handleContextMenuAction(action) {
+            const messageId = APP.activeMessageMenu;
+            if (!messageId) return;
+            
+            elements.messageContextMenu.style.display = 'none';
+            
+            switch(action) {
+                case 'reply':
+                    replyToMessage(messageId);
+                    break;
+                    
+                case 'copy':
+                    copyMessageText(messageId);
+                    break;
+                    
+                case 'copy-link':
+                    copyMessageLink(messageId);
+                    break;
+                    
+                case 'favorite':
+                    addToFavorites(messageId);
+                    break;
+                    
+                case 'forward':
+                    forwardMessage(messageId);
+                    break;
+                    
+                case 'reaction':
+                    showReactionPopup(messageId);
+                    break;
+                    
+                case 'edit':
+                    editMessage(messageId);
+                    break;
+                    
+                case 'delete':
+                    deleteMessage(messageId);
+                    break;
+                    
+                case 'report':
+                    reportMessage(messageId);
+                    break;
+                    
+                case 'select':
+                    selectMessage(messageId);
+                    break;
+            }
+        }
+        
+        // Копирование текста сообщения
+        function copyMessageText(messageId) {
+            const messageElement = document.querySelector(`.message[data-id="${messageId}"]`);
+            if (!messageElement) return;
+            
+            const text = messageElement.querySelector('.message-text')?.textContent || '';
+            navigator.clipboard.writeText(text).then(() => {
+                showCustomAlert('Текст сообщения скопирован', 'success');
+            }).catch(err => {
+                console.error('Ошибка при копировании:', err);
+                showCustomAlert('Не удалось скопировать текст', 'error');
+            });
+        }
+        
+        // Копирование ссылки на сообщение
+        function copyMessageLink(messageId) {
+            const link = `https://t.me/botfs23/message/${messageId}`;
+            navigator.clipboard.writeText(link).then(() => {
+                showCustomAlert('Ссылка на сообщение скопирована', 'success');
+            }).catch(err => {
+                console.error('Ошибка при копировании:', err);
+                showCustomAlert('Не удалось скопировать ссылку', 'error');
+            });
+        }
+        
+        // Добавление в избранное
+        function addToFavorites(messageId) {
+            showCustomAlert('Сообщение добавлено в избранное', 'success');
+        }
+        
+        // Показ попапа реакций
+        function showReactionPopup(messageId) {
+            APP.activeMessageMenu = messageId;
+            
+            const button = event.target.closest('.btn-reaction');
+            const rect = button.getBoundingClientRect();
+            
+            elements.reactionsPopup.style.left = (rect.left - 100) + 'px';
+            elements.reactionsPopup.style.top = (rect.top - 60) + 'px';
+            elements.reactionsPopup.style.display = 'block';
+        }
+        
+        // Добавление реакции
+        function addReaction(emoji) {
+            const messageId = APP.activeMessageMenu;
+            if (!messageId) return;
+            
+            elements.reactionsPopup.style.display = 'none';
+            toggleReaction(messageId, emoji);
+        }
+        
+        // Переключение реакции
+        function toggleReaction(messageId, emoji) {
+            const messageElement = document.querySelector(`.message[data-id="${messageId}"]`);
+            if (!messageElement) return;
+            
+            let reactionsContainer = messageElement.querySelector('.message-reactions');
+            if (!reactionsContainer) {
+                // Создаем контейнер реакций
+                reactionsContainer = document.createElement('div');
+                reactionsContainer.className = 'message-reactions';
+                const messageContent = messageElement.querySelector('.message-content');
+                const messageText = messageElement.querySelector('.message-text');
+                messageContent.insertBefore(reactionsContainer, messageText.nextSibling);
+            }
+            
+            // Ищем существующую реакцию
+            const existingReaction = reactionsContainer.querySelector(`.reaction span:first-child`);
+            let reactionElement;
+            
+            if (existingReaction && existingReaction.textContent === emoji) {
+                reactionElement = existingReaction.closest('.reaction');
+                const countElement = reactionElement.querySelector('.reaction-count');
+                let count = parseInt(countElement.textContent) || 1;
+                
+                if (reactionElement.classList.contains('user-reacted')) {
+                    count--;
+                    if (count <= 0) {
+                        reactionElement.remove();
+                    } else {
+                        countElement.textContent = count;
+                        reactionElement.classList.remove('user-reacted');
+                    }
+                } else {
+                    count++;
+                    countElement.textContent = count;
+                    reactionElement.classList.add('user-reacted');
+                }
+            } else {
+                // Создаем новую реакцию
+                reactionElement = document.createElement('div');
+                reactionElement.className = 'reaction user-reacted';
+                reactionElement.innerHTML = `
+                    <span>${emoji}</span>
+                    <span class="reaction-count">1</span>
+                `;
+                reactionElement.onclick = () => toggleReaction(messageId, emoji);
+                reactionsContainer.appendChild(reactionElement);
+            }
+            
+            showCustomAlert(`Реакция ${emoji} добавлена`, 'success');
+        }
+        
+        // Редактирование сообщения
+        function editMessage(messageId) {
+            showCustomAlert('Редактирование сообщений в разработке', 'info');
+        }
+        
+        // Удаление сообщения
+        function deleteMessage(messageId) {
+            if (confirm('Вы уверены, что хотите удалить это сообщение?')) {
+                const messageElement = document.querySelector(`.message[data-id="${messageId}"]`);
+                if (messageElement) {
+                    messageElement.remove();
+                    showCustomAlert('Сообщение удалено', 'success');
+                }
+            }
+        }
+        
+        // Жалоба на сообщение
+        function reportMessage(messageId) {
+            showCustomAlert('Жалоба отправлена модераторам', 'success');
+        }
+        
+        // Выбор сообщения
+        function selectMessage(messageId) {
+            showCustomAlert('Режим выбора сообщений в разработке', 'info');
+        }
+        
+        // Скрытие всех попапов
+        function hideAllPopups() {
+            elements.attachMenu.classList.remove('active');
+            elements.emojiPicker.classList.remove('active');
+            elements.messageContextMenu.style.display = 'none';
+            elements.forwardPopup.style.display = 'none';
+            elements.reactionsPopup.style.display = 'none';
+            elements.filePreview.classList.remove('active');
+            hideUploadProgress();
+        }
+        
+        // Переключение темы
+        function toggleTheme() {
+            APP.settings.darkTheme = elements.darkThemeToggle.checked;
+            
+            if (APP.settings.darkTheme) {
+                document.body.classList.add('dark-theme');
+                elements.themeIcon.className = 'fas fa-sun';
+            } else {
+                document.body.classList.remove('dark-theme');
+                elements.themeIcon.className = 'fas fa-moon';
+            }
+            
+            saveSettings();
+            applySettings();
+        }
+        
+        // Изменение размера шрифта
+        function changeFontSize() {
+            APP.settings.fontSize = elements.fontSizeSelect.value;
+            saveSettings();
+            applySettings();
+        }
+        
+        // Переключение авто-скролла
+        function toggleAutoScroll() {
+            APP.settings.autoScroll = elements.autoScrollToggle.checked;
+            saveSettings();
+        }
+        
+        // Переключение звука
+        function toggleSound() {
+            APP.settings.soundEnabled = elements.soundToggle.checked;
+            saveSettings();
+        }
+        
+        // Переключение вибрации
+        function toggleVibration() {
+            APP.settings.vibrationEnabled = elements.vibrationToggle.checked;
+            saveSettings();
+        }
+        
+        // Переключение превью
+        function togglePreview() {
+            APP.settings.previewEnabled = elements.previewToggle.checked;
+            saveSettings();
+        }
+        
+        // Воспроизведение звука сообщения
+        function playMessageSound() {
+            // В реальном приложении здесь было бы воспроизведение звука
+            console.log('Звук сообщения воспроизведен');
+        }
+        
+        // Обновление статистики
+        function updateStats() {
+            const messageCount = document.querySelectorAll('.message:not(.system)').length;
+            const userCount = APP.users ? APP.users.length : 1;
+            const onlineCount = APP.users ? APP.users.filter(u => u.status === 'online').length : 1;
+            
+            document.getElementById('stats-messages').textContent = messageCount;
+            document.getElementById('stats-users').textContent = userCount;
+            document.getElementById('stats-sections').textContent = 4;
+            document.getElementById('stats-online').textContent = onlineCount;
+            
+            // Обновляем счетчики в header
+            document.getElementById('online-count').textContent = onlineCount;
+            document.getElementById('sidebar-online-count').textContent = onlineCount;
+        }
+        
+        // Обновление информации профиля
+        function updateProfileInfo() {
+            if (!APP.userData) return;
+            
+            const messageCount = document.querySelectorAll('.message.outgoing:not(.system)').length;
+            
+            document.getElementById('profile-messages').textContent = messageCount;
+            document.getElementById('profile-joined').textContent = new Date().toLocaleDateString('ru-RU');
+            document.getElementById('profile-status').textContent = 'онлайн';
+        }
+        
+        // Обновление счетчика онлайн
+        function updateOnlineCount() {
+            if (!APP.users) return;
+            
+            const onlineCount = APP.users.filter(u => u.status === 'online').length;
+            document.getElementById('online-count').textContent = onlineCount;
+            document.getElementById('sidebar-online-count').textContent = onlineCount;
+        }
+        
+        // Редактирование профиля
+        function editProfile() {
+            showCustomAlert('Редактирование профиля в разработке', 'info');
+        }
+        
+        // Смена пароля
+        function changePassword() {
+            showCustomAlert('Смена пароля в разработке', 'info');
+        }
+        
+        // Выход из системы
+        function logout() {
+            if (confirm('Вы уверены, что хотите выйти из аккаунта?')) {
+                localStorage.clear();
+                showCustomAlert('Вы вышли из системы', 'success');
+                
+                // Перезагрузка страницы
+                setTimeout(() => {
+                    location.reload();
+                }, 1000);
+            }
+        }
+        
+        // Показ кастомного уведомления
+        function showCustomAlert(message, type = 'info') {
+            const alert = document.getElementById('custom-alert');
+            if (!alert) return;
+            
+            alert.textContent = message;
+            alert.className = 'custom-alert';
+            
+            // Цвет в зависимости от типа
+            switch(type) {
+                case 'success':
+                    alert.style.background = 'var(--tg-green)';
+                    break;
+                case 'error':
+                    alert.style.background = 'var(--tg-red)';
+                    break;
+                case 'warning':
+                    alert.style.background = 'var(--tg-orange)';
+                    break;
+                default:
+                    alert.style.background = 'var(--tg-primary)';
+            }
+            
+            alert.style.display = 'block';
+            
+            // Автоматическое скрытие
+            setTimeout(() => {
+                alert.style.display = 'none';
+            }, 3000);
+        }
+        
+        // Вспомогательные функции для изображений
         function hideImage(img) {
             img.style.display = 'none';
             const icon = document.getElementById('user-avatar-icon');
@@ -1064,496 +2427,74 @@
             if (icon) icon.style.display = 'block';
         }
         
-        function autoResize(textarea) {
-            textarea.style.height = 'auto';
-            textarea.style.height = (textarea.scrollHeight) + 'px';
+        // Обработка ошибок
+        function handleError(error) {
+            console.error('Ошибка приложения:', error);
+            showCustomAlert('Произошла ошибка в приложении', 'error');
         }
         
-        function handleKeyPress(event) {
-            if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                if (window.sendMessage) {
-                    window.sendMessage();
-                }
-            }
+        function handleUnhandledRejection(event) {
+            console.error('Необработанное обещание:', event.reason);
+            showCustomAlert('Ошибка при выполнении операции', 'error');
         }
         
-        function toggleSidebar() {
-            const sidebar = document.getElementById('sidebar');
-            const overlay = document.getElementById('overlay');
-            sidebar.classList.toggle('active');
-            overlay.classList.toggle('active');
+        // Обновление UI
+        function updateUI() {
+            // Здесь можно добавить дополнительные обновления UI
         }
         
-        function showChat() {
-            document.querySelectorAll('.chat-container, .users-container, .admin-container, .settings-container, .profile-container').forEach(view => {
-                view.classList.remove('active');
-                view.style.display = 'none';
-            });
-            const chatView = document.getElementById('chat-view');
-            if (chatView) {
-                chatView.classList.add('active');
-                chatView.style.display = 'flex';
-            }
-            updateMenuActive(0);
-            hideAllPopups();
-        }
-        
-        function showUsersList() {
-            document.querySelectorAll('.chat-container, .users-container, .admin-container, .settings-container, .profile-container').forEach(view => {
-                view.classList.remove('active');
-                view.style.display = 'none';
-            });
-            const usersView = document.getElementById('users-view');
-            if (usersView) {
-                usersView.classList.add('active');
-                usersView.style.display = 'flex';
-                if (window.loadUsers) {
-                    window.loadUsers();
-                }
-            }
-            updateMenuActive(1);
-            hideAllPopups();
-        }
-        
-        function showAdminPanel() {
-            document.querySelectorAll('.chat-container, .users-container, .admin-container, .settings-container, .profile-container').forEach(view => {
-                view.classList.remove('active');
-                view.style.display = 'none';
-            });
-            const adminView = document.getElementById('admin-view');
-            if (adminView) {
-                adminView.classList.add('active');
-                adminView.style.display = 'flex';
-                if (window.loadAdminUsersList) {
-                    window.loadAdminUsersList();
-                }
-                if (window.loadInvitesList) {
-                    window.loadInvitesList();
-                }
-            }
-            updateMenuActive(2);
-            hideAllPopups();
-        }
-        
-        function showSettings() {
-            document.querySelectorAll('.chat-container, .users-container, .admin-container, .settings-container, .profile-container').forEach(view => {
-                view.classList.remove('active');
-                view.style.display = 'none';
-            });
-            const settingsView = document.getElementById('settings-view');
-            if (settingsView) {
-                settingsView.classList.add('active');
-                settingsView.style.display = 'flex';
-                updateStats();
-            }
-            updateMenuActive(3);
-            hideAllPopups();
-        }
-        
-        function showProfile() {
-            document.querySelectorAll('.chat-container, .users-container, .admin-container, .settings-container, .profile-container').forEach(view => {
-                view.classList.remove('active');
-                view.style.display = 'none';
-            });
-            const profileView = document.getElementById('profile-view');
-            if (profileView) {
-                profileView.classList.add('active');
-                profileView.style.display = 'flex';
-                updateProfileInfo();
-            }
-            updateMenuActive(4);
-            hideAllPopups();
-        }
-        
-        function updateMenuActive(activeIndex) {
-            document.querySelectorAll('.menu-item').forEach((item, index) => {
-                item.classList.toggle('active', index === activeIndex);
-            });
-        }
-        
-        function switchSection(sectionId) {
-            if (window.switchSection) {
-                window.switchSection(sectionId);
-            }
-            toggleSidebar();
-        }
-        
-        function toggleAttachMenu() {
-            const attachMenu = document.getElementById('attach-menu');
-            attachMenu.classList.toggle('active');
-        }
-        
-        function toggleEmojiPicker() {
-            const emojiPicker = document.getElementById('emoji-picker');
-            emojiPicker.classList.toggle('active');
-        }
-        
-        function attachFile(type) {
-            if (window.attachFile) {
-                window.attachFile(type);
-            }
-            toggleAttachMenu();
-        }
-        
-        function showEmojiCategory(category) {
-            if (window.showEmojiCategory) {
-                window.showEmojiCategory(category);
-            }
-        }
-        
-        function searchUsers(query) {
-            if (window.searchUsers) {
-                window.searchUsers(query);
-            }
-        }
-        
-        function clearUserSearch() {
-            const searchInput = document.getElementById('users-search-input');
-            if (searchInput) {
-                searchInput.value = '';
-            }
-            if (window.searchUsers) {
-                window.searchUsers('');
-            }
-        }
-        
-        function updateSectionPermission(sectionId, type, value) {
-            if (window.updateSectionPermission) {
-                window.updateSectionPermission(sectionId, type, value);
-            }
-        }
-        
-        function createInvite() {
-            if (window.createInvite) {
-                window.createInvite();
-            }
-        }
-        
-        function clearChatHistory() {
-            if (window.clearChatHistory) {
-                window.clearChatHistory();
-            }
-        }
-        
-        function exportChatData() {
-            if (window.exportChatData) {
-                window.exportChatData();
-            }
-        }
-        
-        function createBackup() {
-            if (window.createBackup) {
-                window.createBackup();
-            }
-        }
-        
-        function jumpToUnread() {
-            if (window.jumpToUnread) {
-                window.jumpToUnread();
-            }
-        }
-        
-        function mentionAll() {
-            if (window.mentionAll) {
-                window.mentionAll();
-            }
-        }
-        
-        function addReaction(emoji) {
-            const popup = document.getElementById('reactions-popup');
-            const messageId = popup.dataset.messageId;
-            if (window.toggleReaction && messageId) {
-                window.toggleReaction(messageId, emoji);
-            }
-            popup.style.display = 'none';
-        }
-        
-        function showReactionPopup(messageId) {
-            const popup = document.getElementById('reactions-popup');
-            popup.style.display = 'block';
-            popup.dataset.messageId = messageId;
-            
-            // Позиционируем попап
-            const button = event.target;
-            const rect = button.getBoundingClientRect();
-            popup.style.left = (rect.left - 100) + 'px';
-            popup.style.top = (rect.top - 60) + 'px';
-        }
-        
-        function closeForwardPopup() {
-            document.getElementById('forward-popup').style.display = 'none';
-        }
-        
-        function showMessageMenu(messageId) {
-            const menu = document.getElementById('message-context-menu');
-            const button = event.target.closest('.btn-more') || event.target;
-            const rect = button.getBoundingClientRect();
-            
-            menu.style.left = (rect.left - 180) + 'px';
-            menu.style.top = (rect.top + 30) + 'px';
-            menu.style.display = 'block';
-            menu.dataset.messageId = messageId;
-            
-            // Закрытие при клике вне меню
-            setTimeout(() => {
-                const closeHandler = (e) => {
-                    if (!menu.contains(e.target) && e.target !== button) {
-                        menu.style.display = 'none';
-                        document.removeEventListener('click', closeHandler);
-                    }
-                };
-                document.addEventListener('click', closeHandler);
-            }, 100);
-        }
-        
-        // Функции контекстного меню
-        function contextMenuReply() {
-            const menu = document.getElementById('message-context-menu');
-            const messageId = menu.dataset.messageId;
-            if (window.replyToMessage && messageId) {
-                window.replyToMessage(messageId);
-            }
-            menu.style.display = 'none';
-        }
-        
-        function contextMenuCopy() {
-            const menu = document.getElementById('message-context-menu');
-            const messageId = menu.dataset.messageId;
-            // Реализация будет в основном скрипте
-            menu.style.display = 'none';
-        }
-        
-        function contextMenuCopyLink() {
-            const menu = document.getElementById('message-context-menu');
-            const messageId = menu.dataset.messageId;
-            const link = `https://t.me/botfs23/message/${messageId}`;
-            navigator.clipboard.writeText(link).then(() => {
-                showCustomAlert('Ссылка скопирована', 'success');
-            }).catch(err => {
-                console.error('Ошибка при копировании ссылки: ', err);
-            });
-            menu.style.display = 'none';
-        }
-        
-        function contextMenuForward() {
-            const menu = document.getElementById('message-context-menu');
-            const messageId = menu.dataset.messageId;
-            if (window.forwardMessage && messageId) {
-                window.forwardMessage(messageId);
-            }
-            menu.style.display = 'none';
-        }
-        
-        function contextMenuReaction() {
-            const menu = document.getElementById('message-context-menu');
-            const messageId = menu.dataset.messageId;
-            if (window.showReactionPopup && messageId) {
-                window.showReactionPopup(messageId);
-            }
-            menu.style.display = 'none';
-        }
-        
-        function contextMenuDelete() {
-            const menu = document.getElementById('message-context-menu');
-            const messageId = menu.dataset.messageId;
-            if (window.deleteMessage && messageId) {
-                window.deleteMessage(messageId);
-            }
-            menu.style.display = 'none';
-        }
-        
-        function hideAllPopups() {
-            document.getElementById('attach-menu').classList.remove('active');
-            document.getElementById('emoji-picker').classList.remove('active');
-            document.getElementById('message-context-menu').style.display = 'none';
-            document.getElementById('forward-popup').style.display = 'none';
-            document.getElementById('reactions-popup').style.display = 'none';
-        }
-        
-        // Функции для настроек
-        function toggleTheme() {
-            const toggle = document.getElementById('dark-theme-toggle');
-            const isDark = toggle.checked;
-            document.body.classList.toggle('dark-theme', isDark);
-            localStorage.setItem('darkTheme', isDark);
-            
-            const themeIcon = document.getElementById('theme-icon');
-            if (themeIcon) {
-                themeIcon.className = isDark ? 'fas fa-sun' : 'fas fa-moon';
-            }
-        }
-        
-        function changeFontSize(size) {
-            document.body.style.fontSize = size === 'small' ? '13px' : size === 'large' ? '16px' : '14px';
-            localStorage.setItem('fontSize', size);
-        }
-        
-        function editProfile() {
-            showCustomAlert('Редактирование профиля в разработке', 'info');
-        }
-        
-        function changePassword() {
-            showCustomAlert('Смена пароля в разработке', 'info');
-        }
-        
-        function logout() {
-            if (confirm('Вы уверены, что хотите выйти?')) {
-                localStorage.clear();
-                showCustomAlert('Вы вышли из системы', 'success');
-                setTimeout(() => {
-                    location.reload();
-                }, 1000);
-            }
-        }
-        
-        // Функции для файлов
-        function sendFile() {
-            showCustomAlert('Файл отправлен', 'success');
-            hideFilePreview();
-        }
-        
-        function cancelFile() {
-            hideFilePreview();
-        }
-        
-        function hideFilePreview() {
-            document.getElementById('file-preview').classList.remove('active');
-        }
-        
-        function showUploadProgress() {
-            document.getElementById('upload-progress').classList.add('active');
-        }
-        
-        function hideUploadProgress() {
-            document.getElementById('upload-progress').classList.remove('active');
-        }
-        
-        function updateProgress(percent) {
-            const progressBar = document.getElementById('progress-bar-fill');
-            if (progressBar) {
-                progressBar.style.width = percent + '%';
-            }
-        }
-        
-        // Функции для уведомлений
-        function showCustomAlert(message, type = 'info') {
-            const alert = document.getElementById('custom-alert');
-            if (!alert) return;
-            
-            alert.textContent = message;
-            alert.className = 'custom-alert';
-            
-            switch (type) {
-                case 'success':
-                    alert.style.background = '#34c759';
-                    break;
-                case 'error':
-                    alert.style.background = '#ff3b30';
-                    break;
-                case 'warning':
-                    alert.style.background = '#ff9500';
-                    break;
-                default:
-                    alert.style.background = '#3390ec';
-            }
-            
-            alert.style.display = 'block';
-            
-            setTimeout(() => {
-                alert.style.display = 'none';
-            }, 3000);
-        }
-        
-        // Функции для статистики и профиля
-        function updateStats() {
-            // Это заглушка, реальные данные будут в основном скрипте
-            document.getElementById('stats-messages').textContent = '0';
-            document.getElementById('stats-users').textContent = '1';
-            document.getElementById('stats-sections').textContent = '4';
-            document.getElementById('stats-online').textContent = '1';
-        }
-        
-        function updateProfileInfo() {
-            // Это заглушка, реальные данные будут в основном скрипте
-            const userName = document.getElementById('user-name').textContent;
-            const userRole = document.getElementById('user-role').textContent;
-            
-            document.getElementById('profile-name').textContent = userName;
-            document.getElementById('profile-role').textContent = userRole;
-            document.getElementById('profile-username').textContent = '@user';
-            document.getElementById('profile-id').textContent = '000000';
-            document.getElementById('profile-status').textContent = 'онлайн';
-            document.getElementById('profile-messages').textContent = '0';
-            document.getElementById('profile-joined').textContent = new Date().toLocaleDateString('ru-RU');
-        }
-        
-        // Инициализация при загрузке
+        // Запуск приложения после загрузки DOM
         document.addEventListener('DOMContentLoaded', function() {
-            // Показываем экран загрузки
-            const loadingScreen = document.getElementById('loading-screen');
-            const app = document.getElementById('telegram-app');
-            
-            // Загружаем сохраненные настройки
-            const savedTheme = localStorage.getItem('darkTheme') === 'true';
-            const savedFontSize = localStorage.getItem('fontSize') || 'medium';
-            
-            // Применяем настройки
-            document.getElementById('dark-theme-toggle').checked = savedTheme;
-            document.getElementById('font-size-select').value = savedFontSize;
-            toggleTheme();
-            changeFontSize(savedFontSize);
-            
-            // Устанавливаем фото из Telegram, если доступно
-            if (window.Telegram && window.Telegram.WebApp) {
-                const tg = window.Telegram.WebApp;
-                const user = tg.initDataUnsafe?.user;
-                
-                if (user && user.photo_url) {
-                    const img = document.getElementById('user-avatar-img');
-                    const profileImg = document.getElementById('profile-avatar-img');
-                    if (img) {
-                        img.src = user.photo_url;
-                        img.style.display = 'block';
-                        const icon = document.getElementById('user-avatar-icon');
-                        if (icon) icon.style.display = 'none';
-                    }
-                    if (profileImg) {
-                        profileImg.src = user.photo_url;
-                        profileImg.style.display = 'block';
-                        const profileIcon = document.getElementById('profile-avatar-icon');
-                        if (profileIcon) profileIcon.style.display = 'none';
-                    }
-                }
-            }
-            
-            // Загружаем основной скрипт
+            // Инициализация приложения
             setTimeout(() => {
-                if (window.initApp) {
-                    window.initApp();
-                }
+                initApp();
                 
-                // Скрываем экран загрузки и показываем приложение
+                // Скрываем экран загрузки
                 setTimeout(() => {
-                    loadingScreen.classList.add('hidden');
-                    app.style.display = 'flex';
+                    elements.loadingScreen.classList.add('hidden');
+                    elements.telegramApp.style.display = 'flex';
                 }, 500);
             }, 1000);
         });
         
-        // Обработка ошибок
-        window.addEventListener('error', function(e) {
-            console.error('Ошибка приложения:', e.error);
-            showCustomAlert('Произошла ошибка в приложении', 'error');
-        });
-        
-        window.addEventListener('unhandledrejection', function(e) {
-            console.error('Необработанное обещание:', e.reason);
-            showCustomAlert('Ошибка при выполнении операции', 'error');
-        });
+        // Экспорт функций для HTML атрибутов onclick
+        window.initApp = initApp;
+        window.sendMessage = sendMessage;
+        window.toggleSidebar = toggleSidebar;
+        window.switchView = switchView;
+        window.switchSection = switchSection;
+        window.toggleAttachMenu = toggleAttachMenu;
+        window.attachFile = attachFile;
+        window.toggleEmojiPicker = toggleEmojiPicker;
+        window.showEmojiCategory = showEmojiCategory;
+        window.searchUsers = searchUsers;
+        window.clearUserSearch = () => {
+            elements.usersSearchInput.value = '';
+            searchUsers('');
+        };
+        window.updateSectionPermission = updateSectionPermission;
+        window.createInvite = createInvite;
+        window.clearChatHistory = clearChatHistory;
+        window.exportChatData = exportChatData;
+        window.createBackup = createBackup;
+        window.jumpToUnread = jumpToUnread;
+        window.mentionAll = mentionAll;
+        window.showReactionPopup = showReactionPopup;
+        window.addReaction = addReaction;
+        window.toggleReaction = toggleReaction;
+        window.replyToMessage = replyToMessage;
+        window.forwardMessage = forwardMessage;
+        window.showMessageMenu = showMessageMenu;
+        window.closeForwardPopup = closeForwardPopup;
+        window.sendFile = sendFile;
+        window.cancelFile = cancelFile;
+        window.toggleTheme = toggleTheme;
+        window.changeFontSize = changeFontSize;
+        window.editProfile = editProfile;
+        window.changePassword = changePassword;
+        window.logout = logout;
+        window.copyInviteCode = copyInviteCode;
+        window.updateUserRole = updateUserRole;
     </script>
-    
-    <!-- Подключаем основной JavaScript файл -->
-    <script src="script.js"></script>
 </body>
 </html>
