@@ -1,4 +1,4 @@
-// telegram-chat-extended.js - ПОЛНЫЙ КОД
+// telegram-chat.js - ПОЛНЫЙ КОД БЕЗ ДЕМО
 
 // ===== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ И КОНСТАНТЫ =====
 let tg = null;
@@ -33,9 +33,9 @@ const commonReactions = ['👍', '❤️', '😂', '😮', '😢', '😡', '🎉
 const emojiCategories = {
     smileys: ['😀', '😃', '😄', '😁', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🥸', '🤩', '🥳'],
     people: ['👋', '🤚', '🖐️', '✋', '🖖', '👌', '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝', '🙏'],
-    symbols: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '☮️', '✝️', '☪️', '🕉️', '☸️', '✡️', '🔯', '🕎', '☯️', '☦️', '🛐', '⛎', '♈', '♉', '♊', '♋', '♌', '♍', '♎', '♏', '♐', '♑', '♒', '♓', '🆔', '⚛️', '🉑', '☢️', '☣️', '📴', '📳', '🈶', '🈚', '🈸', '🈺', '🈷️', '✴️', '🆚', '💮', '🉐', '㊙️', '㊗️', '🈴', '🈵', '🈹', '🈲', '🅰️', '🅱️', '🆎', '🆑', '🅾️', '🆘', '❌', '⭕', '🛑', '⛔', '📛', '🚫', '💯', '💢', '♨️', '🚷', '🚯', '🚳', '🚱', '🔞', '📵', '🚭'],
-    nature: ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐵', '🙈', '🙉', '🙊', '🐒', '🐔', '🐧', '🐦', '🐤', '🐣', '🐥', '🦆', '🦅', '🦉', '🦇', '🐺', '🐗', '🐴', '🦄', '🐝', '🐛', '🦋', '🐌', '🐞', '🐜', '🦟', '🦗', '🕷️', '🕸️', '🦂', '🐢', '🐍', '🦎', '🦖', '🦕', '🐙', '🦑', '🦐', '🦞', '🦀', '🐡', '🐠', '🐟', '🐬', '🐳', '🐋', '🦈', '🐊', '🐅', '🐆', '🦓', '🦍', '🦧', '🐘', '🦛', '🦏', '🐪', '🐫', '🦒', '🦘', '🐃', '🐂', '🐄', '🐎', '🐖', '🐏', '🐑', '🦙', '🐐', '🦌', '🐕', '🐩', '🦮', '🐕‍🦺', '🐈', '🐓', '🦃', '🦚', '🦜', '🦢', '🦩', '🕊️', '🐇', '🦝', '🦨', '🦡', '🦦', '🦥', '🐁', '🐀', '🐿️', '🦔'],
-    food: ['🍏', '🍎', '🍐', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🫐', '🍈', '🍒', '🍑', '🥭', '🍍', '🥥', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌶️', '🫑', '🌽', '🥕', '🫒', '🧄', '🧅', '🥔', '🍠', '🥐', '🥯', '🍞', '🥖', '🥨', '🧀', '🥚', '🍳', '🧈', '🥞', '🧇', '🥓', '🥩', '🍗', '🍖', '🦴', '🌭', '🍔', '🍟', '🍕', '🫓', '🥪', '🥙', '🧆', '🌮', '🌯', '🫔', '🥗', '🥘', '🫕', '🥫', '🍝', '🍜', '🍲', '🍛', '🍣', '🍱', '🥟', '🦪', '🍤', '🍙', '🍚', '🍘', '🍥', '🥠', '🥮', '🍢', '🍡', '🍧', '🍨', '🍦', '🥧', '🧁', '🍰', '🎂', '🍮', '🍭', '🍬', '🍫', '🍿', '🍩', '🍪', '🌰', '🥜', '🍯', '🥛', '🍼', '🫖', '☕', '🍵', '🧃', '🥤', '🧋', '🍶', '🍺', '🍻', '🥂', '🍷', '🥃', '🍸', '🍹', '🧉', '🍾', '🧊', '🥄', '🍴', '🍽️', '🥣', '🥡', '🥢']
+    symbols: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟'],
+    nature: ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐵', '🙈', '🙉', '🙊'],
+    food: ['🍕', '🍔', '🍟', '🌭', '🍿', '🥓', '🥚', '🍳', '🧇', '🥞', '🧈', '🍞', '🥐', '🥨', '🥯', '🥖']
 };
 
 // ===== ИНИЦИАЛИЗАЦИЯ ПРИЛОЖЕНИЯ =====
@@ -59,8 +59,9 @@ function initApp() {
         // Получение данных пользователя
         currentUser = tg.initDataUnsafe?.user;
         if (!currentUser || !currentUser.id) {
-            console.warn('Не удалось получить данные пользователя, используем демо-данные');
-            currentUser = createDemoUser();
+            console.error('Не удалось получить данные пользователя из Telegram');
+            showNotification('Ошибка: не удалось получить данные пользователя', 'error');
+            return;
         }
         
         currentUserId = currentUser.id.toString();
@@ -90,11 +91,7 @@ function initApp() {
         // Обновление онлайн статуса
         updateOnlineStatus();
         
-        // Симуляция других пользователей для демо
-        simulateOtherUsers();
-        
         console.log('✅ Приложение инициализировано успешно');
-        tg.showAlert('Добро пожаловать в Botfs23 Chat!');
         
     } catch (error) {
         console.error('❌ Ошибка инициализации приложения:', error);
@@ -701,15 +698,6 @@ function createMessageElement(message) {
                     </div>`;
                 break;
                 
-            case 'voice':
-                contentHTML = `
-                    <div class="message-voice">
-                        <i class="fas fa-microphone"></i>
-                        <div class="voice-duration">${message.duration || '0:15'}</div>
-                        <div class="voice-wave"></div>
-                    </div>`;
-                break;
-                
             default:
                 let text = message.content || '';
                 text = escapeHtml(text);
@@ -892,7 +880,6 @@ async function sendMessage() {
 
         // Очищаем поле ввода
         input.value = '';
-        autoResize(input);
         hideSendingIndicator();
 
         // Прокручиваем вниз
@@ -904,9 +891,6 @@ async function sendMessage() {
         
         // Сбрасываем статус набора
         clearTypingStatus();
-        
-        // Симулируем ответы других пользователей
-        simulateReplies(newMessage);
         
         console.log("✅ Сообщение отправлено:", newMessage);
         showNotification('Сообщение отправлено', 'success');
@@ -1487,7 +1471,6 @@ function insertEmoji(emoji) {
     try {
         const input = document.getElementById('message-input');
         input.value += emoji;
-        autoResize(input);
         input.focus();
     } catch (error) {
         console.error('❌ Ошибка вставки эмодзи:', error);
@@ -1898,9 +1881,6 @@ function loadUsers() {
             }
         });
 
-        // Добавляем демо-пользователей
-        addDemoUsers();
-
         const container = document.getElementById('users-list');
         if (!container) return;
 
@@ -2252,9 +2232,6 @@ function checkForNewMessages() {
         updateUnreadBadges();
         updateOnlineUsers();
         
-        // Проверяем статус набора текста у других пользователей
-        checkOtherUsersTyping();
-        
     } catch (error) {
         console.error('❌ Ошибка проверки новых сообщений:', error);
     }
@@ -2396,242 +2373,6 @@ function loadMoreMessages() {
         showNotification('Загрузка старых сообщений...', 'info');
     } catch (error) {
         console.error('❌ Ошибка загрузки старых сообщений:', error);
-    }
-}
-
-// ===== ДЕМО-ДАННЫЕ И СИМУЛЯЦИЯ =====
-function createDemoUser() {
-    return {
-        id: Math.floor(Math.random() * 1000000),
-        first_name: 'Telegram',
-        last_name: 'User',
-        username: 'telegram_user',
-        language_code: 'ru',
-        is_premium: false
-    };
-}
-
-function addDemoUsers() {
-    const demoUsers = [
-        {
-            user_id: 'demo_1',
-            first_name: 'Анна',
-            last_name: 'Иванова',
-            username: 'anna_ivanova',
-            is_online: true,
-            message_count: Math.floor(Math.random() * 50),
-            role: 'admin',
-            join_date: Date.now() - 7 * 24 * 60 * 60 * 1000,
-            last_seen: Date.now()
-        },
-        {
-            user_id: 'demo_2',
-            first_name: 'Сергей',
-            last_name: 'Петров',
-            username: 'sergey_petrov',
-            is_online: false,
-            message_count: Math.floor(Math.random() * 30),
-            role: 'moderator',
-            join_date: Date.now() - 14 * 24 * 60 * 60 * 1000,
-            last_seen: Date.now() - 2 * 60 * 60 * 1000
-        },
-        {
-            user_id: 'demo_3',
-            first_name: 'Мария',
-            last_name: 'Сидорова',
-            username: 'maria_sidorova',
-            is_online: true,
-            message_count: Math.floor(Math.random() * 20),
-            role: 'user',
-            join_date: Date.now() - 3 * 24 * 60 * 60 * 1000,
-            last_seen: Date.now()
-        },
-        {
-            user_id: 'demo_4',
-            first_name: 'Алексей',
-            last_name: 'Кузнецов',
-            username: 'alexey_kuznetsov',
-            is_online: true,
-            message_count: Math.floor(Math.random() * 40),
-            role: 'user',
-            join_date: Date.now() - 5 * 24 * 60 * 60 * 1000,
-            last_seen: Date.now()
-        }
-    ];
-    
-    demoUsers.forEach(user => {
-        if (!usersCache[user.user_id]) {
-            usersCache[user.user_id] = user;
-            if (!userRoles[user.user_id]) {
-                userRoles[user.user_id] = user.role;
-            }
-        }
-    });
-    
-    saveUsers();
-    saveRoles();
-}
-
-function simulateOtherUsers() {
-    try {
-        // Симулируем онлайн статус демо-пользователей
-        setInterval(() => {
-            Object.keys(usersCache).forEach(userId => {
-                if (userId !== currentUserId && userId.startsWith('demo_')) {
-                    // Случайно меняем онлайн статус
-                    if (Math.random() > 0.7) {
-                        usersCache[userId].is_online = !usersCache[userId].is_online;
-                        usersCache[userId].last_seen = Date.now();
-                    }
-                }
-            });
-            updateOnlineUsers();
-        }, 60000); // Каждую минуту
-        
-        // Добавляем демо-сообщения если чат пуст
-        setTimeout(() => {
-            if (!window.chatData || !window.chatData[currentSection] || window.chatData[currentSection].length <= 1) {
-                addDemoMessages();
-            }
-        }, 2000);
-        
-    } catch (error) {
-        console.error('❌ Ошибка симуляции других пользователей:', error);
-    }
-}
-
-function addDemoMessages() {
-    try {
-        const demoMessages = [
-            {
-                user_id: 'demo_1',
-                user: usersCache['demo_1'],
-                message_type: 'text',
-                content: 'Привет всем! Как дела? 👋',
-                timestamp: Date.now() - 3600000
-            },
-            {
-                user_id: 'demo_3',
-                user: usersCache['demo_3'],
-                message_type: 'text',
-                content: 'Привет! Всё отлично, спасибо! А у тебя? 😊',
-                timestamp: Date.now() - 3500000
-            },
-            {
-                user_id: 'demo_4',
-                user: usersCache['demo_4'],
-                message_type: 'text',
-                content: 'Ребята, кто смотрел новый фильм? 🎬',
-                timestamp: Date.now() - 3400000
-            },
-            {
-                user_id: 'demo_2',
-                user: usersCache['demo_2'],
-                message_type: 'text',
-                content: 'Я смотрел! Очень рекомендую 👍',
-                timestamp: Date.now() - 3300000
-            },
-            {
-                user_id: 'demo_1',
-                user: usersCache['demo_1'],
-                message_type: 'text',
-                content: 'Кстати, не забудьте про встречу завтра в 15:00! 📅',
-                timestamp: Date.now() - 3200000
-            }
-        ];
-        
-        demoMessages.forEach((msg, index) => {
-            const message = {
-                id: lastMessageId + index + 1,
-                ...msg,
-                read: true,
-                reactions: index === 2 ? { '👍': ['demo_1', 'demo_3'] } : {},
-                section: currentSection
-            };
-            
-            if (!window.chatData[currentSection]) window.chatData[currentSection] = [];
-            window.chatData[currentSection].push(message);
-        });
-        
-        lastMessageId += demoMessages.length;
-        saveMessagesToStorage(currentSection);
-        displayCurrentSectionMessages();
-        
-    } catch (error) {
-        console.error('❌ Ошибка добавления демо-сообщений:', error);
-    }
-}
-
-function simulateReplies(userMessage) {
-    try {
-        // Случайным образом симулируем ответы других пользователей
-        if (Math.random() > 0.5) {
-            setTimeout(() => {
-                const demoUsers = Object.values(usersCache).filter(u => 
-                    u.user_id.startsWith('demo_') && u.is_online
-                );
-                
-                if (demoUsers.length > 0) {
-                    const randomUser = demoUsers[Math.floor(Math.random() * demoUsers.length)];
-                    const replies = [
-                        'Интересно! 🤔',
-                        'Согласен! 👍',
-                        'Хорошая мысль! 💡',
-                        'Спасибо за информацию! 🙏',
-                        'Отличное предложение! 🚀',
-                        'Давайте обсудим это подробнее 📝'
-                    ];
-                    
-                    const randomReply = replies[Math.floor(Math.random() * replies.length)];
-                    
-                    const replyMessage = {
-                        id: lastMessageId + 1,
-                        user_id: randomUser.user_id,
-                        user: randomUser,
-                        message_type: 'text',
-                        content: randomReply,
-                        timestamp: Date.now(),
-                        read: false,
-                        reactions: {},
-                        section: currentSection
-                    };
-                    
-                    if (!window.chatData[currentSection]) window.chatData[currentSection] = [];
-                    window.chatData[currentSection].push(replyMessage);
-                    lastMessageId = replyMessage.id;
-                    
-                    saveMessagesToStorage(currentSection);
-                    
-                    const messageElement = createMessageElement(replyMessage);
-                    document.getElementById('messages-container').appendChild(messageElement);
-                    scrollToBottom();
-                    
-                    // Увеличиваем счетчик непрочитанных
-                    sections[currentSection].unread++;
-                    updateUnreadBadges();
-                }
-            }, 2000 + Math.random() * 5000); // Ответ через 2-7 секунд
-        }
-        
-    } catch (error) {
-        console.error('❌ Ошибка симуляции ответов:', error);
-    }
-}
-
-function checkOtherUsersTyping() {
-    try {
-        // Случайным образом симулируем набор текста другими пользователями
-        Object.keys(usersCache).forEach(userId => {
-            if (userId.startsWith('demo_') && usersCache[userId].is_online) {
-                if (Math.random() > 0.8) {
-                    usersCache[userId].typing = true;
-                } else {
-                    delete usersCache[userId].typing;
-                }
-            }
-        });
-    } catch (error) {
-        console.error('❌ Ошибка проверки набора текста:', error);
     }
 }
 
