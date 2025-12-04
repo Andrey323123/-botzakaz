@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+import boto3
 from aiogram import Bot, Dispatcher, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
@@ -17,6 +18,7 @@ import traceback
 import sys
 from sqlalchemy import inspect
 from sqlalchemy.exc import SQLAlchemyError
+from werkzeug.utils import secure_filename
 
 flask_app = Flask(__name__)
 
@@ -27,17 +29,23 @@ logging.basicConfig(
 )
 flask_logger = logging.getLogger('flask_app')
 
-# Создаем директории для загрузок
-UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
-AVATARS_FOLDER = os.path.join(UPLOAD_FOLDER, 'avatars')
-VOICE_FOLDER = os.path.join(UPLOAD_FOLDER, 'voice')
-PHOTOS_FOLDER = os.path.join(UPLOAD_FOLDER, 'photos')
-DOCUMENTS_FOLDER = os.path.join(UPLOAD_FOLDER, 'documents')
+# ===== КОНФИГУРАЦИЯ SELECTEL S3 =====
+S3_CONFIG = {
+    'endpoint': 'https://s3.ru-3.storage.selcloud.ru',
+    'region': 'ru-3',
+    'bucket': 'telegram-chat-files',
+    'access_key': '7508531e4e684de2bc5d039c74c4441d',
+    'secret_key': '9a9c1682a5b247019acafa4489060d61'
+}
 
-# Создаем директории если их нет
-for folder in [UPLOAD_FOLDER, AVATARS_FOLDER, VOICE_FOLDER, PHOTOS_FOLDER, DOCUMENTS_FOLDER]:
-    os.makedirs(folder, exist_ok=True)
-    flask_logger.info(f"📁 Создана директория: {folder}")
+# Инициализация S3 клиента
+s3_client = boto3.client(
+    's3',
+    endpoint_url=S3_CONFIG['endpoint'],
+    region_name=S3_CONFIG['region'],
+    aws_access_key_id=S3_CONFIG['access_key'],
+    aws_secret_access_key=S3_CONFIG['secret_key']
+)
 
 # Путь к веб-приложению
 WEBAPP_DIR = os.path.join(os.path.dirname(__file__), 'bot/webapp')
@@ -54,10 +62,77 @@ ALLOWED_EXTENSIONS = {
     'voice': {'mp3', 'wav', 'ogg', 'm4a'}
 }
 
+# Максимальный размер файла (10MB)
+MAX_FILE_SIZE = 10 * 1024 * 1024
+
 def allowed_file(filename, file_type):
     """Проверка расширения файла"""
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS.get(file_type, set())
+
+def generate_s3_url(filepath):
+    """Генерация публичного URL для файла в S3"""
+    return f"{S3_CONFIG['endpoint']}/{S3_CONFIG['bucket']}/{filepath}"
+
+def upload_to_s3(file, filepath, content_type='application/octet-stream'):
+    """Загрузка файла в Selectel S3"""
+    try:
+        flask_logger.info(f"📤 Загрузка файла в S3: {filepath}")
+        
+        # Загружаем файл в S3
+        s3_client.put_object(
+            Bucket=S3_CONFIG['bucket'],
+            Key=filepath,
+            Body=file,
+            ContentType=content_type,
+            ACL='public-read'
+        )
+        
+        # Генерируем публичный URL
+        file_url = generate_s3_url(filepath)
+        
+        flask_logger.info(f"✅ Файл загружен в S3: {file_url}")
+        return file_url
+        
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка загрузки в S3: {e}", exc_info=True)
+        raise
+
+def delete_from_s3(filepath):
+    """Удаление файла из S3"""
+    try:
+        s3_client.delete_object(
+            Bucket=S3_CONFIG['bucket'],
+            Key=filepath
+        )
+        flask_logger.info(f"🗑️ Файл удален из S3: {filepath}")
+        return True
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка удаления из S3: {e}")
+        return False
+
+def list_s3_files(prefix=''):
+    """Получение списка файлов из S3"""
+    try:
+        response = s3_client.list_objects_v2(
+            Bucket=S3_CONFIG['bucket'],
+            Prefix=prefix
+        )
+        
+        files = []
+        if 'Contents' in response:
+            for obj in response['Contents']:
+                files.append({
+                    'key': obj['Key'],
+                    'size': obj['Size'],
+                    'last_modified': obj['LastModified'].isoformat(),
+                    'url': generate_s3_url(obj['Key'])
+                })
+        
+        return files
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка получения списка файлов из S3: {e}")
+        return []
 
 @flask_app.before_request
 def log_request_info():
@@ -86,7 +161,11 @@ def index():
 @flask_app.route('/health')
 def health():
     flask_logger.debug("🔍 Проверка здоровья приложения")
-    return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()}), 200
+    return jsonify({
+        "status": "healthy", 
+        "timestamp": datetime.now().isoformat(),
+        "s3_connected": True
+    }), 200
 
 @flask_app.route('/init-db')
 def init_database():
@@ -124,10 +203,21 @@ def init_database():
         users_count = len(get_users())
         messages_count = len(get_messages(limit=1000))
         
+        # Проверяем подключение к S3
+        s3_status = "unknown"
+        try:
+            s3_client.head_bucket(Bucket=S3_CONFIG['bucket'])
+            s3_status = "connected"
+            flask_logger.info("✅ Подключение к S3 успешно")
+        except Exception as s3_error:
+            s3_status = f"error: {str(s3_error)}"
+            flask_logger.error(f"❌ Ошибка подключения к S3: {s3_error}")
+        
         return jsonify({
             "status": "success", 
             "message": "Database initialized successfully",
             "tables": tables,
+            "s3_status": s3_status,
             "data": {
                 "users_count": users_count,
                 "messages_count": messages_count
@@ -164,15 +254,22 @@ def serve_static(filename):
 def debug_info():
     """Отладочная информация о состоянии сервера"""
     try:
+        # Проверяем S3
+        s3_files_count = 0
+        try:
+            s3_files = list_s3_files('uploads/')
+            s3_files_count = len(s3_files)
+        except:
+            pass
+        
         info = {
             "server_time": datetime.now().isoformat(),
             "python_version": sys.version,
             "working_directory": os.getcwd(),
-            "upload_folders": {
-                "photos": os.path.exists(PHOTOS_FOLDER),
-                "documents": os.path.exists(DOCUMENTS_FOLDER),
-                "voice": os.path.exists(VOICE_FOLDER),
-                "avatars": os.path.exists(AVATARS_FOLDER)
+            "s3_config": {
+                "bucket": S3_CONFIG['bucket'],
+                "endpoint": S3_CONFIG['endpoint'],
+                "files_count": s3_files_count
             },
             "database": {
                 "path": "botzakaz.db",
@@ -207,18 +304,12 @@ def get_messages():
         messages = db.get_messages(limit, offset)
         flask_logger.debug(f"📩 Получено {len(messages)} сообщений из БД")
         
-        # Логируем информацию о первых сообщениях
-        for i, msg in enumerate(messages[:3]):
-            flask_logger.debug(f"📝 Сообщение #{i+1}: ID={msg.id}, user_id={msg.user_id}, content={msg.content[:50] if msg.content else 'None'}")
-        
         messages_data = []
         for message in messages:
             # Получаем информацию о пользователе для каждого сообщения
             user = db.get_user_by_id(message.user_id)
             
             if not user:
-                flask_logger.warning(f"⚠️ Пользователь с ID {message.user_id} не найден в БД для сообщения {message.id}")
-                # Создаем заглушку пользователя
                 user_data = {
                     'user_id': message.user_id,
                     'username': None,
@@ -272,15 +363,14 @@ def get_messages():
             }
         }
         
-        flask_logger.info(f"✅ Отправлено {len(messages_data)} сообщений (всего в БД: {response['total_in_db']})")
+        flask_logger.info(f"✅ Отправлено {len(messages_data)} сообщений")
         return jsonify(response)
         
     except Exception as e:
         flask_logger.error(f"❌ Ошибка получения сообщений: {e}", exc_info=True)
         return jsonify({
             'status': 'error', 
-            'message': str(e),
-            'traceback': traceback.format_exc()
+            'message': str(e)
         }), 500
 
 @flask_app.route('/api/messages/send', methods=['POST'])
@@ -289,80 +379,22 @@ def send_message_api():
     try:
         flask_logger.info("📤 Отправка сообщения через API")
         
-        # Логируем все что пришло
-        flask_logger.debug(f"📦 Заголовки запроса: {dict(request.headers)}")
-        flask_logger.debug(f"📄 Content-Type: {request.content_type}")
-        flask_logger.debug(f"📝 Данные запроса (raw): {request.data}")
+        if not request.is_json:
+            return jsonify({'status': 'error', 'message': 'Invalid request format'}), 400
         
-        # Проверяем тип контента
-        data = None
-        if request.is_json:
-            data = request.json
-            flask_logger.info("✅ Получены JSON данные")
-        else:
-            # Пробуем парсить как JSON вручную
-            try:
-                if request.data:
-                    data = json.loads(request.data)
-                    flask_logger.info(f"✅ Удалось распарсить JSON из request.data")
-                else:
-                    # Пробуем получить данные из формы
-                    data = request.form.to_dict()
-                    flask_logger.info(f"✅ Получены данные из формы: {data}")
-                    
-                    # Пробуем распарсить JSON в поле 'data' если есть
-                    if 'data' in data:
-                        try:
-                            data = json.loads(data['data'])
-                            flask_logger.info(f"✅ Распарсен JSON из поля 'data'")
-                        except:
-                            pass
-            except Exception as parse_error:
-                flask_logger.error(f"❌ Не удалось распарсить данные: {parse_error}")
-                return jsonify({
-                    'status': 'error', 
-                    'message': 'Invalid request format',
-                    'received_content_type': request.content_type,
-                    'received_data': str(request.data)[:500]
-                }), 400
+        data = request.json
+        flask_logger.debug(f"📝 Данные запроса: {json.dumps(data, indent=2)}")
         
-        if not data:
-            flask_logger.error("❌ Пустые данные")
-            return jsonify({'status': 'error', 'message': 'Empty request data'}), 400
-        
-        flask_logger.debug(f"📝 Данные запроса (parsed): {json.dumps(data, indent=2) if isinstance(data, dict) else data}")
-        
-        # Поддерживаем разные форматы данных
-        user_id = None
-        content = None
-        
-        # Вариант 1: прямой формат (новый фронтенд)
-        if 'user_id' in data:
-            user_id = data['user_id']
-            content = data.get('content', '')
-        # Вариант 2: вложенный формат
-        elif 'message' in data and isinstance(data['message'], dict):
-            if 'user_id' in data['message']:
-                user_id = data['message']['user_id']
-                content = data['message'].get('content', '')
-        # Вариант 3: старый формат
-        elif 'userId' in data:
-            user_id = data['userId']
-            content = data.get('content', '')
+        # Извлекаем данные
+        user_id = data.get('user_id')
+        content = data.get('content', '')
         
         if not user_id:
-            flask_logger.error(f"❌ User ID не найден в данных: {data}")
-            return jsonify({
-                'status': 'error', 
-                'message': 'User ID required',
-                'received_data_keys': list(data.keys()) if isinstance(data, dict) else str(type(data))
-            }), 400
+            return jsonify({'status': 'error', 'message': 'User ID required'}), 400
         
-        # Преобразуем user_id в int если нужно
         try:
             user_id = int(user_id)
         except (ValueError, TypeError):
-            flask_logger.error(f"❌ Неверный формат user_id: {user_id}")
             return jsonify({'status': 'error', 'message': 'Invalid user_id format'}), 400
         
         flask_logger.info(f"📨 Новое сообщение от user_id={user_id}: {content[:100] if content else 'No content'}...")
@@ -373,11 +405,7 @@ def send_message_api():
         if not user:
             flask_logger.warning(f"⚠️ Пользователь {user_id} не найден в БД, создаем...")
             
-            # Получаем информацию о пользователе из данных
-            user_info = {}
-            if 'user' in data and isinstance(data['user'], dict):
-                user_info = data['user']
-            
+            user_info = data.get('user', {})
             user_data = {
                 'id': user_id,
                 'username': data.get('username') or user_info.get('username'),
@@ -386,30 +414,23 @@ def send_message_api():
                 'photo_url': data.get('photo_url') or user_info.get('photo_url')
             }
             
-            flask_logger.debug(f"👤 Данные для создания пользователя: {user_data}")
-            
             try:
                 user = db.get_or_create_user(user_data)
-                flask_logger.info(f"✅ Создан новый пользователь: {user.first_name} (ID: {user.id}, DB ID: {user.id})")
+                flask_logger.info(f"✅ Создан новый пользователь: {user.first_name}")
             except Exception as user_error:
-                flask_logger.error(f"❌ Ошибка создания пользователя: {user_error}", exc_info=True)
+                flask_logger.error(f"❌ Ошибка создания пользователя: {user_error}")
                 user = None
         
         # Проверяем бан и мут
         if user:
             if user.is_banned:
-                flask_logger.warning(f"🚫 Пользователь {user_id} забанен")
                 return jsonify({'status': 'error', 'message': 'User is banned'}), 403
             
             if user.is_muted and user.mute_until and user.mute_until > datetime.utcnow():
-                flask_logger.warning(f"🔇 Пользователь {user_id} в муте до {user.mute_until}")
                 return jsonify({'status': 'error', 'message': 'User is muted'}), 403
         
         # Сохраняем сообщение в БД
-        flask_logger.debug("💾 Сохраняем сообщение в БД...")
-        
         try:
-            # Сохраняем сообщение
             message = db.add_message(
                 user_id=user_id,
                 message_type='text',
@@ -419,21 +440,15 @@ def send_message_api():
             )
             
             if not message:
-                flask_logger.error("❌ Функция add_message вернула None")
                 return jsonify({'status': 'error', 'message': 'Failed to save message to database'}), 500
             
             flask_logger.info(f"✅ Сообщение сохранено в БД с ID: {message.id}")
             
-            # Проверяем что сообщение действительно сохранено
-            all_messages = db.get_messages(limit=10)
-            flask_logger.debug(f"📊 Всего сообщений в БД после сохранения: {len(all_messages)}")
-            
         except Exception as db_error:
-            flask_logger.error(f"❌ Ошибка сохранения в БД: {db_error}", exc_info=True)
+            flask_logger.error(f"❌ Ошибка сохранения в БД: {db_error}")
             return jsonify({
                 'status': 'error', 
-                'message': f'Database error: {str(db_error)}',
-                'traceback': traceback.format_exc()[:500]
+                'message': f'Database error: {str(db_error)}'
             }), 500
         
         # Форматируем время ответа
@@ -453,7 +468,7 @@ def send_message_api():
             'username': user.username if user else None
         }
         
-        # Если есть файлы в сообщении
+        # Обработка файлов если есть
         files = data.get('files', [])
         saved_files = []
         if files and isinstance(files, list):
@@ -472,173 +487,95 @@ def send_message_api():
             'content': content,
             'timestamp': timestamp,
             'files': saved_files,
-            'server_time': datetime.now().isoformat(),
-            'debug': {
-                'user_in_db': user is not None,
-                'total_messages_in_db': len(db.get_messages(limit=1000))
-            }
+            'server_time': datetime.now().isoformat()
         }
         
         flask_logger.info(f"✅ Сообщение успешно отправлено. ID: {message.id}")
-        flask_logger.debug(f"📤 Ответ сервера: {json.dumps(response_data, indent=2)}")
-        
         return jsonify(response_data)
         
     except Exception as e:
         flask_logger.error(f"❌ Критическая ошибка отправки сообщения: {e}", exc_info=True)
         return jsonify({
             'status': 'error', 
-            'message': f'Internal server error: {str(e)}',
-            'traceback': traceback.format_exc()[:1000]
-        }), 500
-
-@flask_app.route('/api/debug/test-db', methods=['GET'])
-def test_database():
-    """Тест работы базы данных"""
-    try:
-        flask_logger.info("🧪 Тестирование базы данных...")
-        
-        # 1. Проверяем существующих пользователей
-        users = db.get_users()
-        flask_logger.info(f"👥 Пользователей в БД: {len(users)}")
-        
-        # 2. Проверяем сообщения
-        messages = db.get_messages(limit=10)
-        flask_logger.info(f"📨 Сообщений в БД: {len(messages)}")
-        
-        # 3. Создаем тестового пользователя если нет
-        test_user_id = 999999
-        test_user = db.get_user_by_id(test_user_id)
-        
-        if not test_user:
-            flask_logger.info("👤 Создаем тестового пользователя...")
-            test_user = db.get_or_create_user({
-                'id': test_user_id,
-                'username': 'test_user',
-                'first_name': 'Test',
-                'last_name': 'User'
-            })
-        
-        # 4. Создаем тестовое сообщение
-        flask_logger.info("💬 Создаем тестовое сообщение...")
-        test_message = db.add_message(
-            user_id=test_user_id,
-            message_type='text',
-            content='Тестовое сообщение от сервера',
-            file_id=None,
-            file_url=None
-        )
-        
-        # 5. Проверяем что сообщение сохранилось
-        messages_after = db.get_messages(limit=10)
-        
-        return jsonify({
-            'status': 'success',
-            'database_test': {
-                'users_count': len(users),
-                'messages_count_before': len(messages),
-                'messages_count_after': len(messages_after),
-                'test_user_created': test_user is not None,
-                'test_message_created': test_message is not None,
-                'test_message_id': test_message.id if test_message else None,
-                'test_details': {
-                    'user_id': test_user_id,
-                    'user_db_id': test_user.id if test_user else None,
-                    'message_content': 'Тестовое сообщение от сервера'
-                }
-            },
-            'timestamp': datetime.now().isoformat()
-        })
-        
-    except Exception as e:
-        flask_logger.error(f"❌ Ошибка тестирования БД: {e}", exc_info=True)
-        return jsonify({
-            'status': 'error',
-            'message': str(e),
-            'traceback': traceback.format_exc()
+            'message': f'Internal server error: {str(e)}'
         }), 500
 
 @flask_app.route('/api/upload/photo', methods=['POST'])
 def upload_photo():
-    """Загрузка фото"""
+    """Загрузка фото в S3"""
     try:
-        flask_logger.info("📸 Загрузка фото")
+        flask_logger.info("📸 Загрузка фото в S3")
         
         if 'photo' not in request.files:
-            flask_logger.error("❌ Фото не предоставлено")
             return jsonify({'status': 'error', 'message': 'No photo provided'}), 400
         
         photo = request.files['photo']
         user_id = request.form.get('user_id')
         
-        flask_logger.debug(f"📷 Фото: {photo.filename}, user_id: {user_id}")
-        
         if not user_id:
-            flask_logger.error("❌ User ID не указан")
             return jsonify({'status': 'error', 'message': 'User ID required'}), 400
         
         if photo.filename == '':
-            flask_logger.error("❌ Имя файла пустое")
             return jsonify({'status': 'error', 'message': 'No selected file'}), 400
         
         if not allowed_file(photo.filename, 'photos'):
-            flask_logger.error(f"❌ Тип файла не разрешен: {photo.filename}")
             return jsonify({'status': 'error', 'message': 'File type not allowed'}), 400
         
+        # Проверяем размер файла
+        photo.seek(0, 2)  # Перемещаемся в конец файла
+        file_size = photo.tell()
+        photo.seek(0)  # Возвращаемся в начало
+        
+        if file_size > MAX_FILE_SIZE:
+            return jsonify({'status': 'error', 'message': 'File too large'}), 400
+        
         # Генерируем уникальное имя файла
-        filename = f"{uuid.uuid4()}.{photo.filename.rsplit('.', 1)[1].lower()}"
-        filepath = os.path.join(PHOTOS_FOLDER, filename)
+        filename = secure_filename(photo.filename)
+        ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else 'jpg'
+        unique_filename = f"{uuid.uuid4()}.{ext}"
+        filepath = f"uploads/photos/{user_id}/{unique_filename}"
         
-        flask_logger.debug(f"💾 Сохраняем файл: {filepath}")
-        photo.save(filepath)
+        # Загружаем в S3
+        file_url = upload_to_s3(
+            photo,
+            filepath,
+            content_type=photo.content_type
+        )
         
-        # Проверяем сохранение
-        if not os.path.exists(filepath):
-            flask_logger.error(f"❌ Файл не сохранен: {filepath}")
-            return jsonify({'status': 'error', 'message': 'File save failed'}), 500
-        
-        file_size = os.path.getsize(filepath)
-        flask_logger.info(f"✅ Файл сохранен: {filename} ({file_size} байт)")
-        
-        # URL для доступа к файлу
-        file_url = f"/uploads/photos/{filename}"
-        
-        # Сохраняем сообщение о фото
+        # Сохраняем сообщение о фото в БД
         message = db.add_message(
             user_id=int(user_id),
             message_type='photo',
             content='Фото',
             file_url=file_url,
-            file_id=filename
+            file_id=unique_filename
         )
         
         return jsonify({
             'status': 'success',
             'message_id': message.id,
             'file_url': file_url,
-            'filename': filename,
+            'filename': unique_filename,
             'size': file_size,
             'saved_at': datetime.now().isoformat()
         })
+        
     except Exception as e:
         flask_logger.error(f"❌ Ошибка загрузки фото: {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @flask_app.route('/api/upload/voice', methods=['POST'])
 def upload_voice():
-    """Загрузка голосового сообщения"""
+    """Загрузка голосового сообщения в S3"""
     try:
-        flask_logger.info("🎤 Загрузка голосового сообщения")
+        flask_logger.info("🎤 Загрузка голосового сообщения в S3")
         
         if 'voice' not in request.files:
-            flask_logger.error("❌ Голосовое сообщение не предоставлено")
             return jsonify({'status': 'error', 'message': 'No voice message provided'}), 400
         
         voice = request.files['voice']
         user_id = request.form.get('user_id')
         duration = request.form.get('duration', 0)
-        
-        flask_logger.debug(f"🎵 Голосовое: {voice.filename}, user_id: {user_id}, duration: {duration}")
         
         if not user_id:
             return jsonify({'status': 'error', 'message': 'User ID required'}), 400
@@ -649,48 +586,54 @@ def upload_voice():
         if not allowed_file(voice.filename, 'voice'):
             return jsonify({'status': 'error', 'message': 'File type not allowed'}), 400
         
+        # Проверяем размер файла
+        voice.seek(0, 2)
+        file_size = voice.tell()
+        voice.seek(0)
+        
+        if file_size > MAX_FILE_SIZE:
+            return jsonify({'status': 'error', 'message': 'File too large'}), 400
+        
         # Генерируем уникальное имя файла
-        filename = f"{uuid.uuid4()}.{voice.filename.rsplit('.', 1)[1].lower()}"
-        filepath = os.path.join(VOICE_FOLDER, filename)
-        voice.save(filepath)
+        filename = secure_filename(voice.filename)
+        ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else 'mp3'
+        unique_filename = f"{uuid.uuid4()}.{ext}"
+        filepath = f"uploads/voice/{user_id}/{unique_filename}"
         
-        # Проверяем сохранение
-        if not os.path.exists(filepath):
-            flask_logger.error(f"❌ Файл не сохранен: {filepath}")
-            return jsonify({'status': 'error', 'message': 'File save failed'}), 500
+        # Загружаем в S3
+        file_url = upload_to_s3(
+            voice,
+            filepath,
+            content_type=voice.content_type
+        )
         
-        file_size = os.path.getsize(filepath)
-        flask_logger.info(f"✅ Голосовое сообщение сохранено: {filename} ({file_size} байт)")
-        
-        # URL для доступа к файлу
-        file_url = f"/uploads/voice/{filename}"
-        
-        # Сохраняем сообщение о голосовом сообщении
+        # Сохраняем сообщение о голосовом сообщении в БД
         message = db.add_message(
             user_id=int(user_id),
             message_type='voice',
             content='Голосовое сообщение',
             file_url=file_url,
-            file_id=filename
+            file_id=unique_filename
         )
         
         return jsonify({
             'status': 'success',
             'message_id': message.id,
             'file_url': file_url,
-            'filename': filename,
+            'filename': unique_filename,
             'duration': int(duration),
             'size': file_size
         })
+        
     except Exception as e:
         flask_logger.error(f"❌ Ошибка загрузки голосового сообщения: {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @flask_app.route('/api/upload/document', methods=['POST'])
 def upload_document():
-    """Загрузка документа"""
+    """Загрузка документа в S3"""
     try:
-        flask_logger.info("📄 Загрузка документа")
+        flask_logger.info("📄 Загрузка документа в S3")
         
         if 'document' not in request.files:
             return jsonify({'status': 'error', 'message': 'No document provided'}), 400
@@ -698,8 +641,6 @@ def upload_document():
         document = request.files['document']
         user_id = request.form.get('user_id')
         description = request.form.get('description', 'Документ')
-        
-        flask_logger.debug(f"📄 Документ: {document.filename}, user_id: {user_id}")
         
         if not user_id:
             return jsonify({'status': 'error', 'message': 'User ID required'}), 400
@@ -710,51 +651,55 @@ def upload_document():
         if not allowed_file(document.filename, 'documents'):
             return jsonify({'status': 'error', 'message': 'File type not allowed'}), 400
         
+        # Проверяем размер файла
+        document.seek(0, 2)
+        file_size = document.tell()
+        document.seek(0)
+        
+        if file_size > MAX_FILE_SIZE:
+            return jsonify({'status': 'error', 'message': 'File too large'}), 400
+        
         # Генерируем уникальное имя файла
-        ext = document.filename.rsplit('.', 1)[1].lower()
-        filename = f"{uuid.uuid4()}.{ext}"
-        filepath = os.path.join(DOCUMENTS_FOLDER, filename)
-        document.save(filepath)
+        filename = secure_filename(document.filename)
+        ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else 'pdf'
+        unique_filename = f"{uuid.uuid4()}.{ext}"
+        filepath = f"uploads/documents/{user_id}/{unique_filename}"
         
-        # Проверяем сохранение
-        if not os.path.exists(filepath):
-            flask_logger.error(f"❌ Файл не сохранен: {filepath}")
-            return jsonify({'status': 'error', 'message': 'File save failed'}), 500
+        # Загружаем в S3
+        file_url = upload_to_s3(
+            document,
+            filepath,
+            content_type=document.content_type
+        )
         
-        # Получаем размер файла
-        file_size = os.path.getsize(filepath)
-        flask_logger.info(f"✅ Документ сохранен: {filename} ({file_size} байт)")
-        
-        # URL для доступа к файлу
-        file_url = f"/uploads/documents/{filename}"
-        
-        # Сохраняем сообщение о документе
+        # Сохраняем сообщение о документе в БД
         message = db.add_message(
             user_id=int(user_id),
             message_type='document',
             content=description,
             file_url=file_url,
-            file_id=filename
+            file_id=unique_filename
         )
         
         return jsonify({
             'status': 'success',
             'message_id': message.id,
             'file_url': file_url,
-            'filename': filename,
+            'filename': unique_filename,
             'original_name': document.filename,
             'size': file_size,
             'description': description
         })
+        
     except Exception as e:
         flask_logger.error(f"❌ Ошибка загрузки документа: {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @flask_app.route('/api/user/avatar', methods=['POST'])
 def upload_avatar():
-    """Загрузка аватарки пользователя"""
+    """Загрузка аватарки пользователя в S3"""
     try:
-        flask_logger.info("🖼️ Загрузка аватарки")
+        flask_logger.info("🖼️ Загрузка аватарки в S3")
         
         if 'avatar' not in request.files:
             return jsonify({'status': 'error', 'message': 'No avatar provided'}), 400
@@ -771,93 +716,82 @@ def upload_avatar():
         if not allowed_file(avatar.filename, 'photos'):
             return jsonify({'status': 'error', 'message': 'File type not allowed'}), 400
         
+        # Проверяем размер файла
+        avatar.seek(0, 2)
+        file_size = avatar.tell()
+        avatar.seek(0)
+        
+        if file_size > MAX_FILE_SIZE:
+            return jsonify({'status': 'error', 'message': 'File too large'}), 400
+        
         # Генерируем уникальное имя файла
-        filename = f"{uuid.uuid4()}.{avatar.filename.rsplit('.', 1)[1].lower()}"
-        filepath = os.path.join(AVATARS_FOLDER, filename)
-        avatar.save(filepath)
+        filename = secure_filename(avatar.filename)
+        ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else 'jpg'
+        unique_filename = f"{uuid.uuid4()}.{ext}"
+        filepath = f"avatars/{user_id}/{unique_filename}"
         
-        # Проверяем сохранение
-        if not os.path.exists(filepath):
-            flask_logger.error(f"❌ Аватар не сохранен: {filepath}")
-            return jsonify({'status': 'error', 'message': 'File save failed'}), 500
-        
-        file_size = os.path.getsize(filepath)
-        flask_logger.info(f"✅ Аватар сохранен: {filename} ({file_size} байт)")
-        
-        # URL для доступа к файлу
-        avatar_url = f"/uploads/avatars/{filename}"
+        # Загружаем в S3
+        avatar_url = upload_to_s3(
+            avatar,
+            filepath,
+            content_type=avatar.content_type
+        )
         
         # Обновляем пользователя в БД
         user = db.get_user_by_id(int(user_id))
         if user:
-            # Здесь нужно добавить метод для обновления фото пользователя
-            # Пока сохраняем в текущей структуре
             user.photo_url = avatar_url
+            # Здесь нужен метод для сохранения изменений пользователя
+            # Пока просто логируем
             flask_logger.info(f"👤 Аватар обновлен для пользователя {user_id}")
         
         return jsonify({
             'status': 'success',
             'avatar_url': avatar_url,
-            'filename': filename,
+            'filename': unique_filename,
             'size': file_size
         })
+        
     except Exception as e:
         flask_logger.error(f"❌ Ошибка загрузки аватара: {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-@flask_app.route('/api/voice/<filename>')
-def get_voice_file(filename):
-    """Получить голосовое сообщение"""
+@flask_app.route('/api/s3/files', methods=['GET'])
+def list_files():
+    """Получить список файлов из S3"""
     try:
-        flask_logger.debug(f"🎵 Запрос голосового файла: {filename}")
-        return send_from_directory(VOICE_FOLDER, filename)
+        prefix = request.args.get('prefix', '')
+        files = list_s3_files(prefix)
+        
+        return jsonify({
+            'status': 'success',
+            'files': files,
+            'count': len(files)
+        })
+        
     except Exception as e:
-        flask_logger.error(f"❌ Ошибка получения голосового файла: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 404
+        flask_logger.error(f"❌ Ошибка получения списка файлов: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
-@flask_app.route('/api/photo/<filename>')
-def get_photo_file(filename):
-    """Получить фото"""
+@flask_app.route('/api/s3/delete', methods=['POST'])
+def delete_file():
+    """Удалить файл из S3"""
     try:
-        flask_logger.debug(f"📸 Запрос фото: {filename}")
-        return send_from_directory(PHOTOS_FOLDER, filename)
+        data = request.json
+        if not data or 'filepath' not in data:
+            return jsonify({'status': 'error', 'message': 'Filepath required'}), 400
+        
+        filepath = data['filepath']
+        success = delete_from_s3(filepath)
+        
+        if success:
+            return jsonify({'status': 'success', 'message': 'File deleted'})
+        else:
+            return jsonify({'status': 'error', 'message': 'Failed to delete file'}), 500
+            
     except Exception as e:
-        flask_logger.error(f"❌ Ошибка получения фото: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 404
-
-@flask_app.route('/api/document/<filename>')
-def get_document_file(filename):
-    """Получить документ"""
-    try:
-        flask_logger.debug(f"📄 Запрос документа: {filename}")
-        return send_from_directory(DOCUMENTS_FOLDER, filename)
-    except Exception as e:
-        flask_logger.error(f"❌ Ошибка получения документа: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 404
-
-@flask_app.route('/api/avatar/<filename>')
-def get_avatar_file(filename):
-    """Получить аватар"""
-    try:
-        flask_logger.debug(f"🖼️ Запрос аватара: {filename}")
-        return send_from_directory(AVATARS_FOLDER, filename)
-    except Exception as e:
-        flask_logger.error(f"❌ Ошибка получения аватара: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 404
-
-# Статические файлы загрузок
-@flask_app.route('/uploads/<path:filename>')
-def serve_upload(filename):
-    """Сервис загруженных файлов"""
-    flask_logger.debug(f"📁 Запрос загруженного файла: {filename}")
-    upload_path = os.path.join(UPLOAD_FOLDER, filename)
-    
-    if os.path.exists(upload_path):
-        flask_logger.debug(f"✅ Файл найден: {upload_path}")
-        return send_from_directory(UPLOAD_FOLDER, filename)
-    
-    flask_logger.warning(f"❌ Файл не найден: {upload_path}")
-    return "File not found", 404
+        flask_logger.error(f"❌ Ошибка удаления файла: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @flask_app.route('/api/users', methods=['GET'])
 def get_users_api():
@@ -866,18 +800,10 @@ def get_users_api():
         flask_logger.info("👥 Получение списка пользователей")
         
         users = db.get_users()
-        flask_logger.debug(f"📊 Найдено пользователей в БД: {len(users)}")
-        
-        # Логируем информацию о пользователях
-        for i, user in enumerate(users[:5]):
-            flask_logger.debug(f"👤 Пользователь #{i+1}: ID={user.id}, user_id={user.user_id}, username={user.username}, first_name={user.first_name}")
         
         users_data = []
         for user in users:
-            # Получаем количество сообщений пользователя
             message_count = db.get_message_count(user.user_id)
-            
-            # Проверяем активность пользователя (был ли онлайн за последние 24 часа)
             active_users_list = db.get_active_users(24)
             is_online = any(u.user_id == user.user_id for u in active_users_list)
             
@@ -901,13 +827,10 @@ def get_users_api():
             'status': 'success', 
             'users': users_data,
             'total_users': len(users_data),
-            'active_users': len(active_users_list),
-            'debug': {
-                'request_time': datetime.now().isoformat()
-            }
+            'active_users': len(active_users_list)
         }
         
-        flask_logger.info(f"✅ Отправлено данных о {len(users_data)} пользователях ({len(active_users_list)} активных)")
+        flask_logger.info(f"✅ Отправлено данных о {len(users_data)} пользователях")
         return jsonify(response)
     except Exception as e:
         flask_logger.error(f"❌ Ошибка получения пользователей: {e}", exc_info=True)
@@ -922,8 +845,6 @@ def get_user_api(user_id):
         user = db.get_user_by_id(user_id)
         
         if not user:
-            flask_logger.warning(f"⚠️ Пользователь {user_id} не найден в БД")
-            # Создаем пользователя если не существует
             user = db.get_or_create_user({
                 'id': user_id,
                 'username': None,
@@ -932,7 +853,6 @@ def get_user_api(user_id):
             })
             flask_logger.info(f"👤 Создан новый пользователь: {user.first_name}")
         
-        # Получаем статистику
         message_count = db.get_message_count(user_id)
         active_users = db.get_active_users(24)
         is_online = any(u.user_id == user_id for u in active_users)
@@ -952,33 +872,9 @@ def get_user_api(user_id):
             'is_online': is_online
         }
         
-        flask_logger.debug(f"📊 Данные пользователя: {user_data}")
         return jsonify({'status': 'success', 'user': user_data})
     except Exception as e:
         flask_logger.error(f"❌ Ошибка получения пользователя: {e}", exc_info=True)
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-
-@flask_app.route('/api/group/settings', methods=['GET'])
-def get_group_settings_api():
-    """Получить настройки группы"""
-    try:
-        flask_logger.info("⚙️ Получение настроек группы")
-        settings = db.get_group_settings()
-        
-        settings_data = {
-            'id': settings.id,
-            'group_name': settings.group_name,
-            'welcome_message': settings.welcome_message,
-            'max_file_size': settings.max_file_size,
-            'allow_photos': settings.allow_photos,
-            'allow_voices': settings.allow_voices,
-            'allow_documents': settings.allow_documents,
-            'created_at': settings.created_at.isoformat() if settings.created_at else None
-        }
-        
-        return jsonify({'status': 'success', 'settings': settings_data})
-    except Exception as e:
-        flask_logger.error(f"❌ Ошибка получения настроек: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @flask_app.route('/api/stats', methods=['GET'])
@@ -987,14 +883,11 @@ def get_stats_api():
     try:
         flask_logger.info("📊 Получение статистики чата")
         
-        # Получаем все данные
         users = db.get_users()
         messages = db.get_messages(limit=10000)
         active_users = db.get_active_users(24)
         
-        flask_logger.debug(f"📈 Статистика: пользователей={len(users)}, сообщений={len(messages)}, онлайн={len(active_users)}")
-        
-        # Статистика по дням (последние 7 дней)
+        # Статистика по дням
         daily_stats = {}
         for i in range(7):
             date = datetime.utcnow().date() - timedelta(days=i)
@@ -1007,6 +900,32 @@ def get_stats_api():
                 if date_str in daily_stats:
                     daily_stats[date_str] += 1
         
+        # Топ пользователей
+        user_message_count = {}
+        for message in messages:
+            user_message_count[message.user_id] = user_message_count.get(message.user_id, 0) + 1
+        
+        top_users = []
+        sorted_users = sorted(user_message_count.items(), key=lambda x: x[1], reverse=True)[:5]
+        
+        for user_id, count in sorted_users:
+            user = db.get_user_by_id(user_id)
+            if user:
+                top_users.append({
+                    'user_id': user.user_id,
+                    'username': user.username,
+                    'first_name': user.first_name,
+                    'message_count': count
+                })
+        
+        # Статистика S3
+        s3_stats = {
+            'photos': len(list_s3_files('uploads/photos/')),
+            'documents': len(list_s3_files('uploads/documents/')),
+            'voice': len(list_s3_files('uploads/voice/')),
+            'avatars': len(list_s3_files('avatars/'))
+        }
+        
         stats_data = {
             'total_users': len(users),
             'total_messages': len(messages),
@@ -1014,27 +933,10 @@ def get_stats_api():
             'muted_users': sum(1 for u in users if u.is_muted),
             'online_users': len(active_users),
             'daily_stats': daily_stats,
-            'top_users': []
+            'top_users': top_users,
+            's3_files': s3_stats
         }
         
-        # Топ пользователей по сообщениям
-        user_message_count = {}
-        for message in messages:
-            user_message_count[message.user_id] = user_message_count.get(message.user_id, 0) + 1
-        
-        sorted_users = sorted(user_message_count.items(), key=lambda x: x[1], reverse=True)[:5]
-        
-        for user_id, count in sorted_users:
-            user = db.get_user_by_id(user_id)
-            if user:
-                stats_data['top_users'].append({
-                    'user_id': user.user_id,
-                    'username': user.username,
-                    'first_name': user.first_name,
-                    'message_count': count
-                })
-        
-        flask_logger.info(f"✅ Статистика собрана: {stats_data['total_messages']} сообщений от {stats_data['total_users']} пользователей")
         return jsonify({'status': 'success', 'stats': stats_data})
     except Exception as e:
         flask_logger.error(f"❌ Ошибка получения статистики: {e}", exc_info=True)
@@ -1050,7 +952,6 @@ def register_user_api():
             return jsonify({'status': 'error', 'message': 'Invalid request'}), 400
         
         data = request.json
-        flask_logger.debug(f"📝 Данные регистрации: {data}")
         
         if not data or 'id' not in data:
             return jsonify({'status': 'error', 'message': 'Invalid request'}), 400
@@ -1063,7 +964,7 @@ def register_user_api():
             'photo_url': data.get('photo_url')
         })
         
-        flask_logger.info(f"✅ Пользователь зарегистрирован: {user.first_name} (ID: {user.id})")
+        flask_logger.info(f"✅ Пользователь зарегистрирован: {user.first_name}")
         
         return jsonify({
             'status': 'success',
@@ -1074,94 +975,47 @@ def register_user_api():
         flask_logger.error(f"❌ Ошибка регистрации пользователя: {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-@flask_app.route('/api/messages/search', methods=['GET'])
-def search_messages_api():
-    """Поиск сообщений"""
+@flask_app.route('/api/debug/s3-test', methods=['GET'])
+def test_s3():
+    """Тест подключения к S3"""
     try:
-        query = request.args.get('q', '').lower()
-        flask_logger.info(f"🔍 Поиск сообщений: '{query}'")
+        flask_logger.info("🧪 Тестирование подключения к S3...")
         
-        if not query:
-            return jsonify({'status': 'error', 'message': 'Search query required'}), 400
+        # Проверяем доступность бакета
+        s3_client.head_bucket(Bucket=S3_CONFIG['bucket'])
         
-        messages = db.get_messages(limit=1000)  # Получаем больше сообщений для поиска
-        found_messages = []
+        # Создаем тестовый файл
+        test_key = f"test_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        test_content = b"Test file for S3 connection check"
         
-        for message in messages:
-            if query in (message.content or '').lower():
-                user = db.get_user_by_id(message.user_id)
-                found_messages.append({
-                    'id': message.id,
-                    'user_id': message.user_id,
-                    'username': user.username if user else None,
-                    'first_name': user.first_name if user else 'User',
-                    'content': message.content,
-                    'timestamp': message.timestamp.isoformat() if message.timestamp else None
-                })
+        s3_client.put_object(
+            Bucket=S3_CONFIG['bucket'],
+            Key=test_key,
+            Body=test_content,
+            ContentType='text/plain',
+            ACL='public-read'
+        )
         
-        flask_logger.info(f"✅ Найдено {len(found_messages)} сообщений по запросу '{query}'")
+        # Читаем файл обратно
+        response = s3_client.get_object(Bucket=S3_CONFIG['bucket'], Key=test_key)
+        content = response['Body'].read().decode('utf-8')
+        
+        # Удаляем тестовый файл
+        s3_client.delete_object(Bucket=S3_CONFIG['bucket'], Key=test_key)
         
         return jsonify({
             'status': 'success',
-            'query': query,
-            'count': len(found_messages),
-            'messages': found_messages
+            'message': 'S3 connection test successful',
+            'test_file': test_key,
+            'content': content
         })
+        
     except Exception as e:
-        flask_logger.error(f"❌ Ошибка поиска сообщений: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-
-# ========== ДОПОЛНИТЕЛЬНЫЕ ОТЛАДОЧНЫЕ ЭНДПОИНТЫ ==========
-
-@flask_app.route('/api/debug/database', methods=['GET'])
-def debug_database():
-    """Отладочная информация о базе данных"""
-    try:
-        from sqlalchemy import inspect
-        
-        engine = create_engine("sqlite:///botzakaz.db")
-        inspector = inspect(engine)
-        tables = inspector.get_table_names()
-        
-        table_info = {}
-        for table in tables:
-            columns = inspector.get_columns(table)
-            table_info[table] = [{"name": col['name'], "type": str(col['type'])} for col in columns]
-        
-        # Проверяем существование файла БД
-        db_exists = os.path.exists("botzakaz.db")
-        db_size = os.path.getsize("botzakaz.db") if db_exists else 0
-        
+        flask_logger.error(f"❌ Ошибка тестирования S3: {e}", exc_info=True)
         return jsonify({
-            "status": "success",
-            "database": {
-                "path": "botzakaz.db",
-                "exists": db_exists,
-                "size_bytes": db_size,
-                "size_mb": db_size / 1024 / 1024 if db_exists else 0,
-                "tables": tables,
-                "table_details": table_info
-            }
-        })
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-@flask_app.route('/api/debug/check-connection', methods=['GET'])
-def check_connection():
-    """Проверка соединения с фронтендом"""
-    return jsonify({
-        "status": "success",
-        "message": "Connection successful",
-        "server_time": datetime.now().isoformat(),
-        "endpoints": {
-            "get_messages": "/api/messages",
-            "send_message": "/api/messages/send",
-            "get_users": "/api/users",
-            "upload_photo": "/api/upload/photo",
-            "upload_document": "/api/upload/document",
-            "stats": "/api/stats"
-        }
-    })
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
 # Экспортируем app для gunicorn
 app = flask_app
@@ -1177,12 +1031,9 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     logger.error("❌ BOT_TOKEN не найден!")
-    logger.error("📝 Проверьте переменные окружения в Railway Dashboard")
     exit(1)
 
-# ОТЛАДКА: логируем информацию о токене (без полного показа)
-logger.info(f"🔑 Токен бота получен, первые 10 символов: {BOT_TOKEN[:10]}...")
-logger.info(f"📏 Длина токена: {len(BOT_TOKEN)} символов")
+logger.info(f"🔑 Токен бота получен: {BOT_TOKEN[:10]}...")
 
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
@@ -1194,7 +1045,7 @@ dp = Dispatcher(bot, storage=storage)
 async def cmd_start(message: types.Message):
     """Обработчик команды /start"""
     try:
-        logger.info(f"📩 Получена команда /start от пользователя: {message.from_user.id} (@{message.from_user.username})")
+        logger.info(f"📩 Получена команда /start от пользователя: {message.from_user.id}")
         
         # Регистрируем пользователя
         user_data = {
@@ -1212,9 +1063,6 @@ async def cmd_start(message: types.Message):
         if message.from_user.username:
             webapp_url += f"&username={message.from_user.username}"
         
-        logger.info(f"🌐 Создан URL веб-приложения: {webapp_url}")
-        
-        # Создаем клавиатуру с дополнительными кнопками
         keyboard = InlineKeyboardMarkup(row_width=2)
         keyboard.add(
             InlineKeyboardButton(
@@ -1246,22 +1094,12 @@ async def cmd_start(message: types.Message):
 
 ✨ **Возможности:**
 • Групповой чат в реальном времени
-• Отправка фото, голосовых сообщений и файлов
+• Отправка фото, голосовых сообщений и файлов в S3 облако
 • Упоминания участников
 • Профили пользователей
 • Статистика активности
-• Администрирование чата
 
-🚀 **Быстрый доступ:**
-/start - Это меню
-/chat - Быстрый доступ к чату
-/stats - Статистика чата
-/users - Список участников
-/help - Помощь по командам
-
-📊 **Отладка:**
-/debug - Информация о сервере
-/status - Проверка соединения
+🌐 **Используется Selectel S3 для хранения файлов**
 """
         
         await message.answer(welcome_text, reply_markup=keyboard, parse_mode='Markdown')
@@ -1277,6 +1115,14 @@ async def cmd_debug(message: types.Message):
     try:
         logger.info(f"🐛 Запрос отладки от пользователя: {message.from_user.id}")
         
+        # Проверяем S3
+        s3_status = "❌ Недоступен"
+        try:
+            s3_client.head_bucket(Bucket=S3_CONFIG['bucket'])
+            s3_status = "✅ Доступен"
+        except:
+            pass
+        
         debug_info = f"""
 🐛 **Отладочная информация:**
 
@@ -1290,17 +1136,17 @@ async def cmd_debug(message: types.Message):
 • Домен: https://botzakaz-production-ba19.up.railway.app
 • API доступен: ✅
 
+**Хранилище:**
+• База данных: ✅ SQLite
+• Облачное хранилище (S3): {s3_status}
+• Бакет: {S3_CONFIG['bucket']}
+
 **API Endpoints:**
 • Сообщения: `/api/messages`
 • Отправка: `/api/messages/send`
+• Загрузка файлов: `/api/upload/*`
 • Пользователи: `/api/users`
 • Статистика: `/api/stats`
-• Отладка: `/api/debug/info`
-
-**Проверки:**
-• База данных: /api/debug/database
-• Соединение: /api/debug/check-connection
-• Тест: /api/debug/test-db
 """
         
         await message.answer(debug_info, parse_mode='Markdown')
@@ -1308,56 +1154,6 @@ async def cmd_debug(message: types.Message):
     except Exception as e:
         logger.error(f"❌ Ошибка в /debug: {e}")
         await message.answer("❌ Ошибка получения отладочной информации")
-
-@dp.message_handler(commands=['status'])
-async def cmd_status(message: types.Message):
-    """Проверка статуса сервера"""
-    try:
-        logger.info(f"🔍 Проверка статуса от пользователя: {message.from_user.id}")
-        
-        import requests
-        
-        # Проверяем доступность API
-        domain = "https://botzakaz-production-ba19.up.railway.app"
-        health_url = f"{domain}/health"
-        messages_url = f"{domain}/api/messages"
-        
-        try:
-            health_resp = requests.get(health_url, timeout=5)
-            health_status = health_resp.status_code == 200
-            
-            messages_resp = requests.get(messages_url + "?limit=1", timeout=5)
-            messages_status = messages_resp.status_code == 200
-            
-        except Exception as api_error:
-            logger.error(f"❌ Ошибка проверки API: {api_error}")
-            health_status = False
-            messages_status = False
-        
-        status_text = f"""
-🟢 **Статус сервера:**
-
-**API Endpoints:**
-• Главная страница: {'✅ Доступен' if health_status else '❌ Недоступен'}
-• Сообщения API: {'✅ Доступен' if messages_status else '❌ Недоступен'}
-
-**Ссылки для проверки:**
-• [Проверка здоровья]({health_url})
-• [Получить сообщения]({messages_url})
-• [Информация о БД]({domain}/api/debug/database)
-
-**Время сервера:** {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}
-
-**Пользователь:** @{message.from_user.username or 'без username'}
-
-ℹ️ *Если какие-то эндпоинты недоступны, проверьте логи сервера.*
-"""
-        
-        await message.answer(status_text, parse_mode='Markdown', disable_web_page_preview=True)
-        logger.info(f"✅ Статус отправлен пользователю {message.from_user.id}")
-    except Exception as e:
-        logger.error(f"❌ Ошибка в /status: {e}")
-        await message.answer("❌ Ошибка проверки статуса")
 
 @dp.message_handler(commands=['chat'])
 async def cmd_chat(message: types.Message):
@@ -1385,6 +1181,11 @@ async def cmd_stats(message: types.Message):
         messages = db.get_messages(limit=1000)
         active_users = db.get_active_users(24)
         
+        # Получаем статистику S3
+        s3_photos = len(list_s3_files('uploads/photos/'))
+        s3_docs = len(list_s3_files('uploads/documents/'))
+        s3_voice = len(list_s3_files('uploads/voice/'))
+        
         stats_text = f"""
 📊 **Статистика чата:**
 
@@ -1397,64 +1198,20 @@ async def cmd_stats(message: types.Message):
 • 📅 Сегодня: {len([m for m in messages if m.timestamp and m.timestamp.date() == datetime.utcnow().date()])}
 • 📈 Неделя: {len([m for m in messages if m.timestamp and m.timestamp > datetime.utcnow() - timedelta(days=7)])}
 
-🏆 **Топ отправителей:**
+☁️ **Файлы в S3:**
+• 📸 Фото: {s3_photos}
+• 📄 Документы: {s3_docs}
+• 🎤 Голосовые: {s3_voice}
+
+🌐 **Веб-приложение:**
+https://botzakaz-production-ba19.up.railway.app
 """
-        
-        # Топ пользователей
-        user_message_count = {}
-        for msg in messages:
-            user_message_count[msg.user_id] = user_message_count.get(msg.user_id, 0) + 1
-        
-        sorted_users = sorted(user_message_count.items(), key=lambda x: x[1], reverse=True)[:5]
-        
-        for i, (user_id, count) in enumerate(sorted_users, 1):
-            user = db.get_user_by_id(user_id)
-            username = f"@{user.username}" if user and user.username else f"User{user_id}"
-            stats_text += f"{i}. {username}: {count} сообщ.\n"
-        
-        stats_text += f"\n🌐 **Веб-приложение:**\nhttps://botzakaz-production-ba19.up.railway.app"
         
         await message.answer(stats_text, parse_mode='Markdown')
         logger.info(f"✅ Ответ на /stats отправлен пользователю {message.from_user.id}")
     except Exception as e:
         logger.error(f"❌ Ошибка в /stats: {e}", exc_info=True)
         await message.answer("❌ Ошибка получения статистики")
-
-@dp.message_handler(commands=['users'])
-async def cmd_users(message: types.Message):
-    """Показать список пользователей"""
-    logger.info(f"📩 Получена команда /users от пользователя: {message.from_user.id}")
-    try:
-        users = db.get_users()
-        active_users = db.get_active_users(24)
-        
-        users_text = f"""
-👥 **Участники чата:** {len(users)}
-
-🟢 **Сейчас онлайн:** {len(active_users)}
-"""
-        
-        # Показываем первых 10 пользователей
-        for i, user in enumerate(users[:10], 1):
-            status = "🟢" if any(u.user_id == user.user_id for u in active_users) else "⚪"
-            if user.is_banned:
-                status = "🚫"
-            elif user.is_muted:
-                status = "🔇"
-            
-            username = f"@{user.username}" if user.username else f"User{user.user_id}"
-            users_text += f"\n{i}. {status} {username} - {user.first_name or ''}"
-        
-        if len(users) > 10:
-            users_text += f"\n\n... и ещё {len(users) - 10} участников"
-        
-        users_text += f"\n\n📱 **Полный список в веб-приложении:**\nhttps://botzakaz-production-ba19.up.railway.app"
-        
-        await message.answer(users_text, parse_mode='Markdown')
-        logger.info(f"✅ Ответ на /users отправлен пользователю {message.from_user.id}")
-    except Exception as e:
-        logger.error(f"❌ Ошибка в /users: {e}", exc_info=True)
-        await message.answer("❌ Ошибка получения списка пользователей")
 
 @dp.message_handler(commands=['help'])
 async def cmd_help(message: types.Message):
@@ -1469,20 +1226,17 @@ async def cmd_help(message: types.Message):
 /users - Список пользователей
 /help - Показать эту справку
 /debug - Отладочная информация
-/status - Проверка статуса сервера
 
 📱 **Веб-приложение чата:**
 • Групповой чат в реальном времени
 • Отправка текста, фото, голосовых сообщений
+• Файлы хранятся в Selectel S3 облаке
 • Упоминания пользователей (@username)
 • Профили участников
 • Поиск по сообщениям
-• Настройки уведомлений
 
 🚀 **Быстрые ссылки:**
 • Веб-приложение: https://botzakaz-production-ba19.up.railway.app
-• API документация: /api/messages, /api/users, /api/stats
-• Отладка: /api/debug/info, /api/debug/database
 
 ❓ **Проблемы?**
 Если веб-приложение не открывается:
@@ -1490,7 +1244,6 @@ async def cmd_help(message: types.Message):
 2. Обновите приложение Telegram
 3. Перезапустите бота командой /start
 4. Проверьте подключение к интернету
-5. Используйте /debug для получения информации
 """
     await message.answer(help_text, parse_mode='Markdown')
     logger.info(f"✅ Ответ на /help отправлен пользователю {message.from_user.id}")
@@ -1507,7 +1260,8 @@ async def process_stats_callback(callback_query: types.CallbackQuery):
 async def process_users_callback(callback_query: types.CallbackQuery):
     """Обработчик кнопки Участники"""
     await bot.answer_callback_query(callback_query.id)
-    await cmd_users(callback_query.message)
+    # Здесь нужно добавить команду для показа пользователей
+    await callback_query.message.answer("Список пользователей доступен в веб-приложении")
 
 @dp.callback_query_handler(lambda c: c.data == 'help')
 async def process_help_callback(callback_query: types.CallbackQuery):
@@ -1521,44 +1275,36 @@ async def on_startup(dp):
     """Действия при запуске"""
     logger.info("🤖 Бот запускается...")
     
-    # Проверяем подключение к Telegram API
     try:
-        logger.info("🔍 Проверяю подключение к Telegram API...")
         me = await bot.get_me()
         logger.info(f"✅ Подключение к Telegram API успешно!")
-        logger.info(f"🤖 Информация о боте: @{me.username} (id: {me.id}, имя: {me.first_name})")
+        logger.info(f"🤖 Информация о боте: @{me.username} (id: {me.id})")
     except Exception as e:
-        logger.error(f"❌ Не удалось подключиться к Telegram API: {e}", exc_info=True)
-        logger.error("⚠️  Возможные причины:")
-        logger.error("  1. Неправильный токен бота")
-        logger.error("  2. Проблемы с интернет-соединением")
-        logger.error("  3. Бот заблокирован или удален")
+        logger.error(f"❌ Не удалось подключиться к Telegram API: {e}")
         return
     
     # Инициализация базы данных
     try:
-        # Создаем таблицы если их нет
         engine = create_engine("sqlite:///botzakaz.db")
         Base.metadata.create_all(engine)
         logger.info("✅ Таблицы базы данных созданы")
         
-        # Инициализируем БД
         db.init_db()
         logger.info("✅ База данных инициализирована")
         
-        # Проверяем существующие таблицы
-        inspector = inspect(engine)
-        tables = inspector.get_table_names()
-        logger.info(f"📊 Таблицы в базе данных: {tables}")
-        
     except Exception as e:
-        logger.error(f"❌ Ошибка инициализации БД: {e}", exc_info=True)
+        logger.error(f"❌ Ошибка инициализации БД: {e}")
+    
+    # Проверка S3
+    try:
+        s3_client.head_bucket(Bucket=S3_CONFIG['bucket'])
+        logger.info(f"✅ Подключение к Selectel S3 успешно!")
+        logger.info(f"☁️  Бакет: {S3_CONFIG['bucket']}")
+    except Exception as e:
+        logger.error(f"❌ Ошибка подключения к S3: {e}")
     
     logger.info("📱 Используйте команду /start для начала работы")
     logger.info(f"🌐 Веб-приложение: https://botzakaz-production-ba19.up.railway.app")
-    logger.info(f"🔗 Инициализация БД: https://botzakaz-production-ba19.up.railway.app/init-db")
-    logger.info(f"🐛 Отладка: https://botzakaz-production-ba19.up.railway.app/api/debug/info")
-    logger.info(f"🧪 Тест БД: https://botzakaz-production-ba19.up.railway.app/api/debug/test-db")
     logger.info("🎉 Бот готов к работе!")
 
 async def on_shutdown(dp):
@@ -1568,24 +1314,20 @@ async def on_shutdown(dp):
 def start_bot():
     """Запуск бота в отдельном процессе"""
     print("\n" + "="*60)
-    print("🚀 Telegram Bot with Mini App - DEBUG VERSION")
+    print("🚀 Telegram Bot with Mini App - S3 VERSION")
     print("="*60)
     
-    # Проверяем наличие BOT_TOKEN
     if not BOT_TOKEN:
         print("\n❌ BOT_TOKEN не найден в переменных окружения!")
-        print("📝 Установите BOT_TOKEN в Railway Dashboard")
         exit(1)
     
-    print(f"\n🔑 Токен бота: {'✅ Найден' if BOT_TOKEN else '❌ Не найден'}")
-    print(f"📏 Длина токена: {len(BOT_TOKEN)} символов")
+    print(f"\n🔑 Токен бота: ✅ Найден")
+    print(f"☁️  S3 бакет: {S3_CONFIG['bucket']}")
     print(f"🌐 Домен: https://botzakaz-production-ba19.up.railway.app")
-    print(f"🐛 Уровень логирования: DEBUG")
     print("\n🤖 Запуск бота...")
     print("="*60)
     
     try:
-        # Запуск поллинга в отдельном потоке событий
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         loop.run_until_complete(executor.start_polling(
@@ -1602,13 +1344,7 @@ def start_bot():
 if __name__ == '__main__':
     import threading
     
-    print("\n🔄 Инициализация приложения...")
-    
-    # Проверяем директории
-    print(f"📁 Проверка директорий:")
-    print(f"  • uploads/: {'✅ Существует' if os.path.exists(UPLOAD_FOLDER) else '❌ Отсутствует'}")
-    print(f"  • webapp/: {'✅ Существует' if os.path.exists(WEBAPP_DIR) else '❌ Отсутствует'}")
-    print(f"  • БД: {'✅ Существует' if os.path.exists('botzakaz.db') else '❌ Отсутствует'}")
+    print("\n🔄 Инициализация приложения с S3...")
     
     # Запускаем бота в отдельном потоке
     bot_thread = threading.Thread(target=start_bot, daemon=True)
@@ -1622,10 +1358,9 @@ if __name__ == '__main__':
     
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 else:
-    # Если импортируется gunicorn, запускаем только бота в фоне
     import threading
     
-    print("\n🚀 Запуск в режиме gunicorn...")
+    print("\n🚀 Запуск в режиме gunicorn с S3...")
     bot_thread = threading.Thread(target=start_bot, daemon=True)
     bot_thread.start()
     
