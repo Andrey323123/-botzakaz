@@ -6,10 +6,470 @@
     <title>Botfs23 - Telegram Chat</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="style.css"> <!-- Подключаем внешний CSS -->
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* Дополнительные стили для конкретных элементов */
+        .loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            color: white;
+        }
+        
+        .loading-logo {
+            font-size: 48px;
+            margin-bottom: 20px;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        
+        .loading-text {
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+        
+        .loading-subtext {
+            font-size: 14px;
+            opacity: 0.8;
+        }
+        
+        .custom-alert {
+            display: none;
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #ff3b30;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 2000;
+            animation: slideInRight 0.3s ease;
+        }
+        
+        @keyframes slideInRight {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
+        /* Кастомные стили для лучшего отображения */
+        .telegram-app {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        
+        /* Плавные переходы */
+        .chat-container, .users-container, .admin-container {
+            transition: opacity 0.3s ease;
+        }
+        
+        /* Улучшенный скроллбар для сообщений */
+        .messages-container::-webkit-scrollbar {
+            width: 5px;
+        }
+        
+        .messages-container::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.05);
+        }
+        
+        .messages-container::-webkit-scrollbar-thumb {
+            background: rgba(0,0,0,0.2);
+            border-radius: 10px;
+        }
+        
+        .messages-container::-webkit-scrollbar-thumb:hover {
+            background: rgba(0,0,0,0.3);
+        }
+        
+        /* Стили для демо пользователей */
+        .demo-user {
+            position: relative;
+        }
+        
+        .demo-user::after {
+            content: "DEMO";
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: #ff9500;
+            color: white;
+            font-size: 8px;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+        
+        /* Анимация для новых сообщений */
+        .new-message {
+            animation: highlight 2s ease;
+        }
+        
+        @keyframes highlight {
+            0% { background-color: rgba(52, 199, 89, 0.1); }
+            100% { background-color: transparent; }
+        }
+        
+        /* Стили для выбора раздела */
+        .section-selector {
+            display: none;
+            position: fixed;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            padding: 10px;
+            z-index: 1000;
+        }
+        
+        .section-selector.active {
+            display: block;
+        }
+        
+        .section-selector-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 15px;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: background 0.2s;
+        }
+        
+        .section-selector-item:hover {
+            background: #f5f5f5;
+        }
+        
+        /* Стили для статуса загрузки */
+        .upload-progress {
+            display: none;
+            position: absolute;
+            bottom: 70px;
+            left: 20px;
+            right: 20px;
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+        
+        .upload-progress.active {
+            display: block;
+        }
+        
+        .progress-bar-container {
+            width: 100%;
+            height: 6px;
+            background: #e0e0e0;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+        
+        .progress-bar-fill {
+            height: 100%;
+            background: #34c759;
+            transition: width 0.3s ease;
+        }
+        
+        /* Стили для предпросмотра файлов */
+        .file-preview {
+            display: none;
+            position: absolute;
+            bottom: 70px;
+            left: 20px;
+            right: 20px;
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+        
+        .file-preview.active {
+            display: block;
+        }
+        
+        .file-preview-content {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .file-preview-icon {
+            font-size: 32px;
+            color: #3390ec;
+        }
+        
+        .file-preview-info {
+            flex: 1;
+        }
+        
+        .file-preview-name {
+            font-weight: 600;
+            margin-bottom: 5px;
+            word-break: break-all;
+        }
+        
+        .file-preview-size {
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .file-preview-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        /* Стили для поиска по сообщениям */
+        .search-results {
+            display: none;
+            position: absolute;
+            top: 56px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: white;
+            z-index: 100;
+        }
+        
+        .search-results.active {
+            display: block;
+        }
+        
+        .search-results-header {
+            background: #3390ec;
+            color: white;
+            padding: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .search-results-count {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        
+        .search-results-list {
+            padding: 15px;
+            overflow-y: auto;
+            height: calc(100% - 60px);
+        }
+        
+        /* Стили для выбора реакции */
+        .reaction-selector {
+            display: none;
+            position: absolute;
+            bottom: 70px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            border-radius: 24px;
+            padding: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            z-index: 1000;
+        }
+        
+        .reaction-selector.active {
+            display: block;
+        }
+        
+        /* Стили для меню пользователя */
+        .user-menu {
+            display: none;
+            position: fixed;
+            top: 60px;
+            right: 10px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            z-index: 1000;
+            min-width: 200px;
+        }
+        
+        .user-menu.active {
+            display: block;
+        }
+        
+        .user-menu-item {
+            padding: 12px 15px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: background 0.2s;
+            border-radius: 8px;
+            margin: 5px;
+        }
+        
+        .user-menu-item:hover {
+            background: #f5f5f5;
+        }
+        
+        .user-menu-item i {
+            width: 20px;
+            color: #3390ec;
+        }
+        
+        /* Стили для настроек */
+        .settings-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .settings-item:last-child {
+            border-bottom: none;
+        }
+        
+        .settings-label {
+            font-weight: 500;
+        }
+        
+        .settings-value {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .settings-toggle {
+            position: relative;
+            width: 50px;
+            height: 26px;
+        }
+        
+        .settings-toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .settings-toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        
+        .settings-toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        
+        .settings-toggle input:checked + .settings-toggle-slider {
+            background-color: #3390ec;
+        }
+        
+        .settings-toggle input:checked + .settings-toggle-slider:before {
+            transform: translateX(24px);
+        }
+        
+        /* Стили для статистики */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .stats-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        
+        .stats-number {
+            font-size: 28px;
+            font-weight: 600;
+            color: #3390ec;
+            margin-bottom: 5px;
+        }
+        
+        .stats-label {
+            font-size: 14px;
+            color: #666;
+        }
+        
+        /* Стили для темной темы */
+        body.dark-theme .section-selector,
+        body.dark-theme .upload-progress,
+        body.dark-theme .file-preview,
+        body.dark-theme .search-results,
+        body.dark-theme .reaction-selector,
+        body.dark-theme .user-menu,
+        body.dark-theme .settings-item {
+            background: #1c1c1e;
+            color: white;
+        }
+        
+        body.dark-theme .section-selector-item:hover,
+        body.dark-theme .user-menu-item:hover {
+            background: #2c2c2e;
+        }
+        
+        body.dark-theme .stats-card {
+            background: #2c2c2e;
+            color: white;
+        }
+        
+        body.dark-theme .stats-label {
+            color: #aaa;
+        }
+    </style>
 </head>
 <body>
-    <div class="telegram-app">
+    <!-- Экран загрузки -->
+    <div class="loading-screen" id="loading-screen">
+        <div class="loading-logo">
+            <i class="fab fa-telegram"></i>
+        </div>
+        <div class="loading-text">Botfs23 Chat</div>
+        <div class="loading-subtext">Загрузка...</div>
+        <div class="loading-spinner" style="margin-top: 20px;"></div>
+    </div>
+
+    <!-- Кастомные уведомления -->
+    <div class="custom-alert" id="custom-alert"></div>
+
+    <!-- Главное приложение -->
+    <div class="telegram-app" id="telegram-app" style="display: none;">
         <!-- Header -->
         <div class="header">
             <div class="header-left">
@@ -18,32 +478,32 @@
                 </button>
                 <div class="chat-info">
                     <div class="chat-title" id="chat-title">Botfs23</div>
-                    <div class="chat-status">онлайн: <span id="online-count">2</span></div>
+                    <div class="chat-status">онлайн: <span id="online-count">1</span></div>
                 </div>
             </div>
             <div class="header-right">
-                <!-- Кнопка созыва -->
-                <button class="btn-mention-all" id="btn-mention-all" onclick="mentionAll()" title="Упомянуть всех онлайн">
+                <button class="header-btn btn-mention-all" id="btn-mention-all" onclick="mentionAll()" title="Упомянуть всех онлайн" style="display: none;">
                     <i class="fas fa-at"></i>
                 </button>
-                <!-- Кнопка прыжка к непрочитанным -->
-                <button class="btn-jump" id="btn-jump" onclick="jumpToUnread()">
+                <button class="header-btn btn-jump" id="btn-jump" onclick="jumpToUnread()" title="Перейти к непрочитанным">
                     <i class="fas fa-arrow-down"></i>
-                    <span class="unread-badge" id="unread-badge">0</span>
+                    <span class="unread-badge" id="unread-badge"></span>
                 </button>
-                <!-- Кнопка админки (только для админов) -->
-                <button class="btn-admin" id="btn-admin" onclick="showAdminPanel()">
+                <button class="header-btn btn-admin" id="btn-admin" onclick="showAdminPanel()" title="Админ панель" style="display: none;">
                     <i class="fas fa-user-shield"></i>
+                </button>
+                <button class="header-btn btn-users" onclick="showUsersList()" title="Список участников">
+                    <i class="fas fa-users"></i>
                 </button>
             </div>
         </div>
 
-        <!-- Sidebar с разделами -->
+        <!-- Sidebar -->
         <div class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <div class="user-profile">
                     <div class="user-avatar" id="user-avatar">
-                        <img id="user-avatar-img" src="" alt="" onerror="hideImage(this)">
+                        <img id="user-avatar-img" src="" alt="" onerror="hideImage(this)" style="display: none;">
                         <i class="fas fa-user" id="user-avatar-icon"></i>
                     </div>
                     <div class="user-info">
@@ -61,12 +521,12 @@
                 <div class="section-item active" onclick="switchSection('main')">
                     <i class="fas fa-comments"></i>
                     <span class="section-name">Основной чат</span>
-                    <span class="section-unread" id="main-unread">0</span>
+                    <span class="section-unread" id="main-unread"></span>
                 </div>
                 <div class="section-item" onclick="switchSection('news')">
                     <i class="fas fa-newspaper"></i>
                     <span class="section-name">Новости</span>
-                    <span class="section-unread" id="news-unread">0</span>
+                    <span class="section-unread" id="news-unread"></span>
                 </div>
                 <div class="section-item" onclick="switchSection('rules')">
                     <i class="fas fa-book"></i>
@@ -76,7 +536,7 @@
                 <div class="section-item" onclick="switchSection('announcements')">
                     <i class="fas fa-bullhorn"></i>
                     <span class="section-name">Объявления</span>
-                    <span class="section-unread" id="announcements-unread">0</span>
+                    <span class="section-unread" id="announcements-unread"></span>
                 </div>
             </div>
             
@@ -85,57 +545,67 @@
                 <div class="menu-item active" onclick="showChat()">
                     <i class="fas fa-comments"></i>
                     <span>Чат</span>
-                    <span class="menu-badge" id="chat-badge">0</span>
+                    <span class="menu-badge" id="chat-badge"></span>
                 </div>
                 <div class="menu-item" onclick="showUsersList()">
                     <i class="fas fa-users"></i>
                     <span>Участники</span>
-                    <span class="menu-badge" id="users-badge">0</span>
+                    <span class="menu-badge" id="users-badge"></span>
                 </div>
-                <div class="menu-item" onclick="showAdminPanel()" id="admin-menu-item">
+                <div class="menu-item" onclick="showAdminPanel()" id="admin-menu-item" style="display: none;">
                     <i class="fas fa-user-shield"></i>
                     <span>Админка</span>
+                </div>
+                <div class="menu-item" onclick="showSettings()">
+                    <i class="fas fa-cog"></i>
+                    <span>Настройки</span>
+                </div>
+                <div class="menu-item" onclick="showProfile()">
+                    <i class="fas fa-user"></i>
+                    <span>Профиль</span>
                 </div>
             </div>
             
             <div class="sidebar-footer">
                 <div class="online-users">
                     <i class="fas fa-circle online-dot"></i>
-                    <span id="sidebar-online-count">2</span> онлайн
+                    <span id="sidebar-online-count">1</span> онлайн
                 </div>
                 <div class="app-version">v3.0</div>
             </div>
         </div>
 
-        <!-- Оверлей для сайдбара -->
+        <!-- Overlay для сайдбара -->
         <div class="overlay" id="overlay" onclick="toggleSidebar()"></div>
 
-        <!-- Контейнеры представлений -->
+        <!-- Основной контент -->
         <div class="main-content">
-            <!-- Контейнер чата -->
+            <!-- Чат -->
             <div class="chat-container active" id="chat-view">
-                <!-- Сообщения -->
+                <!-- Контейнер сообщений -->
                 <div class="messages-container" id="messages-container">
-                    <!-- Сообщения будут загружаться динамически -->
+                    <!-- Сообщения будут загружены динамически -->
+                    <div class="empty-chat">
+                        <i class="fas fa-comments"></i>
+                        <p>Чат пуст</p>
+                        <small>Напишите первое сообщение!</small>
+                    </div>
                 </div>
                 
-                <!-- Превью ответа (будет показываться динамически) -->
+                <!-- Превью ответа -->
                 <div class="reply-preview-container" id="reply-preview-container"></div>
                 
-                <!-- Поле ввода -->
+                <!-- Поле ввода сообщения -->
                 <div class="message-input-area">
                     <button class="btn-attach" onclick="toggleAttachMenu()">
                         <i class="fas fa-paperclip"></i>
                     </button>
                     
+                    <!-- Меню прикрепления файлов -->
                     <div class="attach-menu" id="attach-menu">
                         <div class="attach-item" onclick="attachFile('photo')">
                             <i class="fas fa-image"></i>
                             <span>Фото</span>
-                        </div>
-                        <div class="attach-item" onclick="attachFile('voice')">
-                            <i class="fas fa-microphone"></i>
-                            <span>Голосовое</span>
                         </div>
                         <div class="attach-item" onclick="attachFile('document')">
                             <i class="fas fa-file"></i>
@@ -144,6 +614,10 @@
                         <div class="attach-item" onclick="attachFile('sticker')">
                             <i class="far fa-smile"></i>
                             <span>Стикер</span>
+                        </div>
+                        <div class="attach-item" onclick="attachFile('voice')">
+                            <i class="fas fa-microphone"></i>
+                            <span>Голосовое</span>
                         </div>
                     </div>
                     
@@ -179,7 +653,7 @@
                 </div>
             </div>
 
-            <!-- Контейнер списка пользователей -->
+            <!-- Список пользователей -->
             <div class="users-container" id="users-view">
                 <div class="users-header">
                     <h2><i class="fas fa-users"></i> Участники</h2>
@@ -191,7 +665,7 @@
                     </div>
                 </div>
                 <div class="users-list" id="users-list">
-                    <!-- Список пользователей будет загружаться динамически -->
+                    <!-- Список пользователей будет загружен динамически -->
                 </div>
             </div>
 
@@ -207,7 +681,7 @@
                     <div class="admin-section">
                         <h3><i class="fas fa-users-cog"></i> Управление участниками</h3>
                         <div class="admin-users-list" id="admin-users-list">
-                            <!-- Список пользователей будет загружаться динамически -->
+                            <!-- Список пользователей будет загружен динамически -->
                         </div>
                     </div>
                     
@@ -215,11 +689,16 @@
                     <div class="admin-section">
                         <h3><i class="fas fa-user-plus"></i> Приглашения</h3>
                         <div class="admin-actions">
-                            <button class="btn-admin-action large" onclick="createInvite()">
+                            <button class="btn-admin-action primary large" onclick="createInvite()">
                                 <i class="fas fa-plus"></i> Создать приглашение
                             </button>
                             <div class="invites-list" id="invites-list">
                                 <!-- Список активных приглашений -->
+                                <div class="empty-chat">
+                                    <i class="fas fa-envelope"></i>
+                                    <p>Нет активных приглашений</p>
+                                    <small>Создайте первое приглашение</small>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -272,11 +751,186 @@
                             <button class="btn-admin-action danger" onclick="clearChatHistory()">
                                 <i class="fas fa-trash"></i> Очистить историю чата
                             </button>
-                            <button class="btn-admin-action danger" onclick="exportChatData()">
+                            <button class="btn-admin-action primary" onclick="exportChatData()">
                                 <i class="fas fa-download"></i> Экспорт данных
                             </button>
-                            <button class="btn-admin-action" onclick="createBackup()">
+                            <button class="btn-admin-action primary" onclick="createBackup()">
                                 <i class="fas fa-save"></i> Создать резервную копию
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Настройки -->
+            <div class="settings-container" id="settings-view" style="display: none;">
+                <div class="admin-header">
+                    <h2><i class="fas fa-cog"></i> Настройки</h2>
+                    <p>Настройте приложение под себя</p>
+                </div>
+                
+                <div class="admin-sections">
+                    <!-- Внешний вид -->
+                    <div class="admin-section">
+                        <h3><i class="fas fa-palette"></i> Внешний вид</h3>
+                        <div class="sections-admin-list">
+                            <div class="settings-item">
+                                <div class="settings-label">Темная тема</div>
+                                <label class="settings-toggle">
+                                    <input type="checkbox" id="dark-theme-toggle" onchange="toggleTheme()">
+                                    <span class="settings-toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="settings-item">
+                                <div class="settings-label">Размер шрифта</div>
+                                <select class="permission-select" id="font-size-select" onchange="changeFontSize(this.value)">
+                                    <option value="small">Маленький</option>
+                                    <option value="medium" selected>Средний</option>
+                                    <option value="large">Большой</option>
+                                </select>
+                            </div>
+                            <div class="settings-item">
+                                <div class="settings-label">Авто-скролл</div>
+                                <label class="settings-toggle">
+                                    <input type="checkbox" id="auto-scroll-toggle" checked>
+                                    <span class="settings-toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Уведомления -->
+                    <div class="admin-section">
+                        <h3><i class="fas fa-bell"></i> Уведомления</h3>
+                        <div class="sections-admin-list">
+                            <div class="settings-item">
+                                <div class="settings-label">Звук сообщений</div>
+                                <label class="settings-toggle">
+                                    <input type="checkbox" id="sound-toggle" checked>
+                                    <span class="settings-toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="settings-item">
+                                <div class="settings-label">Вибросигнал</div>
+                                <label class="settings-toggle">
+                                    <input type="checkbox" id="vibration-toggle">
+                                    <span class="settings-toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="settings-item">
+                                <div class="settings-label">Показывать превью</div>
+                                <label class="settings-toggle">
+                                    <input type="checkbox" id="preview-toggle" checked>
+                                    <span class="settings-toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Статистика -->
+                    <div class="admin-section">
+                        <h3><i class="fas fa-chart-bar"></i> Статистика</h3>
+                        <div class="stats-grid">
+                            <div class="stats-card">
+                                <div class="stats-number" id="stats-messages">0</div>
+                                <div class="stats-label">Сообщений</div>
+                            </div>
+                            <div class="stats-card">
+                                <div class="stats-number" id="stats-users">1</div>
+                                <div class="stats-label">Участников</div>
+                            </div>
+                            <div class="stats-card">
+                                <div class="stats-number" id="stats-sections">4</div>
+                                <div class="stats-label">Разделов</div>
+                            </div>
+                            <div class="stats-card">
+                                <div class="stats-number" id="stats-online">1</div>
+                                <div class="stats-label">Онлайн</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- О приложении -->
+                    <div class="admin-section">
+                        <h3><i class="fas fa-info-circle"></i> О приложении</h3>
+                        <div class="sections-admin-list">
+                            <div class="settings-item">
+                                <div class="settings-label">Версия</div>
+                                <div class="settings-value">3.0.0</div>
+                            </div>
+                            <div class="settings-item">
+                                <div class="settings-label">Разработчик</div>
+                                <div class="settings-value">Botfs23 Team</div>
+                            </div>
+                            <div class="settings-item">
+                                <div class="settings-label">Telegram WebApp</div>
+                                <div class="settings-value">SDK v6.7</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Профиль -->
+            <div class="profile-container" id="profile-view" style="display: none;">
+                <div class="admin-header">
+                    <h2><i class="fas fa-user"></i> Профиль</h2>
+                    <p>Информация о вашем аккаунте</p>
+                </div>
+                
+                <div class="admin-sections">
+                    <div class="admin-section">
+                        <div class="user-profile" style="justify-content: center; margin-bottom: 30px;">
+                            <div class="user-avatar" style="width: 80px; height: 80px; font-size: 32px;">
+                                <img id="profile-avatar-img" src="" alt="" onerror="hideProfileImage(this)" style="display: none;">
+                                <i class="fas fa-user" id="profile-avatar-icon"></i>
+                            </div>
+                        </div>
+                        
+                        <div class="sections-admin-list">
+                            <div class="settings-item">
+                                <div class="settings-label">Имя</div>
+                                <div class="settings-value" id="profile-name">Пользователь</div>
+                            </div>
+                            <div class="settings-item">
+                                <div class="settings-label">Username</div>
+                                <div class="settings-value" id="profile-username">@user</div>
+                            </div>
+                            <div class="settings-item">
+                                <div class="settings-label">ID</div>
+                                <div class="settings-value" id="profile-id">000000</div>
+                            </div>
+                            <div class="settings-item">
+                                <div class="settings-label">Роль</div>
+                                <div class="settings-value" id="profile-role">участник</div>
+                            </div>
+                            <div class="settings-item">
+                                <div class="settings-label">Статус</div>
+                                <div class="settings-value" id="profile-status">онлайн</div>
+                            </div>
+                            <div class="settings-item">
+                                <div class="settings-label">Сообщений</div>
+                                <div class="settings-value" id="profile-messages">0</div>
+                            </div>
+                            <div class="settings-item">
+                                <div class="settings-label">В сети с</div>
+                                <div class="settings-value" id="profile-joined">сегодня</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Действия профиля -->
+                    <div class="admin-section">
+                        <h3><i class="fas fa-user-edit"></i> Действия</h3>
+                        <div class="admin-actions">
+                            <button class="btn-admin-action primary" onclick="editProfile()">
+                                <i class="fas fa-edit"></i> Редактировать профиль
+                            </button>
+                            <button class="btn-admin-action primary" onclick="changePassword()">
+                                <i class="fas fa-key"></i> Сменить пароль
+                            </button>
+                            <button class="btn-admin-action danger" onclick="logout()">
+                                <i class="fas fa-sign-out-alt"></i> Выйти
                             </button>
                         </div>
                     </div>
@@ -285,6 +939,8 @@
         </div>
     </div>
 
+    <!-- Попапы и дополнительные элементы -->
+    
     <!-- Реакции попап -->
     <div class="reactions-popup" id="reactions-popup">
         <div class="reactions-options">
@@ -306,6 +962,10 @@
         <div class="context-menu-item" onclick="contextMenuReply()">
             <i class="fas fa-reply"></i>
             <span>Ответить</span>
+        </div>
+        <div class="context-menu-item" onclick="contextMenuCopy()">
+            <i class="fas fa-copy"></i>
+            <span>Копировать текст</span>
         </div>
         <div class="context-menu-item" onclick="contextMenuCopyLink()">
             <i class="fas fa-link"></i>
@@ -356,28 +1016,282 @@
         </div>
     </div>
 
+    <!-- Прогресс загрузки -->
+    <div class="upload-progress" id="upload-progress">
+        <div>Загрузка файла...</div>
+        <div class="progress-bar-container">
+            <div class="progress-bar-fill" id="progress-bar-fill" style="width: 0%;"></div>
+        </div>
+    </div>
+
+    <!-- Предпросмотр файла -->
+    <div class="file-preview" id="file-preview">
+        <div class="file-preview-content">
+            <div class="file-preview-icon">
+                <i class="fas fa-file"></i>
+            </div>
+            <div class="file-preview-info">
+                <div class="file-preview-name" id="file-preview-name">file.pdf</div>
+                <div class="file-preview-size" id="file-preview-size">2.4 MB</div>
+            </div>
+            <div class="file-preview-actions">
+                <button class="btn-admin-action primary" onclick="sendFile()">
+                    <i class="fas fa-paper-plane"></i> Отправить
+                </button>
+                <button class="btn-admin-action danger" onclick="cancelFile()">
+                    <i class="fas fa-times"></i> Отмена
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Тогглер темы -->
+    <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()">
+        <i class="fas fa-moon" id="theme-icon"></i>
+    </button>
+
     <script>
-        // Вспомогательная функция
+        // Вспомогательные функции для HTML
         function hideImage(img) {
             img.style.display = 'none';
             const icon = document.getElementById('user-avatar-icon');
             if (icon) icon.style.display = 'block';
         }
         
-        // Функция для авто-ресайза textarea
+        function hideProfileImage(img) {
+            img.style.display = 'none';
+            const icon = document.getElementById('profile-avatar-icon');
+            if (icon) icon.style.display = 'block';
+        }
+        
         function autoResize(textarea) {
             textarea.style.height = 'auto';
             textarea.style.height = (textarea.scrollHeight) + 'px';
         }
         
-        // Функция для открытия меню сообщения
+        function handleKeyPress(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                if (window.sendMessage) {
+                    window.sendMessage();
+                }
+            }
+        }
+        
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('overlay');
+            sidebar.classList.toggle('active');
+            overlay.classList.toggle('active');
+        }
+        
+        function showChat() {
+            document.querySelectorAll('.chat-container, .users-container, .admin-container, .settings-container, .profile-container').forEach(view => {
+                view.classList.remove('active');
+                view.style.display = 'none';
+            });
+            const chatView = document.getElementById('chat-view');
+            if (chatView) {
+                chatView.classList.add('active');
+                chatView.style.display = 'flex';
+            }
+            updateMenuActive(0);
+            hideAllPopups();
+        }
+        
+        function showUsersList() {
+            document.querySelectorAll('.chat-container, .users-container, .admin-container, .settings-container, .profile-container').forEach(view => {
+                view.classList.remove('active');
+                view.style.display = 'none';
+            });
+            const usersView = document.getElementById('users-view');
+            if (usersView) {
+                usersView.classList.add('active');
+                usersView.style.display = 'flex';
+                if (window.loadUsers) {
+                    window.loadUsers();
+                }
+            }
+            updateMenuActive(1);
+            hideAllPopups();
+        }
+        
+        function showAdminPanel() {
+            document.querySelectorAll('.chat-container, .users-container, .admin-container, .settings-container, .profile-container').forEach(view => {
+                view.classList.remove('active');
+                view.style.display = 'none';
+            });
+            const adminView = document.getElementById('admin-view');
+            if (adminView) {
+                adminView.classList.add('active');
+                adminView.style.display = 'flex';
+                if (window.loadAdminUsersList) {
+                    window.loadAdminUsersList();
+                }
+                if (window.loadInvitesList) {
+                    window.loadInvitesList();
+                }
+            }
+            updateMenuActive(2);
+            hideAllPopups();
+        }
+        
+        function showSettings() {
+            document.querySelectorAll('.chat-container, .users-container, .admin-container, .settings-container, .profile-container').forEach(view => {
+                view.classList.remove('active');
+                view.style.display = 'none';
+            });
+            const settingsView = document.getElementById('settings-view');
+            if (settingsView) {
+                settingsView.classList.add('active');
+                settingsView.style.display = 'flex';
+                updateStats();
+            }
+            updateMenuActive(3);
+            hideAllPopups();
+        }
+        
+        function showProfile() {
+            document.querySelectorAll('.chat-container, .users-container, .admin-container, .settings-container, .profile-container').forEach(view => {
+                view.classList.remove('active');
+                view.style.display = 'none';
+            });
+            const profileView = document.getElementById('profile-view');
+            if (profileView) {
+                profileView.classList.add('active');
+                profileView.style.display = 'flex';
+                updateProfileInfo();
+            }
+            updateMenuActive(4);
+            hideAllPopups();
+        }
+        
+        function updateMenuActive(activeIndex) {
+            document.querySelectorAll('.menu-item').forEach((item, index) => {
+                item.classList.toggle('active', index === activeIndex);
+            });
+        }
+        
+        function switchSection(sectionId) {
+            if (window.switchSection) {
+                window.switchSection(sectionId);
+            }
+            toggleSidebar();
+        }
+        
+        function toggleAttachMenu() {
+            const attachMenu = document.getElementById('attach-menu');
+            attachMenu.classList.toggle('active');
+        }
+        
+        function toggleEmojiPicker() {
+            const emojiPicker = document.getElementById('emoji-picker');
+            emojiPicker.classList.toggle('active');
+        }
+        
+        function attachFile(type) {
+            if (window.attachFile) {
+                window.attachFile(type);
+            }
+            toggleAttachMenu();
+        }
+        
+        function showEmojiCategory(category) {
+            if (window.showEmojiCategory) {
+                window.showEmojiCategory(category);
+            }
+        }
+        
+        function searchUsers(query) {
+            if (window.searchUsers) {
+                window.searchUsers(query);
+            }
+        }
+        
+        function clearUserSearch() {
+            const searchInput = document.getElementById('users-search-input');
+            if (searchInput) {
+                searchInput.value = '';
+            }
+            if (window.searchUsers) {
+                window.searchUsers('');
+            }
+        }
+        
+        function updateSectionPermission(sectionId, type, value) {
+            if (window.updateSectionPermission) {
+                window.updateSectionPermission(sectionId, type, value);
+            }
+        }
+        
+        function createInvite() {
+            if (window.createInvite) {
+                window.createInvite();
+            }
+        }
+        
+        function clearChatHistory() {
+            if (window.clearChatHistory) {
+                window.clearChatHistory();
+            }
+        }
+        
+        function exportChatData() {
+            if (window.exportChatData) {
+                window.exportChatData();
+            }
+        }
+        
+        function createBackup() {
+            if (window.createBackup) {
+                window.createBackup();
+            }
+        }
+        
+        function jumpToUnread() {
+            if (window.jumpToUnread) {
+                window.jumpToUnread();
+            }
+        }
+        
+        function mentionAll() {
+            if (window.mentionAll) {
+                window.mentionAll();
+            }
+        }
+        
+        function addReaction(emoji) {
+            const popup = document.getElementById('reactions-popup');
+            const messageId = popup.dataset.messageId;
+            if (window.toggleReaction && messageId) {
+                window.toggleReaction(messageId, emoji);
+            }
+            popup.style.display = 'none';
+        }
+        
+        function showReactionPopup(messageId) {
+            const popup = document.getElementById('reactions-popup');
+            popup.style.display = 'block';
+            popup.dataset.messageId = messageId;
+            
+            // Позиционируем попап
+            const button = event.target;
+            const rect = button.getBoundingClientRect();
+            popup.style.left = (rect.left - 100) + 'px';
+            popup.style.top = (rect.top - 60) + 'px';
+        }
+        
+        function closeForwardPopup() {
+            document.getElementById('forward-popup').style.display = 'none';
+        }
+        
         function showMessageMenu(messageId) {
             const menu = document.getElementById('message-context-menu');
-            const button = event.target; // Получаем кнопку, которая вызвала контекстное меню
+            const button = event.target.closest('.btn-more') || event.target;
             const rect = button.getBoundingClientRect();
             
-            menu.style.left = (rect.left - 150) + 'px';
-            menu.style.top = (rect.top) + 'px';
+            menu.style.left = (rect.left - 180) + 'px';
+            menu.style.top = (rect.top + 30) + 'px';
             menu.style.display = 'block';
             menu.dataset.messageId = messageId;
             
@@ -393,20 +1307,29 @@
             }, 100);
         }
         
-        // Заглушки для функций контекстного меню
+        // Функции контекстного меню
         function contextMenuReply() {
             const menu = document.getElementById('message-context-menu');
             const messageId = menu.dataset.messageId;
-            if (window.replyToMessage) window.replyToMessage(messageId);
+            if (window.replyToMessage && messageId) {
+                window.replyToMessage(messageId);
+            }
+            menu.style.display = 'none';
+        }
+        
+        function contextMenuCopy() {
+            const menu = document.getElementById('message-context-menu');
+            const messageId = menu.dataset.messageId;
+            // Реализация будет в основном скрипте
             menu.style.display = 'none';
         }
         
         function contextMenuCopyLink() {
             const menu = document.getElementById('message-context-menu');
             const messageId = menu.dataset.messageId;
-            // Здесь будет логика копирования ссылки
-            navigator.clipboard.writeText(`https://t.me/botfs23/message/${messageId}`).then(() => {
-                console.log('Ссылка скопирована в буфер обмена');
+            const link = `https://t.me/botfs23/message/${messageId}`;
+            navigator.clipboard.writeText(link).then(() => {
+                showCustomAlert('Ссылка скопирована', 'success');
             }).catch(err => {
                 console.error('Ошибка при копировании ссылки: ', err);
             });
@@ -416,30 +1339,171 @@
         function contextMenuForward() {
             const menu = document.getElementById('message-context-menu');
             const messageId = menu.dataset.messageId;
-            if (window.forwardMessage) window.forwardMessage(messageId);
+            if (window.forwardMessage && messageId) {
+                window.forwardMessage(messageId);
+            }
             menu.style.display = 'none';
         }
         
         function contextMenuReaction() {
             const menu = document.getElementById('message-context-menu');
             const messageId = menu.dataset.messageId;
-            if (window.showReactionPopup) window.showReactionPopup(messageId);
+            if (window.showReactionPopup && messageId) {
+                window.showReactionPopup(messageId);
+            }
             menu.style.display = 'none';
         }
         
         function contextMenuDelete() {
             const menu = document.getElementById('message-context-menu');
             const messageId = menu.dataset.messageId;
-            if (window.deleteMessage) window.deleteMessage(messageId);
+            if (window.deleteMessage && messageId) {
+                window.deleteMessage(messageId);
+            }
             menu.style.display = 'none';
         }
         
-        function closeForwardPopup() {
+        function hideAllPopups() {
+            document.getElementById('attach-menu').classList.remove('active');
+            document.getElementById('emoji-picker').classList.remove('active');
+            document.getElementById('message-context-menu').style.display = 'none';
             document.getElementById('forward-popup').style.display = 'none';
+            document.getElementById('reactions-popup').style.display = 'none';
         }
         
-        // Инициализация
+        // Функции для настроек
+        function toggleTheme() {
+            const toggle = document.getElementById('dark-theme-toggle');
+            const isDark = toggle.checked;
+            document.body.classList.toggle('dark-theme', isDark);
+            localStorage.setItem('darkTheme', isDark);
+            
+            const themeIcon = document.getElementById('theme-icon');
+            if (themeIcon) {
+                themeIcon.className = isDark ? 'fas fa-sun' : 'fas fa-moon';
+            }
+        }
+        
+        function changeFontSize(size) {
+            document.body.style.fontSize = size === 'small' ? '13px' : size === 'large' ? '16px' : '14px';
+            localStorage.setItem('fontSize', size);
+        }
+        
+        function editProfile() {
+            showCustomAlert('Редактирование профиля в разработке', 'info');
+        }
+        
+        function changePassword() {
+            showCustomAlert('Смена пароля в разработке', 'info');
+        }
+        
+        function logout() {
+            if (confirm('Вы уверены, что хотите выйти?')) {
+                localStorage.clear();
+                showCustomAlert('Вы вышли из системы', 'success');
+                setTimeout(() => {
+                    location.reload();
+                }, 1000);
+            }
+        }
+        
+        // Функции для файлов
+        function sendFile() {
+            showCustomAlert('Файл отправлен', 'success');
+            hideFilePreview();
+        }
+        
+        function cancelFile() {
+            hideFilePreview();
+        }
+        
+        function hideFilePreview() {
+            document.getElementById('file-preview').classList.remove('active');
+        }
+        
+        function showUploadProgress() {
+            document.getElementById('upload-progress').classList.add('active');
+        }
+        
+        function hideUploadProgress() {
+            document.getElementById('upload-progress').classList.remove('active');
+        }
+        
+        function updateProgress(percent) {
+            const progressBar = document.getElementById('progress-bar-fill');
+            if (progressBar) {
+                progressBar.style.width = percent + '%';
+            }
+        }
+        
+        // Функции для уведомлений
+        function showCustomAlert(message, type = 'info') {
+            const alert = document.getElementById('custom-alert');
+            if (!alert) return;
+            
+            alert.textContent = message;
+            alert.className = 'custom-alert';
+            
+            switch (type) {
+                case 'success':
+                    alert.style.background = '#34c759';
+                    break;
+                case 'error':
+                    alert.style.background = '#ff3b30';
+                    break;
+                case 'warning':
+                    alert.style.background = '#ff9500';
+                    break;
+                default:
+                    alert.style.background = '#3390ec';
+            }
+            
+            alert.style.display = 'block';
+            
+            setTimeout(() => {
+                alert.style.display = 'none';
+            }, 3000);
+        }
+        
+        // Функции для статистики и профиля
+        function updateStats() {
+            // Это заглушка, реальные данные будут в основном скрипте
+            document.getElementById('stats-messages').textContent = '0';
+            document.getElementById('stats-users').textContent = '1';
+            document.getElementById('stats-sections').textContent = '4';
+            document.getElementById('stats-online').textContent = '1';
+        }
+        
+        function updateProfileInfo() {
+            // Это заглушка, реальные данные будут в основном скрипте
+            const userName = document.getElementById('user-name').textContent;
+            const userRole = document.getElementById('user-role').textContent;
+            
+            document.getElementById('profile-name').textContent = userName;
+            document.getElementById('profile-role').textContent = userRole;
+            document.getElementById('profile-username').textContent = '@user';
+            document.getElementById('profile-id').textContent = '000000';
+            document.getElementById('profile-status').textContent = 'онлайн';
+            document.getElementById('profile-messages').textContent = '0';
+            document.getElementById('profile-joined').textContent = new Date().toLocaleDateString('ru-RU');
+        }
+        
+        // Инициализация при загрузке
         document.addEventListener('DOMContentLoaded', function() {
+            // Показываем экран загрузки
+            const loadingScreen = document.getElementById('loading-screen');
+            const app = document.getElementById('telegram-app');
+            
+            // Загружаем сохраненные настройки
+            const savedTheme = localStorage.getItem('darkTheme') === 'true';
+            const savedFontSize = localStorage.getItem('fontSize') || 'medium';
+            
+            // Применяем настройки
+            document.getElementById('dark-theme-toggle').checked = savedTheme;
+            document.getElementById('font-size-select').value = savedFontSize;
+            toggleTheme();
+            changeFontSize(savedFontSize);
+            
             // Устанавливаем фото из Telegram, если доступно
             if (window.Telegram && window.Telegram.WebApp) {
                 const tg = window.Telegram.WebApp;
@@ -447,35 +1511,49 @@
                 
                 if (user && user.photo_url) {
                     const img = document.getElementById('user-avatar-img');
-                    img.src = user.photo_url;
-                    img.style.display = 'block';
-                    const icon = document.getElementById('user-avatar-icon');
-                    if (icon) icon.style.display = 'none';
+                    const profileImg = document.getElementById('profile-avatar-img');
+                    if (img) {
+                        img.src = user.photo_url;
+                        img.style.display = 'block';
+                        const icon = document.getElementById('user-avatar-icon');
+                        if (icon) icon.style.display = 'none';
+                    }
+                    if (profileImg) {
+                        profileImg.src = user.photo_url;
+                        profileImg.style.display = 'block';
+                        const profileIcon = document.getElementById('profile-avatar-icon');
+                        if (profileIcon) profileIcon.style.display = 'none';
+                    }
                 }
             }
             
-            // Скрываем элементы, которые нужно скрыть по умолчанию
-            document.getElementById('admin-menu-item').style.display = 'none';
-            document.getElementById('btn-admin').style.display = 'none';
-            document.getElementById('btn-mention-all').style.display = 'none';
-            document.getElementById('admin-view').style.display = 'none';
-            document.getElementById('users-view').style.display = 'none';
-            
-            // Прячем контекстное меню
-            document.getElementById('message-context-menu').style.display = 'none';
-            document.getElementById('forward-popup').style.display = 'none';
-            
-            // Инициализируем эмодзи пикер
-            if (window.showEmojiCategory) {
-                window.showEmojiCategory('smileys');
-            }
-            
-            // Инициализируем приложение
-            if (window.initApp) {
-                setTimeout(() => window.initApp(), 100);
-            }
+            // Загружаем основной скрипт
+            setTimeout(() => {
+                if (window.initApp) {
+                    window.initApp();
+                }
+                
+                // Скрываем экран загрузки и показываем приложение
+                setTimeout(() => {
+                    loadingScreen.classList.add('hidden');
+                    app.style.display = 'flex';
+                }, 500);
+            }, 1000);
+        });
+        
+        // Обработка ошибок
+        window.addEventListener('error', function(e) {
+            console.error('Ошибка приложения:', e.error);
+            showCustomAlert('Произошла ошибка в приложении', 'error');
+        });
+        
+        window.addEventListener('unhandledrejection', function(e) {
+            console.error('Необработанное обещание:', e.reason);
+            showCustomAlert('Ошибка при выполнении операции', 'error');
         });
     </script>
-    <script src="script.js"></script> <!-- Подключаем внешний JS -->
+    
+    <!-- Подключаем основной JavaScript файл -->
+    <script src="script.js"></script>
 </body>
 </html>
