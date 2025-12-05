@@ -1,5 +1,5 @@
 // Telegram Chat App - Botfs23
-// Версия с использованием Flask API для работы с S3
+// Полная синхронизация через S3 Selectel с Flask API
 
 // ===== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ =====
 let tg = null;
@@ -10,6 +10,9 @@ let isAdmin = false;
 let usersCache = {};
 let attachedFiles = [];
 let s3Status = 'Не проверено';
+let lastUpdateTime = 0;
+let isSyncing = false;
+let syncInterval = null;
 
 let appData = {
     users: {},
@@ -24,6 +27,9 @@ const API_CONFIG = {
         checkS3: '/api/s3/check',
         uploadFile: '/api/s3/proxy-upload',
         saveMessage: '/api/s3/save-message',
+        getMessages: '/api/s3/get-messages',
+        getUsers: '/api/s3/get-users',
+        updateUser: '/api/s3/update-user',
         health: '/health',
         initDb: '/init-db'
     },
@@ -45,7 +51,7 @@ const EMOJI_CATEGORIES = {
 
 // ===== ИНИЦИАЛИЗАЦИЯ ПРИЛОЖЕНИЯ =====
 async function initApp() {
-    console.log('🚀 Инициализация приложения с Flask API...');
+    console.log('🚀 Инициализация приложения с полной синхронизацией...');
     
     try {
         updateLoadingText('Подключение к Telegram...');
@@ -64,12 +70,16 @@ async function initApp() {
         updateLoadingText('Проверка S3 через API...');
         
         // Проверка S3 через API
-        await checkS3Connection();
+        const s3Connected = await checkS3Connection();
+        
+        if (!s3Connected) {
+            showNotification('S3 не доступен, используется локальный режим', 'warning');
+        }
         
         updateLoadingText('Загрузка данных...');
         
         // Загрузка данных из S3 через API
-        await loadDataFromS3();
+        await loadAllDataFromS3();
         
         // Обновление интерфейса
         updateUserInfo();
@@ -80,10 +90,10 @@ async function initApp() {
         // Загружаем сообщения
         await loadMessages();
         
-        hideLoadingScreen();
+        // Запускаем синхронизацию
+        startAutoSync();
         
-        // Периодическая проверка новых сообщений
-        setInterval(checkForUpdates, 5000);
+        hideLoadingScreen();
         
         console.log('✅ Приложение инициализировано');
         
@@ -136,22 +146,82 @@ async function checkS3Connection() {
     }
 }
 
-async function loadDataFromS3() {
-    console.log('📥 Загрузка данных через API...');
+async function loadAllDataFromS3() {
+    console.log('📥 Загрузка всех данных через API...');
     
     try {
-        // В этой версии данные загружаются при открытии чата через API
-        // Здесь просто инициализируем пустые структуры
-        appData.users = {};
-        appData.messages_main = [];
-        appData.messages_news = [];
+        // Загружаем пользователей
+        const usersResponse = await fetch(API_CONFIG.endpoints.getUsers);
+        if (usersResponse.ok) {
+            const usersData = await usersResponse.json();
+            if (usersData.status === 'success') {
+                usersCache = usersData.users || {};
+                appData.users = usersCache;
+                console.log(`👥 Загружено ${Object.keys(usersCache).length} пользователей`);
+            }
+        }
         
-        console.log('📊 Структуры данных инициализированы');
+        // Загружаем сообщения для текущей секции
+        await loadMessagesFromS3(currentSection);
         
         return true;
         
     } catch (error) {
         console.error('❌ Ошибка загрузки данных:', error);
+        
+        // Используем локальные данные как fallback
+        const localUsers = localStorage.getItem('local_users_backup');
+        const localMessages = localStorage.getItem(`local_messages_${currentSection}_backup`);
+        
+        if (localUsers) {
+            usersCache = JSON.parse(localUsers);
+            appData.users = usersCache;
+        }
+        
+        if (localMessages) {
+            if (currentSection === 'main') {
+                appData.messages_main = JSON.parse(localMessages);
+            } else {
+                appData.messages_news = JSON.parse(localMessages);
+            }
+        }
+        
+        return false;
+    }
+}
+
+async function loadMessagesFromS3(section = 'main') {
+    try {
+        const response = await fetch(`${API_CONFIG.endpoints.getMessages}?section=${section}&since=${lastUpdateTime}`);
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success') {
+                const messages = data.messages || [];
+                
+                // Обновляем сообщения
+                if (section === 'main') {
+                    appData.messages_main = messages;
+                } else {
+                    appData.messages_news = messages;
+                }
+                
+                lastUpdateTime = data.lastUpdate || Date.now();
+                
+                console.log(`📨 Загружено ${messages.length} сообщений из ${section}`);
+                
+                // Обновляем отображение
+                if (currentSection === section) {
+                    updateMessagesDisplay();
+                }
+                
+                return true;
+            }
+        }
+        return false;
+        
+    } catch (error) {
+        console.error(`❌ Ошибка загрузки сообщений из ${section}:`, error);
         return false;
     }
 }
@@ -163,6 +233,7 @@ async function uploadFileToS3(file, type) {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('user_id', currentUserId);
+        formData.append('user_name', currentUser.first_name || 'User');
         formData.append('type', type);
         
         console.log(`📤 Загрузка файла через API: ${file.name}`);
@@ -187,8 +258,9 @@ async function uploadFileToS3(file, type) {
                     console.log('✅ Файл загружен успешно через API');
                     
                     const fileInfo = {
-                        id: `file_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`,
+                        id: response.file_id || `file_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`,
                         url: response.file_url,
+                        s3_key: response.s3_key,
                         name: file.name,
                         type: type,
                         size: file.size,
@@ -220,60 +292,127 @@ async function uploadFileToS3(file, type) {
     });
 }
 
-async function saveMessageToAPI(message) {
+async function saveMessageToS3(message) {
     try {
         const response = await fetch(API_CONFIG.endpoints.saveMessage, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(message)
+            body: JSON.stringify({
+                ...message,
+                section: currentSection
+            })
         });
         
         if (response.ok) {
             const data = await response.json();
             if (data.status === 'success') {
-                console.log('✅ Сообщение сохранено через API');
-                return true;
+                console.log('✅ Сообщение сохранено в S3 через API');
+                
+                // Обновляем время последнего обновления
+                if (data.lastUpdate) {
+                    lastUpdateTime = data.lastUpdate;
+                }
+                
+                return data.message_id || message.id;
             } else {
-                console.error('❌ Ошибка API:', data.message);
-                return false;
+                console.error('❌ Ошибка API при сохранении:', data.message);
+                return null;
             }
         } else {
-            console.error('❌ Ошибка HTTP:', response.status);
-            return false;
+            console.error('❌ Ошибка HTTP при сохранении:', response.status);
+            return null;
         }
         
     } catch (error) {
         console.error('❌ Ошибка сохранения сообщения:', error);
+        return null;
+    }
+}
+
+async function updateUserOnlineStatus() {
+    try {
+        const response = await fetch(API_CONFIG.endpoints.updateUser, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                user_id: currentUserId,
+                user_data: {
+                    ...currentUser,
+                    is_online: true,
+                    last_seen: Date.now(),
+                    last_active: new Date().toISOString()
+                }
+            })
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            return data.status === 'success';
+        }
         return false;
+        
+    } catch (error) {
+        console.error('❌ Ошибка обновления статуса пользователя:', error);
+        return false;
+    }
+}
+
+// ===== СИНХРОНИЗАЦИЯ ДАННЫХ =====
+function startAutoSync() {
+    // Синхронизация каждые 5 секунд
+    syncInterval = setInterval(async () => {
+        if (isSyncing) return;
+        
+        isSyncing = true;
+        
+        try {
+            // Обновляем статус пользователя
+            await updateUserOnlineStatus();
+            
+            // Загружаем новые сообщения
+            await loadMessagesFromS3(currentSection);
+            
+            // Загружаем обновленных пользователей
+            await syncUsers();
+            
+            // Обновляем счетчики онлайн
+            updateOnlineCount();
+            
+        } catch (error) {
+            console.error('❌ Ошибка синхронизации:', error);
+        } finally {
+            isSyncing = false;
+        }
+    }, 5000);
+}
+
+async function syncUsers() {
+    try {
+        const response = await fetch(API_CONFIG.endpoints.getUsers);
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success') {
+                // Обновляем пользователей
+                const newUsers = data.users || {};
+                
+                // Объединяем с локальным кэшем
+                usersCache = { ...usersCache, ...newUsers };
+                appData.users = usersCache;
+                
+                // Обновляем отображение списка пользователей
+                updateUsersList();
+            }
+        }
+    } catch (error) {
+        console.error('❌ Ошибка синхронизации пользователей:', error);
     }
 }
 
 // ===== ОСНОВНЫЕ ФУНКЦИИ =====
-async function saveUsersToS3() {
-    try {
-        // В этой версии пользователи сохраняются через сообщения
-        // Можно добавить отдельный endpoint при необходимости
-        return true;
-        
-    } catch (error) {
-        console.error('❌ Ошибка сохранения пользователей:', error);
-        return false;
-    }
-}
-
-async function saveMessagesToS3() {
-    try {
-        // Сообщения сохраняются через API при отправке
-        return true;
-        
-    } catch (error) {
-        console.error('❌ Ошибка сохранения сообщений:', error);
-        return false;
-    }
-}
-
 async function loadUsers() {
     console.log('👥 Загрузка пользователей...');
     
@@ -295,8 +434,8 @@ async function loadUsers() {
             updated_at: Date.now()
         };
         
-        // Обновляем данные
-        appData.users = usersCache;
+        // Отправляем на сервер
+        await updateUserOnlineStatus();
         
         console.log(`✅ Пользователь ${currentUser.first_name} добавлен`);
         
@@ -307,37 +446,58 @@ async function loadUsers() {
 
 async function saveMessage(message) {
     try {
-        // Сохраняем сообщение через API
-        const saved = await saveMessageToAPI(message);
+        // Сохраняем сообщение в S3 через API
+        const messageId = await saveMessageToS3(message);
         
-        if (saved) {
-            // Также добавляем в локальный кэш для немедленного отображения
+        if (messageId) {
+            // Обновляем ID сообщения
+            message.id = messageId;
+            
+            // Добавляем в локальный кэш для немедленного отображения
             if (currentSection === 'main') {
                 appData.messages_main.push(message);
             } else {
                 appData.messages_news.push(message);
             }
+            
+            // Обновляем отображение
+            updateMessagesDisplay();
+            
+            return true;
+        } else {
+            // Fallback: сохраняем локально
+            return await saveMessageLocally(message);
         }
-        
-        return saved;
         
     } catch (error) {
         console.error('❌ Ошибка сохранения сообщения:', error);
+        return await saveMessageLocally(message);
+    }
+}
+
+async function saveMessageLocally(message) {
+    try {
+        const key = `local_message_${currentSection}_${Date.now()}`;
+        localStorage.setItem(key, JSON.stringify(message));
         
-        // Fallback: сохраняем локально
-        const key = `local_message_backup_${currentSection}`;
-        let messages = JSON.parse(localStorage.getItem(key) || '[]');
-        messages.push(message);
-        localStorage.setItem(key, JSON.stringify(messages));
-        
-        // Добавляем в локальный кэш для отображения
+        // Добавляем в локальный кэш
         if (currentSection === 'main') {
             appData.messages_main.push(message);
         } else {
             appData.messages_news.push(message);
         }
         
+        // Добавляем в очередь для синхронизации при восстановлении связи
+        const pendingKey = `pending_messages_${currentSection}`;
+        let pending = JSON.parse(localStorage.getItem(pendingKey) || '[]');
+        pending.push(message);
+        localStorage.setItem(pendingKey, JSON.stringify(pending));
+        
         return true;
+        
+    } catch (error) {
+        console.error('❌ Ошибка локального сохранения:', error);
+        return false;
     }
 }
 
@@ -345,7 +505,7 @@ function getAllMessages() {
     return currentSection === 'main' ? appData.messages_main : appData.messages_news;
 }
 
-async function loadMessages() {
+function updateMessagesDisplay() {
     const container = document.getElementById('messages-container');
     const emptyChat = document.getElementById('empty-chat');
     
@@ -364,51 +524,64 @@ async function loadMessages() {
     
     if (emptyChat) emptyChat.style.display = 'none';
     
+    // Очищаем контейнер
     container.innerHTML = '';
     
+    // Добавляем все сообщения
     messages.forEach(msg => {
         const element = createMessageElement(msg);
         container.appendChild(element);
     });
     
+    // Прокручиваем вниз
     scrollToBottom();
+}
+
+async function loadMessages() {
+    // Просто обновляем отображение
+    updateMessagesDisplay();
 }
 
 function createMessageElement(message) {
     const isOutgoing = message.user_id == currentUserId;
     const div = document.createElement('div');
     div.className = `message ${isOutgoing ? 'outgoing' : 'incoming'}`;
+    div.dataset.messageId = message.id;
     
-    const user = usersCache[message.user_id] || message.user;
+    const user = usersCache[message.user_id] || message.user || {};
     const userName = user.first_name || 'User';
     const time = new Date(message.timestamp).toLocaleTimeString('ru-RU', { 
         hour: '2-digit', 
         minute: '2-digit' 
     });
     
-    let content = escapeHtml(message.content).replace(/\n/g, '<br>');
+    let content = escapeHtml(message.content || '').replace(/\n/g, '<br>');
     content = content.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" class="message-link">$1</a>');
     
     // Файлы
     let filesHTML = '';
     if (message.files && message.files.length > 0) {
-        filesHTML = message.files.map(file => `
-            <div class="message-file">
-                <div class="message-file-header">
-                    <i class="fas fa-${file.type === 'photo' ? 'image' : 'file'}"></i>
-                    <span class="message-file-name">${escapeHtml(file.name)}</span>
-                    <a href="${file.url}" target="_blank" class="download-btn" title="Открыть">
-                        <i class="fas fa-external-link-alt"></i>
-                    </a>
+        filesHTML = message.files.map(file => {
+            const isImage = file.type === 'photo' && file.mimeType && file.mimeType.startsWith('image/');
+            
+            return `
+                <div class="message-file">
+                    <div class="message-file-header">
+                        <i class="fas fa-${isImage ? 'image' : 'file'}"></i>
+                        <span class="message-file-name">${escapeHtml(file.name || 'Файл')}</span>
+                        <a href="${file.url}" target="_blank" class="download-btn" title="Открыть">
+                            <i class="fas fa-external-link-alt"></i>
+                        </a>
+                    </div>
+                    ${isImage ? `<img src="${file.url}" alt="${escapeHtml(file.name || 'Изображение')}" class="message-file-image" loading="lazy">` : ''}
                 </div>
-                ${file.type === 'photo' ? `<img src="${file.url}" alt="${escapeHtml(file.name)}" class="message-file-image" loading="lazy">` : ''}
-            </div>
-        `).join('');
+            `;
+        }).join('');
     }
     
     div.innerHTML = `
         ${!isOutgoing ? `
-            <div class="message-avatar" style="background-color: ${stringToColor(user.id)}">
+            <div class="message-avatar" style="background-color: ${stringToColor(user.id || 'default')}">
                 ${userName.charAt(0).toUpperCase()}
             </div>
         ` : ''}
@@ -513,19 +686,12 @@ async function sendMessage() {
     const saved = await saveMessage(message);
     
     if (saved) {
-        const container = document.getElementById('messages-container');
-        const emptyChat = document.getElementById('empty-chat');
-        
-        if (emptyChat && emptyChat.style.display !== 'none') {
-            emptyChat.style.display = 'none';
-        }
-        
-        container.appendChild(createMessageElement(message));
-        
+        // Очищаем форму
         input.value = '';
         input.style.height = 'auto';
         clearAttachments();
         
+        // Прокручиваем вниз
         scrollToBottom();
         
         // Обновляем статус пользователя
@@ -536,14 +702,8 @@ async function sendMessage() {
         showNotification('Сообщение отправлено', 'success');
         
         console.log(`📤 Сообщение отправлено: ${text.substring(0, 50)}...`);
-    }
-}
-
-async function checkForUpdates() {
-    // Обновляем статус текущего пользователя
-    if (usersCache[currentUserId]) {
-        usersCache[currentUserId].last_seen = Date.now();
-        usersCache[currentUserId].last_active = new Date().toISOString();
+    } else {
+        showNotification('Ошибка отправки сообщения', 'error');
     }
 }
 
@@ -751,7 +911,7 @@ function updateUsersList(filter = '') {
         }
         
         div.innerHTML = `
-            <div class="user-item-avatar" style="background-color: ${stringToColor(user.id)}">
+            <div class="user-item-avatar" style="background-color: ${stringToColor(user.id || 'default')}">
                 ${userName.charAt(0).toUpperCase()}
             </div>
             <div class="user-item-info">
@@ -1117,7 +1277,8 @@ function switchSection(sectionId) {
         chatTitle.textContent = sectionId === 'main' ? 'Основной чат' : 'Новости';
     }
     
-    loadMessages();
+    // Загружаем сообщения для новой секции
+    loadMessagesFromS3(sectionId);
     toggleSidebar();
 }
 
