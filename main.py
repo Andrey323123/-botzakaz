@@ -368,15 +368,22 @@ def save_message_to_s3():
         if not user_id:
             return jsonify({'status': 'error', 'message': 'User ID required'}), 400
         
-        # Создаем объект сообщения
-        message_id = str(uuid.uuid4())
+        # Создаем объект сообщения (используем переданный ID или генерируем новый)
+        message_id = data.get('id') or str(uuid.uuid4())
         message = {
             'id': message_id,
             'user_id': str(user_id),
+            'user': data.get('user', {}),
             'content': content,
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': data.get('timestamp') or datetime.now().isoformat(),
             'section': section,
-            'files': files
+            'channel': data.get('channel', 'main'),
+            'files': files,
+            'reactions': data.get('reactions', {}),
+            'reply_to': data.get('reply_to'),
+            'edited': data.get('edited', False),
+            'deleted': data.get('deleted', False),
+            'pinned': data.get('pinned', False)
         }
         
         # Определяем путь в S3
