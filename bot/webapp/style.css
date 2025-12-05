@@ -16,13 +16,17 @@ html, body {
     width: 100%;
     height: 100%;
     overflow: hidden;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-    font-size: 16px;
-    line-height: 1.4;
+    font-family: var(--tg-font-family);
+    font-size: var(--tg-font-size-base);
+    line-height: var(--tg-line-height);
+    font-weight: var(--tg-font-weight-normal);
     user-select: none;
     touch-action: manipulation;
-    background: var(--tg-theme-bg-color, #ffffff);
-    color: var(--tg-theme-text-color, #000000);
+    background: var(--tg-theme-bg-color, var(--tg-bg-color));
+    color: var(--tg-theme-text-color, var(--tg-text-primary));
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
 }
 
 body {
@@ -34,11 +38,12 @@ body {
     overflow: hidden;
 }
 
-/* ===== TELEGRAM THEME VARIABLES ===== */
+/* ===== TELEGRAM THEME VARIABLES (ТОЧНЫЕ ЦВЕТА TELEGRAM) ===== */
 :root {
-    /* Telegram Colors */
+    /* Telegram Brand Colors (точные цвета Telegram) */
     --tg-blue: #3390ec;
     --tg-blue-hover: #2b7fd8;
+    --tg-blue-light: #e3f2fd;
     --tg-green: #34c759;
     --tg-red: #ff3b30;
     --tg-orange: #ff9500;
@@ -47,54 +52,94 @@ body {
     --tg-yellow: #ffcc00;
     --tg-cyan: #5ac8fa;
     
-    /* Light Theme (Default) */
+    /* Light Theme (Telegram Desktop Light) */
     --tg-bg-color: #ffffff;
-    --tg-secondary-bg: #f7f7f7;
-    --tg-tertiary-bg: #f0f0f0;
+    --tg-secondary-bg: #f0f0f0;
+    --tg-tertiary-bg: #e5e5e5;
     --tg-text-primary: #000000;
     --tg-text-secondary: #707579;
     --tg-text-tertiary: #999999;
-    --tg-border-color: #e7e7e7;
-    --tg-hover-color: rgba(0, 0, 0, 0.05);
+    --tg-border-color: #e4e4e4;
+    --tg-hover-color: rgba(0, 0, 0, 0.06);
     --tg-active-color: rgba(0, 0, 0, 0.1);
+    --tg-selection-bg: rgba(51, 144, 236, 0.2);
     
-    /* Sizes */
-    --tg-header-height: 56px;
-    --tg-input-height: 56px;
+    /* Sizes (Telegram точные размеры) */
+    --tg-header-height: 54px;
+    --tg-input-height: 52px;
     --tg-sidebar-width: 280px;
-    --tg-border-radius: 12px;
-    --tg-border-radius-small: 8px;
-    --tg-border-radius-large: 16px;
+    --tg-border-radius: 10px;
+    --tg-border-radius-small: 6px;
+    --tg-border-radius-large: 18px;
     --tg-border-radius-circle: 50%;
+    --tg-message-radius: 12px;
+    --tg-message-radius-small: 4px;
     
-    /* Shadows */
-    --tg-shadow-small: 0 1px 3px rgba(0, 0, 0, 0.1);
-    --tg-shadow-medium: 0 4px 12px rgba(0, 0, 0, 0.15);
-    --tg-shadow-large: 0 8px 24px rgba(0, 0, 0, 0.2);
+    /* Typography (Telegram шрифты) */
+    --tg-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --tg-font-size-xs: 11px;
+    --tg-font-size-sm: 13px;
+    --tg-font-size-base: 15px;
+    --tg-font-size-lg: 17px;
+    --tg-font-size-xl: 20px;
+    --tg-line-height: 1.4;
+    --tg-font-weight-normal: 400;
+    --tg-font-weight-medium: 500;
+    --tg-font-weight-semibold: 600;
     
-    /* Transitions */
-    --tg-transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
-    --tg-transition-medium: 250ms cubic-bezier(0.4, 0, 0.2, 1);
-    --tg-transition-slow: 350ms cubic-bezier(0.4, 0, 0.2, 1);
+    /* Shadows (Telegram тени) */
+    --tg-shadow-small: 0 1px 2px rgba(0, 0, 0, 0.08);
+    --tg-shadow-medium: 0 2px 8px rgba(0, 0, 0, 0.12);
+    --tg-shadow-large: 0 4px 16px rgba(0, 0, 0, 0.16);
+    --tg-shadow-message: 0 1px 2px rgba(0, 0, 0, 0.1);
+    
+    /* Transitions (Telegram анимации) */
+    --tg-transition-fast: 100ms cubic-bezier(0.4, 0, 0.2, 1);
+    --tg-transition-medium: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    --tg-transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+    --tg-transition-bounce: 300ms cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    
+    /* Spacing (Telegram отступы) */
+    --tg-spacing-xs: 4px;
+    --tg-spacing-sm: 8px;
+    --tg-spacing-md: 12px;
+    --tg-spacing-lg: 16px;
+    --tg-spacing-xl: 24px;
 }
 
-/* Dark Theme */
+/* Dark Theme (Telegram Dark точные цвета) */
 @media (prefers-color-scheme: dark) {
     :root {
-        --tg-bg-color: #0f0f0f;
-        --tg-secondary-bg: #1a1a1a;
-        --tg-tertiary-bg: #2a2a2a;
+        --tg-bg-color: #212121;
+        --tg-secondary-bg: #181818;
+        --tg-tertiary-bg: #0f0f0f;
         --tg-text-primary: #ffffff;
-        --tg-text-secondary: #8e8e93;
-        --tg-text-tertiary: #6d6d72;
-        --tg-border-color: #333333;
+        --tg-text-secondary: #aaaaaa;
+        --tg-text-tertiary: #707579;
+        --tg-border-color: #2f2f2f;
         --tg-hover-color: rgba(255, 255, 255, 0.08);
         --tg-active-color: rgba(255, 255, 255, 0.12);
+        --tg-selection-bg: rgba(51, 144, 236, 0.3);
         
-        --tg-shadow-small: 0 1px 3px rgba(0, 0, 0, 0.3);
-        --tg-shadow-medium: 0 4px 12px rgba(0, 0, 0, 0.4);
-        --tg-shadow-large: 0 8px 24px rgba(0, 0, 0, 0.5);
+        --tg-shadow-small: 0 1px 2px rgba(0, 0, 0, 0.3);
+        --tg-shadow-medium: 0 2px 8px rgba(0, 0, 0, 0.4);
+        --tg-shadow-large: 0 4px 16px rgba(0, 0, 0, 0.5);
+        --tg-shadow-message: 0 1px 2px rgba(0, 0, 0, 0.2);
     }
+}
+
+/* Dark Theme Class */
+body.dark-theme {
+    --tg-bg-color: #212121;
+    --tg-secondary-bg: #181818;
+    --tg-tertiary-bg: #0f0f0f;
+    --tg-text-primary: #ffffff;
+    --tg-text-secondary: #aaaaaa;
+    --tg-text-tertiary: #707579;
+    --tg-border-color: #2f2f2f;
+    --tg-hover-color: rgba(255, 255, 255, 0.08);
+    --tg-active-color: rgba(255, 255, 255, 0.12);
+    --tg-selection-bg: rgba(51, 144, 236, 0.3);
 }
 
 /* Telegram WebApp Theme Integration */
@@ -231,14 +276,14 @@ body {
 }
 
 .chat-title {
-    font-size: 17px;
-    font-weight: 600;
+    font-size: var(--tg-font-size-lg);
+    font-weight: var(--tg-font-weight-semibold);
     color: var(--tg-text-primary);
     line-height: 1.2;
 }
 
 .chat-status {
-    font-size: 14px;
+    font-size: var(--tg-font-size-sm);
     color: var(--tg-text-secondary);
     display: flex;
     align-items: center;
@@ -364,19 +409,40 @@ body {
     background-color: var(--tg-hover-color);
 }
 
-/* ===== MESSAGES CONTAINER ===== */
+/* ===== MESSAGES CONTAINER (Telegram стиль) ===== */
 .messages-container {
     flex: 1;
     overflow-y: auto;
     position: relative;
     -webkit-overflow-scrolling: touch;
     scroll-behavior: smooth;
+    padding: var(--tg-spacing-md) var(--tg-spacing-sm);
+    background: var(--tg-bg-color);
+}
+
+.messages-container::-webkit-scrollbar {
+    width: 4px;
+}
+
+.messages-container::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.messages-container::-webkit-scrollbar-thumb {
+    background: var(--tg-border-color);
+    border-radius: 2px;
+}
+
+.messages-container::-webkit-scrollbar-thumb:hover {
+    background: var(--tg-text-tertiary);
 }
 
 .messages-wrapper {
     min-height: 100%;
     display: flex;
     flex-direction: column;
+    gap: 2px;
+    padding-bottom: var(--tg-spacing-md);
     padding: 16px 8px 80px;
 }
 
@@ -460,28 +526,34 @@ body {
     margin-left: auto;
 }
 
-/* Message Bubble */
+/* Message Bubble (Telegram точный стиль) */
 .message-bubble {
     background: var(--tg-secondary-bg);
-    border-radius: var(--tg-border-radius-large);
-    border-top-left-radius: 4px;
-    padding: 8px 12px;
+    border-radius: var(--tg-message-radius);
+    padding: 6px 12px 8px 12px;
     position: relative;
     word-wrap: break-word;
     overflow-wrap: break-word;
+    max-width: 100%;
+    box-shadow: var(--tg-shadow-message);
 }
 
 .message.incoming .message-bubble {
     background: var(--tg-secondary-bg);
-    border-top-left-radius: 4px;
-    border-top-right-radius: var(--tg-border-radius-large);
+    border-top-left-radius: var(--tg-message-radius-small);
+    border-top-right-radius: var(--tg-message-radius);
+    border-bottom-left-radius: var(--tg-message-radius);
+    border-bottom-right-radius: var(--tg-message-radius);
 }
 
 .message.outgoing .message-bubble {
     background: var(--tg-blue);
     color: white;
-    border-top-left-radius: var(--tg-border-radius-large);
-    border-top-right-radius: 4px;
+    border-top-left-radius: var(--tg-message-radius);
+    border-top-right-radius: var(--tg-message-radius-small);
+    border-bottom-left-radius: var(--tg-message-radius);
+    border-bottom-right-radius: var(--tg-message-radius);
+    box-shadow: 0 1px 2px rgba(51, 144, 236, 0.3);
 }
 
 /* Message Header */
@@ -494,9 +566,10 @@ body {
 }
 
 .message-sender {
-    font-size: 14px;
-    font-weight: 600;
+    font-size: var(--tg-font-size-sm);
+    font-weight: var(--tg-font-weight-semibold);
     color: var(--tg-text-secondary);
+    margin-right: 6px;
 }
 
 .message.outgoing .message-sender {
@@ -504,26 +577,32 @@ body {
 }
 
 .message-time {
-    font-size: 12px;
+    font-size: var(--tg-font-size-xs);
     color: var(--tg-text-tertiary);
-    opacity: 0.8;
-    margin-left: 8px;
+    opacity: 0.7;
+    margin-left: 6px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    font-weight: var(--tg-font-weight-normal);
 }
 
 .message.outgoing .message-time {
-    color: rgba(255, 255, 255, 0.8);
+    color: rgba(255, 255, 255, 0.7);
 }
 
-/* Message Text */
+/* Message Text (Telegram типографика) */
 .message-text {
-    font-size: 16px;
+    font-size: var(--tg-font-size-base);
     line-height: 1.4;
     color: var(--tg-text-primary);
     word-break: break-word;
+    white-space: pre-wrap;
+    margin: 0;
+    padding: 0;
 }
 
 .message.outgoing .message-text {
-    color: white;
+    color: rgba(255, 255, 255, 0.95);
 }
 
 /* Links in Messages */
@@ -1057,7 +1136,7 @@ body {
     transform: scale(1.2);
 }
 
-/* ===== INPUT AREA ===== */
+/* ===== INPUT AREA (Telegram стиль) ===== */
 .input-area {
     position: fixed;
     bottom: 0;
@@ -1065,9 +1144,16 @@ body {
     right: 0;
     background: var(--tg-bg-color);
     border-top: 1px solid var(--tg-border-color);
-    padding: 8px 16px;
-    padding-bottom: max(8px, env(safe-area-inset-bottom));
+    padding: var(--tg-spacing-sm) var(--tg-spacing-lg);
+    padding-bottom: max(var(--tg-spacing-sm), env(safe-area-inset-bottom));
     z-index: 100;
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
+    background-color: rgba(255, 255, 255, 0.95);
+}
+
+body.dark-theme .input-area {
+    background-color: rgba(33, 33, 33, 0.95);
 }
 
 /* Reply Preview */
@@ -1275,21 +1361,24 @@ body {
     color: var(--tg-text-primary);
 }
 
-/* Input Wrapper */
+/* Input Wrapper (Telegram стиль) */
 .input-wrapper {
     flex: 1;
     background: var(--tg-secondary-bg);
-    border-radius: 20px;
-    padding: 8px 16px;
+    border-radius: 21px;
+    padding: 8px 12px;
     display: flex;
     align-items: center;
-    min-height: 40px;
+    min-height: 36px;
+    max-height: 200px;
     border: 1px solid transparent;
-    transition: border-color var(--tg-transition-fast);
+    transition: all var(--tg-transition-fast);
 }
 
 .input-wrapper:focus-within {
+    background: var(--tg-bg-color);
     border-color: var(--tg-blue);
+    box-shadow: 0 0 0 1px var(--tg-blue);
 }
 
 #message-input {
@@ -1342,8 +1431,8 @@ body {
 }
 
 .btn-send {
-    width: 40px;
-    height: 40px;
+    width: 36px;
+    height: 36px;
     border: none;
     background: var(--tg-blue);
     border-radius: var(--tg-border-radius-circle);
@@ -1354,17 +1443,24 @@ body {
     color: white;
     font-size: 18px;
     flex-shrink: 0;
-    transition: background-color var(--tg-transition-fast);
+    transition: all var(--tg-transition-fast);
+    margin-left: var(--tg-spacing-xs);
 }
 
-.btn-send:hover {
+.btn-send:hover:not(:disabled) {
     background: var(--tg-blue-hover);
+    transform: scale(1.05);
+}
+
+.btn-send:active:not(:disabled) {
+    transform: scale(0.95);
 }
 
 .btn-send:disabled {
     background: var(--tg-text-tertiary);
     cursor: not-allowed;
-    opacity: 0.5;
+    opacity: 0.4;
+    transform: none;
 }
 
 /* ===== EMOJI PICKER ===== */
