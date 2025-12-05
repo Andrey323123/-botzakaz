@@ -32,7 +32,7 @@ flask_logger = logging.getLogger('flask_app')
 
 # ===== КОНФИГУРАЦИЯ SELECTEL S3 =====
 S3_CONFIG = {
-    'endpoint': 'https://s3.selcloud.ru',
+    'endpoint': 'https://s3.ru-3.storage.selcloud.ru',
     'region': 'ru-3',
     'bucket': 'telegram-chat-files',
     'access_key': '25d16365251e45ec9b678de28dafd86b',
