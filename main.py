@@ -202,26 +202,28 @@ def upload_voice_to_s3():
         # Читаем файл
         file_data = file.read()
         
-        # Генерируем уникальное имя файла для голосового
-        unique_filename = f"{uuid.uuid4()}.ogg"
-        filepath = f"uploads/voice/{user_id}/{unique_filename}"
+        # Определяем расширение файла
+        ext = 'webm'
+        if file.filename:
+            ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else 'webm'
         
         # Определяем Content-Type по расширению файла или MIME типу
         content_type = file.content_type or 'audio/webm'
-        if content_type not in ['audio/webm', 'audio/ogg', 'audio/mpeg', 'audio/wav']:
+        if content_type not in ['audio/webm', 'audio/ogg', 'audio/mpeg', 'audio/wav', 'audio/opus']:
             # Определяем по расширению
-            if file.filename:
-                ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else 'webm'
-                content_type_map = {
-                    'webm': 'audio/webm',
-                    'ogg': 'audio/ogg',
-                    'mp3': 'audio/mpeg',
-                    'wav': 'audio/wav',
-                    'm4a': 'audio/m4a'
-                }
-                content_type = content_type_map.get(ext, 'audio/webm')
-            else:
-                content_type = 'audio/webm'
+            content_type_map = {
+                'webm': 'audio/webm',
+                'ogg': 'audio/ogg',
+                'opus': 'audio/ogg',
+                'mp3': 'audio/mpeg',
+                'wav': 'audio/wav',
+                'm4a': 'audio/m4a'
+            }
+            content_type = content_type_map.get(ext, 'audio/webm')
+        
+        # Генерируем уникальное имя файла для голосового
+        unique_filename = f"{uuid.uuid4()}.{ext}"
+        filepath = f"uploads/voice/{user_id}/{unique_filename}"
         
         # Загружаем в S3 с правильным Content-Type для аудио и публичным доступом
         file_url = upload_to_s3(
@@ -874,6 +876,108 @@ def get_sections():
         
     except Exception as e:
         flask_logger.error(f"❌ Ошибка получения разделов: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# ===== CHANNELS ENDPOINTS =====
+@flask_app.route('/api/s3/create-channel', methods=['POST'])
+def create_channel():
+    """Создать канал в S3"""
+    try:
+        data = request.json
+        channel = data
+        
+        s3_path = f"data/channels/{channel['id']}.json"
+        
+        try:
+            s3_client.put_object(
+                Bucket=S3_BUCKET,
+                Key=s3_path,
+                Body=json.dumps(channel, indent=2).encode('utf-8'),
+                ContentType='application/json'
+            )
+            
+            flask_logger.info(f"✅ Канал создан: {channel['id']}")
+            
+            return jsonify({
+                'status': 'success',
+                'channel_id': channel['id'],
+                'message': 'Канал создан'
+            })
+            
+        except Exception as s3_error:
+            flask_logger.error(f"❌ Ошибка сохранения канала в S3: {s3_error}")
+            return jsonify({
+                'status': 'error',
+                'message': f'S3 save error: {str(s3_error)}'
+            }), 500
+        
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка создания канала: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@flask_app.route('/api/s3/get-channels', methods=['GET'])
+def get_channels():
+    """Получить все каналы из S3"""
+    try:
+        channels = {}
+        try:
+            prefix = "data/channels/"
+            response = s3_client.list_objects_v2(Bucket=S3_BUCKET, Prefix=prefix)
+            
+            if 'Contents' in response:
+                for obj in response['Contents']:
+                    if obj['Key'].endswith('.json'):
+                        channel_obj = s3_client.get_object(Bucket=S3_BUCKET, Key=obj['Key'])
+                        channel_data = json.loads(channel_obj['Body'].read().decode('utf-8'))
+                        channels[channel_data['id']] = channel_data
+        except Exception as s3_error:
+            flask_logger.error(f"❌ Ошибка получения каналов из S3: {s3_error}")
+        
+        return jsonify({
+            'status': 'success',
+            'channels': channels
+        })
+        
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка получения каналов: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@flask_app.route('/api/s3/delete-channel', methods=['POST'])
+def delete_channel():
+    """Удалить канал из S3"""
+    try:
+        data = request.json
+        channel_id = data.get('channel_id')
+        user_id = data.get('user_id')
+        
+        if not channel_id or not user_id:
+            return jsonify({'status': 'error', 'message': 'Channel ID and User ID required'}), 400
+        
+        # Проверяем права (только главный админ)
+        if user_id != '8089114323':
+            return jsonify({'status': 'error', 'message': 'Only main admin can delete channels'}), 403
+        
+        s3_path = f"data/channels/{channel_id}.json"
+        
+        try:
+            s3_client.delete_object(Bucket=S3_BUCKET, Key=s3_path)
+            
+            flask_logger.info(f"✅ Канал удален: {channel_id}")
+            
+            return jsonify({
+                'status': 'success',
+                'message': 'Канал удален'
+            })
+            
+        except Exception as s3_error:
+            flask_logger.error(f"❌ Ошибка удаления канала из S3: {s3_error}")
+            return jsonify({
+                'status': 'error',
+                'message': f'S3 delete error: {str(s3_error)}'
+            }), 500
+        
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка удаления канала: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 # Экспортируем app для gunicorn
