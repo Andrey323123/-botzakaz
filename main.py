@@ -71,7 +71,8 @@ def upload_to_s3(file_data, filepath, content_type='application/octet-stream'):
             'Bucket': S3_BUCKET,
             'Key': filepath,
             'Body': file_data,
-            'ContentType': content_type
+            'ContentType': content_type,
+            'ACL': 'public-read'  # Публичный доступ для воспроизведения
         }
         
         # Для аудио/видео файлов добавляем Cache-Control
@@ -205,11 +206,28 @@ def upload_voice_to_s3():
         unique_filename = f"{uuid.uuid4()}.ogg"
         filepath = f"uploads/voice/{user_id}/{unique_filename}"
         
-        # Загружаем в S3 с правильным Content-Type для аудио
+        # Определяем Content-Type по расширению файла или MIME типу
+        content_type = file.content_type or 'audio/webm'
+        if content_type not in ['audio/webm', 'audio/ogg', 'audio/mpeg', 'audio/wav']:
+            # Определяем по расширению
+            if file.filename:
+                ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else 'webm'
+                content_type_map = {
+                    'webm': 'audio/webm',
+                    'ogg': 'audio/ogg',
+                    'mp3': 'audio/mpeg',
+                    'wav': 'audio/wav',
+                    'm4a': 'audio/m4a'
+                }
+                content_type = content_type_map.get(ext, 'audio/webm')
+            else:
+                content_type = 'audio/webm'
+        
+        # Загружаем в S3 с правильным Content-Type для аудио и публичным доступом
         file_url = upload_to_s3(
             file_data,
             filepath,
-            content_type='audio/ogg'  # или 'audio/webm' в зависимости от формата
+            content_type=content_type
         )
         
         # Получаем длительность если передана
