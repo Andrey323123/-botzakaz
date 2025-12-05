@@ -30,7 +30,7 @@ let s3Data = {
 
 // ===== КОНФИГУРАЦИЯ SELECTEL S3 =====
 const S3_CONFIG = {
-    endpoint: 'https://s3.selcloud.ru',
+    endpoint: 'https://s3.ru-3.storage.selcloud.ru',
     region: 'ru-3',
     bucket: 'telegram-chat-files',
     accessKeyId: '25d16365251e45ec9b678de28dafd86b',
