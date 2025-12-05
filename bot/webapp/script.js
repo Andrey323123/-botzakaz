@@ -1521,14 +1521,28 @@ function createMessageElement(message) {
                 const previewUrl = file.previewDataUrl || file.dataUrl || file.url;
                 const fullUrl = file.url || file.dataUrl;
                 
+                // Convert S3 URL to proxy URL if needed
+                let displayUrl = previewUrl;
+                let fullDisplayUrl = fullUrl;
+                
+                if (previewUrl && previewUrl.includes('/telegram-chat-files/')) {
+                    const filepath = previewUrl.split('/telegram-chat-files/')[1];
+                    displayUrl = `/api/s3/download/${filepath}`;
+                }
+                if (fullUrl && fullUrl.includes('/telegram-chat-files/')) {
+                    const filepath = fullUrl.split('/telegram-chat-files/')[1];
+                    fullDisplayUrl = `/api/s3/download/${filepath}`;
+                }
+                
                 return `
                     <div class="message-media">
-                        <img src="${previewUrl}" 
+                        <img src="${displayUrl}" 
                              alt="${escapeHtml(file.name || 'Изображение')}" 
                              class="message-image lazy-image ${file.isGif ? 'gif-image' : ''}"
-                             ${fullUrl && fullUrl !== previewUrl ? `data-full-src="${fullUrl}"` : ''}
+                             ${fullDisplayUrl && fullDisplayUrl !== displayUrl ? `data-full-src="${fullDisplayUrl}"` : ''}
                              loading="lazy"
-                             onclick="showImagePreview('${fullUrl}')">
+                             onclick="showImagePreview('${fullDisplayUrl || displayUrl}')"
+                             onerror="this.onerror=null; this.src='data:image/svg+xml,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'400\\' height=\\'300\\'><rect width=\\'400\\' height=\\'300\\' fill=\\'%23f0f0f0\\'/><text x=\\'200\\' y=\\'150\\' text-anchor=\\'middle\\' fill=\\'%23999\\'>Ошибка загрузки</text></svg>'">
                         ${file.compressed ? '<div class="compression-badge" title="Изображение сжато"><i class="fas fa-compress-alt"></i></div>' : ''}
                         ${file.isGif ? '<div class="gif-badge" title="GIF"><i class="fas fa-film"></i></div>' : ''}
                     </div>
@@ -1923,7 +1937,70 @@ function handleAttachment(type) {
         case 'gif':
             showGifPicker();
             break;
+        case 'avatar':
+            createAvatar();
+            break;
     }
+}
+
+function createAvatar() {
+    // Create canvas for avatar
+    const canvas = document.createElement('canvas');
+    canvas.width = 200;
+    canvas.height = 200;
+    const ctx = canvas.getContext('2d');
+    
+    // Get user color
+    const userColor = stringToColor(currentUserId);
+    const userName = currentUser.first_name || 'User';
+    const initial = userName.charAt(0).toUpperCase();
+    
+    // Draw circle background
+    ctx.fillStyle = userColor;
+    ctx.beginPath();
+    ctx.arc(100, 100, 100, 0, 2 * Math.PI);
+    ctx.fill();
+    
+    // Draw initial
+    ctx.fillStyle = 'white';
+    ctx.font = 'bold 80px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(initial, 100, 100);
+    
+    // Convert to blob
+    canvas.toBlob((blob) => {
+        if (!blob) {
+            showNotification('Ошибка создания аватара', 'error');
+            return;
+        }
+        
+        // Create file info
+        const fileInfo = {
+            id: 'avatar_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+            type: 'photo',
+            file: new File([blob], `avatar_${currentUserId}.png`, { type: 'image/png' }),
+            name: `avatar_${currentUserId}.png`,
+            size: blob.size,
+            isLocal: true,
+            blob: blob,
+            previewDataUrl: canvas.toDataURL('image/png'),
+            dataUrl: canvas.toDataURL('image/png')
+        };
+        
+        attachedFiles.push(fileInfo);
+        showFilePreview(fileInfo);
+        
+        // Close attach menu
+        const menu = document.getElementById('attach-menu');
+        if (menu) menu.style.display = 'none';
+        
+        // Enable send button
+        const sendBtn = document.getElementById('btn-send');
+        if (sendBtn) sendBtn.disabled = false;
+        
+        showNotification('Аватар создан', 'success');
+    }, 'image/png', 1.0);
 }
 
 // ===== STICKERS & GIFS =====
@@ -2797,10 +2874,23 @@ function playVoiceMessage(url, element) {
     // Устанавливаем URL после настройки обработчиков
     let audioUrl = url;
     
-    // Если URL из S3, проверяем доступность
-    if (audioUrl.includes('s3.ru-3.storage.selcloud.ru')) {
+    // Convert S3 URL to proxy URL if needed
+    if (audioUrl.includes('/telegram-chat-files/')) {
+        const filepath = audioUrl.split('/telegram-chat-files/')[1];
+        audioUrl = `/api/s3/audio/${filepath}`;
         audio.crossOrigin = null;
-        console.log('🎵 Воспроизведение из S3:', audioUrl);
+        console.log('🎵 Воспроизведение через прокси:', audioUrl);
+    } else if (audioUrl.includes('telegram-chat-files')) {
+        const filepath = audioUrl.split('telegram-chat-files/')[1];
+        audioUrl = `/api/s3/audio/${filepath}`;
+        audio.crossOrigin = null;
+        console.log('🎵 Воспроизведение через прокси:', audioUrl);
+    } else if (audioUrl.startsWith('blob:')) {
+        audio.crossOrigin = null;
+        console.log('🎵 Воспроизведение blob:', audioUrl);
+    } else if (audioUrl.startsWith('/api/')) {
+        audio.crossOrigin = null;
+        console.log('🎵 Воспроизведение через прокси:', audioUrl);
     } else if (!audioUrl.startsWith('http')) {
         audioUrl = audioUrl.startsWith('/') ? window.location.origin + audioUrl : window.location.origin + '/' + audioUrl;
         console.log('🎵 Воспроизведение локального файла:', audioUrl);
@@ -2980,8 +3070,28 @@ function initVoiceSeek(element) {
 function downloadVoiceMessage(event, url) {
     event.stopPropagation();
     if (url) {
+        // Extract filepath from S3 URL
+        let filepath = '';
+        if (url.includes('/telegram-chat-files/')) {
+            filepath = url.split('/telegram-chat-files/')[1];
+        } else if (url.includes('telegram-chat-files')) {
+            filepath = url.split('telegram-chat-files/')[1];
+        } else {
+            // If it's a blob URL or different format, try direct download
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `voice_${Date.now()}.ogg`;
+            link.target = '_blank';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            return;
+        }
+        
+        // Use download endpoint
+        const downloadUrl = `/api/s3/download/${filepath}`;
         const link = document.createElement('a');
-        link.href = url;
+        link.href = downloadUrl;
         link.download = `voice_${Date.now()}.ogg`;
         link.target = '_blank';
         document.body.appendChild(link);
@@ -4970,8 +5080,21 @@ function copyToClipboard(text) {
 }
 
 function downloadFile(url, filename) {
+    // Extract filepath from S3 URL
+    let filepath = '';
+    if (url.includes('/telegram-chat-files/')) {
+        filepath = url.split('/telegram-chat-files/')[1];
+    } else if (url.includes(S3_BUCKET)) {
+        filepath = url.split(`${S3_BUCKET}/`)[1];
+    } else {
+        // If it's already a relative path or different format, use as is
+        filepath = url;
+    }
+    
+    // Use download endpoint
+    const downloadUrl = `/api/s3/download/${filepath}`;
     const link = document.createElement('a');
-    link.href = url;
+    link.href = downloadUrl;
     link.download = filename || 'file';
     link.target = '_blank';
     document.body.appendChild(link);
