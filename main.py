@@ -249,6 +249,9 @@ def save_message_to_s3():
                 ContentType='application/json'
             )
             
+            # Также обновляем пользователя в users.json
+            update_user_in_s3(user_id, data.get('user', {}))
+            
             return jsonify({
                 'status': 'success',
                 'message_id': message_id,
@@ -265,6 +268,130 @@ def save_message_to_s3():
         
     except Exception as e:
         flask_logger.error(f"❌ Ошибка сохранения сообщения: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+def update_user_in_s3(user_id, user_data):
+    """Обновить информацию о пользователе в S3"""
+    try:
+        if not user_data:
+            return
+        
+        s3_path = "data/users.json"
+        
+        # Загружаем существующих пользователей
+        existing_users = {}
+        try:
+            obj = s3_client.get_object(Bucket=S3_BUCKET, Key=s3_path)
+            existing_users = json.loads(obj['Body'].read().decode('utf-8'))
+        except:
+            existing_users = {'users': {}}
+        
+        if 'users' not in existing_users:
+            existing_users['users'] = {}
+        
+        # Обновляем пользователя
+        user_id_str = str(user_id)
+        if user_id_str not in existing_users['users']:
+            existing_users['users'][user_id_str] = {}
+        
+        # Обновляем данные пользователя
+        existing_users['users'][user_id_str].update({
+            'id': user_id_str,
+            'first_name': user_data.get('first_name', ''),
+            'last_name': user_data.get('last_name', ''),
+            'username': user_data.get('username', ''),
+            'is_online': True,
+            'last_seen': datetime.now().isoformat(),
+            'updated_at': datetime.now().isoformat()
+        })
+        
+        # Сохраняем обратно
+        s3_client.put_object(
+            Bucket=S3_BUCKET,
+            Key=s3_path,
+            Body=json.dumps(existing_users, indent=2).encode('utf-8'),
+            ContentType='application/json'
+        )
+        
+        flask_logger.info(f"✅ Пользователь {user_id} обновлен в S3")
+        
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка обновления пользователя в S3: {e}")
+
+@flask_app.route('/api/s3/get-messages', methods=['GET'])
+def get_messages_from_s3():
+    """Получить сообщения из S3"""
+    try:
+        section = request.args.get('section', 'main')
+        s3_path = f"data/messages_{section}.json"
+        
+        try:
+            obj = s3_client.get_object(Bucket=S3_BUCKET, Key=s3_path)
+            data = json.loads(obj['Body'].read().decode('utf-8'))
+            return jsonify({
+                'status': 'success',
+                'messages': data.get('messages', []),
+                'section': section,
+                'total': len(data.get('messages', []))
+            })
+        except Exception as e:
+            # Если файл не найден, возвращаем пустой список
+            return jsonify({
+                'status': 'success',
+                'messages': [],
+                'section': section,
+                'total': 0,
+                'message': 'Нет сообщений в этом разделе'
+            })
+        
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка получения сообщений: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@flask_app.route('/api/s3/get-users', methods=['GET'])
+def get_users_from_s3():
+    """Получить список пользователей из S3"""
+    try:
+        s3_path = "data/users.json"
+        
+        try:
+            obj = s3_client.get_object(Bucket=S3_BUCKET, Key=s3_path)
+            data = json.loads(obj['Body'].read().decode('utf-8'))
+            users = data.get('users', {})
+            
+            # Фильтруем активных пользователей (были онлайн последние 5 минут)
+            active_users = {}
+            five_minutes_ago = datetime.now().timestamp() - 300
+            
+            for user_id, user_data in users.items():
+                last_seen_str = user_data.get('last_seen', '')
+                if last_seen_str:
+                    try:
+                        last_seen_dt = datetime.fromisoformat(last_seen_str.replace('Z', '+00:00'))
+                        last_seen_ts = last_seen_dt.timestamp()
+                        user_data['is_online'] = last_seen_ts > five_minutes_ago
+                    except:
+                        user_data['is_online'] = False
+                
+                active_users[user_id] = user_data
+            
+            return jsonify({
+                'status': 'success',
+                'users': active_users,
+                'total': len(active_users)
+            })
+            
+        except Exception as e:
+            # Если файл не найден, возвращаем пустой список
+            return jsonify({
+                'status': 'success',
+                'users': {},
+                'total': 0,
+                'message': 'Нет пользователей'
+            })
+        
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка получения пользователей: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @flask_app.route('/api/s3/check', methods=['GET'])
@@ -413,6 +540,8 @@ async def cmd_debug(message: types.Message):
 • Проверка S3: `/api/s3/check`
 • Загрузка файлов: `/api/s3/proxy-upload`
 • Сохранение сообщений: `/api/s3/save-message`
+• Получение сообщений: `/api/s3/get-messages`
+• Получение пользователей: `/api/s3/get-users`
 """
         
         await message.answer(debug_info, parse_mode='Markdown')
