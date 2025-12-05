@@ -1,6 +1,5 @@
 // Telegram Mini App - Complete Full Featured Chat
-// Все features: video, voice messages, reactions, channels, admin roles
-// Добавлено: сжатие, ленивая загрузка, превью для фото и видео
+// ИСПРАВЛЕННАЯ ВЕРСИЯ: решена проблема с исчезающими сообщениями
 
 // ===== GLOBAL VARIABLES =====
 let tg = null;
@@ -26,15 +25,15 @@ let s3Status = 'Не проверено';
 let lastUpdateTime = 0;
 let isSyncing = false;
 let syncInterval = null;
-let observer = null; // Для ленивой загрузки
-let imagePreviews = {}; // Кэш превью изображений
-let unreadCount = 0; // Количество непрочитанных сообщений
-let lastReadMessageId = null; // ID последнего прочитанного сообщения
-let currentSection = 'main'; // Текущий раздел/топик
-let sections = {}; // Разделы/топики
-let pinnedMessagesList = []; // Закрепленные сообщения
-let mutedUsers = new Set(); // Заглушенные пользователи
-let bannedUsers = new Set(); // Забаненные пользователи
+let observer = null;
+let imagePreviews = {};
+let unreadCount = 0;
+let lastReadMessageId = null;
+let currentSection = 'main';
+let sections = {};
+let pinnedMessagesList = [];
+let mutedUsers = new Set();
+let bannedUsers = new Set();
 
 // Data structure
 let appData = {
@@ -82,10 +81,11 @@ const API_CONFIG = {
     baseUrl: window.location.origin,
     endpoints: {
         checkS3: '/api/s3/check',
-        uploadFile: '/api/s3/upload',
+        uploadFile: '/api/s3/proxy-upload',
         uploadVoice: '/api/s3/upload-voice',
         uploadVideo: '/api/s3/upload-video',
         saveMessage: '/api/s3/save-message',
+        saveMessageAtomic: '/api/s3/save-message-atomic', // НОВЫЙ ENDPOINT
         getMessages: '/api/s3/get-messages',
         getUsers: '/api/s3/get-users',
         updateUser: '/api/s3/update-user',
@@ -95,8 +95,8 @@ const API_CONFIG = {
         updateRole: '/api/s3/update-role',
         health: '/health'
     },
-    maxFileSize: 50 * 1024 * 1024, // 50MB
-    maxVideoSize: 100 * 1024 * 1024, // 100MB
+    maxFileSize: 50 * 1024 * 1024,
+    maxVideoSize: 100 * 1024 * 1024,
     allowedTypes: {
         image: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic'],
         video: ['video/mp4', 'video/mov', 'video/avi', 'video/webm', 'video/quicktime'],
@@ -116,7 +116,7 @@ const EMOJI_CATEGORIES = {
     travel: ['🚗', '🚕', '🚙', '🚌', '🚎', '🏎', '🚓', '🚑', '🚒', '🚐', '🛻', '🚚', '🚛', '🚜', '🦯', '🦽', '🦼', '🛴', '🚲', '🛵', '🏍', '🛺', '🚨', '🚔', '🚍', '🚘', '🚖', '🚡', '🚠', '🚟'],
     objects: ['💡', '🔦', '🏮', '🪔', '📔', '📕', '📖', '📗', '📘', '📙', '📚', '📓', '📒', '📃', '📜', '📄', '📰', '🗞', '📑', '🔖', '🏷', '💰', '🪙', '💴', '💵', '💶', '💷', '💸', '🪙', '💳'],
     symbols: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❤️‍🔥', '❤️‍🩹', '❣️', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '☮️', '✝️', '☪️', '🕉', '☸️', '✡️', '🔯', '🕎', '☯️'],
-    flags: ['🏳️', '🏴', '🏁', '🚩', '🏳️‍🌈', '🏳️‍⚧️', '🏴‍☠️', '🇦🇫', '🇦🇽', '🇦🇱', '🇩🇿', '🇦🇸', '🇦🇩', '🇦🇴', '🇦🇮', '🇦🇶', '🇦🇬', '🇦🇷', '🇦🇲', '🇦🇼', '🇦🇼', '🇦🇹', '🇦🇿', '🇧🇸', '🇧🇭', '🇧🇩', '🇧🇧', '🇧🇾', '🇧🇪', '🇧🇿']
+    flags: ['🏳️', '🏴', '🏁', '🚩', '🏳️‍🌈', '🏳️‍⚧️', '🏴‍☠️', '🇦🇫', '🇦🇽', '🇦🇱', '🇩🇿', '🇦🇸', '🇦🇩', '🇦🇼', '🇦🇼', '🇦🇹', '🇦🇿', '🇧🇸', '🇧🇭', '🇧🇩', '🇧🇧', '🇧🇾', '🇧🇪', '🇧🇿']
 };
 
 // Available reactions (Telegram-like)
@@ -182,7 +182,7 @@ async function initApp() {
         updateOnlineCount();
         
         // Update online count periodically
-        setInterval(updateOnlineCount, 30000); // Every 30 seconds
+        setInterval(updateOnlineCount, 30000);
         
         // Hide loading screen
         hideLoadingScreen();
@@ -224,10 +224,7 @@ function initTelegram() {
                 if (currentUser.photo_url) {
                     currentUser.photo_url = currentUser.photo_url;
                 } else {
-                    // Generate photo_url from Telegram API
-                    // Format: https://api.telegram.org/file/bot<token>/photos/<file_path>
-                    // For now, use a placeholder that will be replaced with actual photo
-                    currentUser.photo_url = null; // Will be fetched if needed
+                    currentUser.photo_url = null;
                 }
                 
                 // Set main admin
@@ -1157,362 +1154,14 @@ function closeReactionPicker() {
     document.removeEventListener('click', closeReactionPicker);
 }
 
-// ===== COMPRESSION FUNCTIONS =====
-async function compressImage(file, quality = 0.7, maxWidth = 1600) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const img = new Image();
-            img.onload = function() {
-                // Calculate new dimensions
-                let width = img.width;
-                let height = img.height;
-                
-                // More aggressive compression: reduce size more
-                if (width > maxWidth) {
-                    height = Math.round((height * maxWidth) / width);
-                    width = maxWidth;
-                }
-                
-                // For very large images, reduce quality further
-                let finalQuality = quality;
-                if (file.size > 5 * 1024 * 1024) { // > 5MB
-                    finalQuality = 0.6;
-                } else if (file.size > 2 * 1024 * 1024) { // > 2MB
-                    finalQuality = 0.65;
-                }
-                
-                // Create canvas for compression
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
-                
-                const ctx = canvas.getContext('2d');
-                
-                // Improve image quality during resize
-                ctx.imageSmoothingEnabled = true;
-                ctx.imageSmoothingQuality = 'high';
-                
-                // Apply compression
-                ctx.drawImage(img, 0, 0, width, height);
-                
-                // Get compressed data URL
-                const compressedDataUrl = canvas.toDataURL('image/jpeg', finalQuality);
-                
-                // Convert back to Blob with optimized quality
-                canvas.toBlob(function(blob) {
-                    resolve({
-                        blob: blob,
-                        dataUrl: compressedDataUrl,
-                        width: width,
-                        height: height,
-                        size: blob.size,
-                        compressed: true,
-                        originalSize: file.size
-                    });
-                }, 'image/jpeg', finalQuality);
-            };
-            
-            img.onerror = reject;
-            img.src = e.target.result;
-        };
-        
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-    });
-}
-
-async function compressVideo(file, maxBitrate = 1500000, maxWidth = 1280) {
-    return new Promise((resolve, reject) => {
-        // Create video element to get metadata
-        const video = document.createElement('video');
-        video.preload = 'metadata';
-        video.muted = true; // Mute for processing
-        
-        video.onloadedmetadata = async function() {
-            const originalWidth = video.videoWidth;
-            const originalHeight = video.videoHeight;
-            const duration = video.duration;
-            const originalSize = file.size;
-            
-            // Calculate new dimensions while maintaining aspect ratio
-            let width = originalWidth;
-            let height = originalHeight;
-            
-            if (width > maxWidth) {
-                height = Math.round((height * maxWidth) / width);
-                width = maxWidth;
-            }
-            
-            // Try to compress video using MediaRecorder API if file is large
-            if (originalSize > 10 * 1024 * 1024 && MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
-                try {
-                    const compressedBlob = await compressVideoWithMediaRecorder(video, width, height, maxBitrate);
-                    if (compressedBlob && compressedBlob.size < originalSize * 0.9) {
-                        // Only use compressed version if it's significantly smaller
-                        resolve({
-                            originalWidth,
-                            originalHeight,
-                            targetWidth: width,
-                            targetHeight: height,
-                            duration,
-                            compressed: true,
-                            compressedBlob: compressedBlob,
-                            size: compressedBlob.size,
-                            originalSize: originalSize,
-                            maxBitrate
-                        });
-                        return;
-                    }
-                } catch (error) {
-                    console.warn('Видео сжатие через MediaRecorder не удалось:', error);
-                }
-            }
-            
-            // Fallback: return metadata without compression
-            resolve({
-                originalWidth,
-                originalHeight,
-                targetWidth: width,
-                targetHeight: height,
-                duration,
-                compressed: false,
-                size: originalSize,
-                maxBitrate
-            });
-        };
-        
-        video.onerror = reject;
-        video.src = URL.createObjectURL(file);
-    });
-}
-
-// Helper function to compress video using MediaRecorder
-async function compressVideoWithMediaRecorder(videoElement, targetWidth, targetHeight, maxBitrate) {
-    return new Promise((resolve, reject) => {
-        const canvas = document.createElement('canvas');
-        canvas.width = targetWidth;
-        canvas.height = targetHeight;
-        const ctx = canvas.getContext('2d');
-        
-        const stream = canvas.captureStream(30); // 30 fps
-        const options = {
-            mimeType: 'video/webm;codecs=vp9',
-            videoBitsPerSecond: maxBitrate
-        };
-        
-        if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-            options.mimeType = 'video/webm;codecs=vp8';
-            if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-                options.mimeType = 'video/webm';
-            }
-        }
-        
-        const mediaRecorder = new MediaRecorder(stream, options);
-        const chunks = [];
-        
-        mediaRecorder.ondataavailable = (e) => {
-            if (e.data.size > 0) {
-                chunks.push(e.data);
-            }
-        };
-        
-        mediaRecorder.onstop = () => {
-            const blob = new Blob(chunks, { type: options.mimeType });
-            resolve(blob);
-        };
-        
-        mediaRecorder.onerror = reject;
-        
-        // Draw video frames to canvas
-        videoElement.currentTime = 0;
-        videoElement.play();
-        
-        const drawFrame = () => {
-            if (videoElement.ended || videoElement.paused) {
-                mediaRecorder.stop();
-                return;
-            }
-            
-            ctx.drawImage(videoElement, 0, 0, targetWidth, targetHeight);
-            requestAnimationFrame(drawFrame);
-        };
-        
-        videoElement.onplay = () => {
-            mediaRecorder.start();
-            drawFrame();
-        };
-        
-        // Stop after duration
-        setTimeout(() => {
-            if (mediaRecorder.state !== 'inactive') {
-                videoElement.pause();
-                mediaRecorder.stop();
-            }
-        }, videoElement.duration * 1000 + 1000);
-    });
-}
-
-// ===== LAZY LOADING FUNCTIONS =====
-function initLazyLoading() {
-    if ('IntersectionObserver' in window) {
-        observer = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    const img = entry.target;
-                    
-                    // Load image
-                    if (img.dataset.src) {
-                        img.src = img.dataset.src;
-                        img.removeAttribute('data-src');
-                        
-                        // Load full quality image after preview
-                        if (img.dataset.fullSrc) {
-                            setTimeout(() => {
-                                const fullImg = new Image();
-                                fullImg.onload = function() {
-                                    img.src = this.src;
-                                };
-                                fullImg.src = img.dataset.fullSrc;
-                            }, 1000);
-                        }
-                    }
-                    
-                    // Load video thumbnail
-                    if (img.dataset.poster) {
-                        img.src = img.dataset.poster;
-                        img.removeAttribute('data-poster');
-                    }
-                    
-                    observer.unobserve(img);
-                }
-            });
-        }, {
-            root: null,
-            rootMargin: '50px',
-            threshold: 0.1
-        });
-        
-        // Start observing images
-        setTimeout(() => {
-            document.querySelectorAll('img[data-src], img[data-poster]').forEach(img => {
-                observer.observe(img);
-            });
-        }, 100);
-    }
-}
-
-function observeImage(img) {
-    if (observer && (img.dataset.src || img.dataset.poster)) {
-        observer.observe(img);
-    }
-}
-
-// ===== PREVIEW FUNCTIONS =====
-async function createImagePreview(file, maxWidth = 400, quality = 0.6) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const img = new Image();
-            img.onload = function() {
-                let width = img.width;
-                let height = img.height;
-                
-                if (width > maxWidth) {
-                    height = Math.round((height * maxWidth) / width);
-                    width = maxWidth;
-                }
-                
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
-                
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, width, height);
-                
-                const previewDataUrl = canvas.toDataURL('image/jpeg', quality);
-                
-                resolve({
-                    dataUrl: previewDataUrl,
-                    width: width,
-                    height: height,
-                    isPreview: true
-                });
-            };
-            
-            img.onerror = reject;
-            img.src = e.target.result;
-        };
-        
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-    });
-}
-
-async function createVideoPreview(file, maxWidth = 400) {
-    return new Promise((resolve, reject) => {
-        const video = document.createElement('video');
-        video.preload = 'metadata';
-        
-        video.onloadedmetadata = function() {
-            this.currentTime = Math.min(1, this.duration * 0.1); // Capture at 10% of duration
-            
-            this.onseeked = function() {
-                const canvas = document.createElement('canvas');
-                let width = this.videoWidth;
-                let height = this.videoHeight;
-                
-                if (width > maxWidth) {
-                    height = Math.round((height * maxWidth) / width);
-                    width = maxWidth;
-                }
-                
-                canvas.width = width;
-                canvas.height = height;
-                
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(this, 0, 0, width, height);
-                
-                const previewDataUrl = canvas.toDataURL('image/jpeg', 0.7);
-                
-                resolve({
-                    dataUrl: previewDataUrl,
-                    width: width,
-                    height: height,
-                    duration: this.duration,
-                    isPreview: true
-                });
-                
-                URL.revokeObjectURL(this.src);
-            };
-        };
-        
-        video.onerror = reject;
-        video.src = URL.createObjectURL(file);
-    });
-}
-
-// ===== MESSAGE CREATION AND DISPLAY =====
+// ===== КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: ОТПРАВКА СООБЩЕНИЙ =====
 async function sendMessage() {
-    // Check if user is banned
+    // Check if user is banned or muted
     if (bannedUsers.has(currentUserId)) {
         showNotification('Вы забанены и не можете отправлять сообщения', 'error');
         return;
     }
     
-    // Check if user is muted
-    if (mutedUsers.has(currentUserId)) {
-        showNotification('Вы заглушены и не можете отправлять сообщения', 'error');
-        return;
-    }
-    
-    // Check if user is banned
-    if (bannedUsers.has(currentUserId)) {
-        showNotification('Вы забанены и не можете отправлять сообщения', 'error');
-        return;
-    }
-    
-    // Check if user is muted
     if (mutedUsers.has(currentUserId)) {
         showNotification('Вы заглушены и не можете отправлять сообщения', 'error');
         return;
@@ -1532,8 +1181,10 @@ async function sendMessage() {
         return;
     }
     
+    // === ИСПРАВЛЕНИЕ: Генерируем ОДИН ID для всего жизненного цикла ===
     const messageId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
     
+    // === ИСПРАВЛЕНИЕ: Создаем объект сообщения с ВСЕМИ данными ===
     const message = {
         id: messageId,
         user_id: currentUserId,
@@ -1541,73 +1192,103 @@ async function sendMessage() {
         content: text,
         timestamp: Date.now(),
         channel: currentChannel,
-        files: [...attachedFiles],
+        section: currentSection,
+        files: [],
         reactions: {},
         reply_to: replyMessageId,
         edited: false,
         deleted: false,
-        is_local: true
+        is_local: true,
+        status: 'sending'
     };
     
-    // Upload files if any (with compression)
+    // === ИСПРАВЛЕНИЕ: Загружаем файлы ПЕРЕД добавлением в UI ===
+    let uploadedFiles = [];
+    
     if (attachedFiles.length > 0) {
-        for (let fileInfo of attachedFiles) {
-            if (fileInfo.isLocal && fileInfo.file) {
-                try {
-                    let fileToUpload = fileInfo.file;
-                    
-                    // Apply compression for images
-                    if (fileInfo.type === 'photo' && fileInfo.compressedBlob) {
-                        fileToUpload = fileInfo.compressedBlob;
-                        fileInfo.size = fileInfo.compressedBlob.size;
-                        console.log(`🖼️ Изображение сжато: ${formatFileSize(fileInfo.originalSize)} → ${formatFileSize(fileInfo.size)}`);
-                    }
-                    
-                    // Apply compression for videos
-                    if (fileInfo.type === 'video' && fileInfo.compressedBlob) {
-                        fileToUpload = fileInfo.compressedBlob;
-                        fileInfo.size = fileInfo.compressedBlob.size;
-                        console.log(`🎥 Видео сжато: ${formatFileSize(fileInfo.originalSize)} → ${formatFileSize(fileInfo.size)}`);
-                    } else if (fileInfo.type === 'video' && fileInfo.compressionOptions) {
-                        console.log(`🎥 Видео будет сжато до: ${fileInfo.compressionOptions.targetWidth}px`);
-                    }
-                    
-                    // Use specific endpoint for voice messages
-                    let uploadedFile;
-                    if (fileInfo.type === 'voice') {
-                        uploadedFile = await uploadVoiceMessage(fileToUpload, fileInfo.duration || 0);
-                    } else {
-                        uploadedFile = await uploadFile(fileToUpload, fileInfo.type);
-                    }
-                    if (uploadedFile) {
-                        fileInfo.url = uploadedFile.url;
-                        fileInfo.s3_key = uploadedFile.s3_key;
-                        fileInfo.isLocal = false;
-                        fileInfo.uploaded = true;
+        try {
+            showUploadProgress(true, 'Загрузка файлов...');
+            
+            // Загружаем файлы последовательно
+            for (let i = 0; i < attachedFiles.length; i++) {
+                const fileInfo = attachedFiles[i];
+                
+                if (fileInfo.isLocal && fileInfo.file) {
+                    try {
+                        let fileToUpload = fileInfo.file;
                         
-                        // Update duration for voice messages
-                        if (fileInfo.type === 'voice' && uploadedFile.duration) {
-                            fileInfo.duration = uploadedFile.duration;
+                        // Определяем тип загрузки
+                        let uploadEndpoint = API_CONFIG.endpoints.uploadFile;
+                        let formData = new FormData();
+                        
+                        if (fileInfo.type === 'voice') {
+                            uploadEndpoint = API_CONFIG.endpoints.uploadVoice;
+                            formData.append('duration', fileInfo.duration || 0);
+                        } else if (fileInfo.type === 'video') {
+                            uploadEndpoint = API_CONFIG.endpoints.uploadVideo;
                         }
                         
-                        // Store preview in cache
-                        if (fileInfo.previewDataUrl) {
-                            imagePreviews[uploadedFile.url] = {
-                                preview: fileInfo.previewDataUrl,
-                                full: uploadedFile.url,
-                                timestamp: Date.now()
+                        formData.append('file', fileToUpload);
+                        formData.append('user_id', currentUserId);
+                        formData.append('type', fileInfo.type);
+                        
+                        // Загружаем файл
+                        const response = await fetch(uploadEndpoint, {
+                            method: 'POST',
+                            body: formData
+                        });
+                        
+                        if (!response.ok) {
+                            throw new Error(`Ошибка загрузки файла: ${response.status}`);
+                        }
+                        
+                        const uploadResult = await response.json();
+                        
+                        if (uploadResult.status === 'success') {
+                            const uploadedFile = {
+                                url: uploadResult.file_url,
+                                name: uploadResult.filename || fileInfo.name,
+                                type: fileInfo.type,
+                                size: uploadResult.size || fileInfo.size,
+                                mimeType: fileInfo.mimeType
                             };
+                            
+                            if (fileInfo.type === 'voice' && uploadResult.duration) {
+                                uploadedFile.duration = uploadResult.duration;
+                            }
+                            
+                            uploadedFiles.push(uploadedFile);
+                            
+                            console.log(`✅ Файл загружен: ${fileInfo.name}`);
+                        } else {
+                            throw new Error(uploadResult.message || 'Ошибка загрузки файла');
                         }
+                        
+                    } catch (fileError) {
+                        console.error('❌ Ошибка загрузки файла:', fileError);
+                        // Продолжаем с другими файлами
                     }
-                } catch (error) {
-                    console.error('Ошибка загрузки файла:', error);
-                    fileInfo.uploaded = false;
+                } else if (fileInfo.url) {
+                    // Файл уже загружен
+                    uploadedFiles.push(fileInfo);
                 }
             }
+            
+            showUploadProgress(false);
+            
+        } catch (error) {
+            console.error('❌ Ошибка загрузки файлов:', error);
+            showUploadProgress(false);
+            showNotification('Ошибка загрузки файлов', 'error');
+            return;
         }
     }
     
-    // Add message to local cache immediately
+    // === ИСПРАВЛЕНИЕ: Обновляем сообщение с загруженными файлами ===
+    message.files = uploadedFiles;
+    message.status = 'sent';
+    
+    // === ИСПРАВЛЕНИЕ: Добавляем в локальный кэш ===
     if (!appData.channels[currentChannel]) {
         appData.channels[currentChannel] = {
             id: currentChannel,
@@ -1620,51 +1301,157 @@ async function sendMessage() {
     
     appData.channels[currentChannel].messages.push(message);
     
-    // Update UI immediately
+    // === ИСПРАВЛЕНИЕ: Обновляем UI немедленно ===
     appendMessage(message);
     
-    // Clear input
+    // === ИСПРАВЛЕНИЕ: Очищаем поля ===
     input.value = '';
     input.style.height = 'auto';
-    
-    // Clear attachments
     clearAttachments();
-    
-    // Cancel reply if any
     cancelReply();
     
-    // Scroll to bottom
+    // === ИСПРАВЛЕНИЕ: Сохраняем в S3 (атомарно) ===
+    try {
+        // Используем новый атомарный endpoint
+        const response = await fetch(API_CONFIG.endpoints.saveMessageAtomic, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(message)
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            if (result.status === 'success') {
+                // Обновляем статус сообщения
+                updateMessageStatus(messageId, 'delivered');
+                showNotification('Сообщение отправлено', 'success');
+            } else {
+                throw new Error(result.message || 'Ошибка сохранения');
+            }
+        } else {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+    } catch (saveError) {
+        console.error('❌ Ошибка сохранения сообщения:', saveError);
+        updateMessageStatus(messageId, 'error');
+        showNotification('Сообщение сохранено локально', 'warning');
+        
+        // Пробуем старый метод как запасной вариант
+        try {
+            const fallbackResponse = await fetch(API_CONFIG.endpoints.saveMessage, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(message)
+            });
+            
+            if (fallbackResponse.ok) {
+                updateMessageStatus(messageId, 'delivered');
+            }
+        } catch (fallbackError) {
+            console.error('❌ Ошибка запасного сохранения:', fallbackError);
+        }
+    }
+    
+    // Прокрутка вниз и звук
     scrollToBottom();
-    
-    // Show notification
-    showNotification('Сообщение отправлено', 'success');
-    
-    // Play sound if enabled
     playSound('send');
     
-    // Save to S3 in background - ensure all data is included
-    const messageToSave = {
-        ...message,
-        id: messageId,
-        channel: currentChannel,
-        section: currentSection || 'main',
-        reactions: message.reactions || {},
-        files: message.files || [],
-        timestamp: message.timestamp || Date.now(),
-        user: currentUser
-    };
+    console.log('📤 Сообщение отправлено:', message);
+}
+
+// Альтернативный метод: отправка с файлами в одной операции
+async function sendMessageWithFiles() {
+    const input = document.getElementById('message-input');
+    const text = input.value.trim();
     
-    saveMessageToS3(messageToSave).then(success => {
-        if (success) {
-            message.is_local = false;
-            updateMessageStatus(messageId, 'sent');
-        } else {
-            updateMessageStatus(messageId, 'error');
-            showNotification('Ошибка сохранения в облако', 'error');
+    if (text === '' && attachedFiles.length === 0) return;
+    
+    const messageId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    
+    // Создаем FormData для отправки файлов и данных сообщения
+    const formData = new FormData();
+    
+    // Добавляем файлы
+    attachedFiles.forEach((fileInfo, index) => {
+        if (fileInfo.file) {
+            formData.append(`file_${index}`, fileInfo.file);
+            formData.append(`file_${index}_type`, fileInfo.type);
         }
     });
     
-    console.log('📤 Сообщение отправлено:', message);
+    // Добавляем данные сообщения
+    const messageData = {
+        id: messageId,
+        user_id: currentUserId,
+        user: currentUser,
+        content: text,
+        timestamp: Date.now(),
+        channel: currentChannel,
+        section: currentSection,
+        reply_to: replyMessageId,
+        edited: false,
+        deleted: false
+    };
+    
+    formData.append('message_data', JSON.stringify(messageData));
+    formData.append('user_id', currentUserId);
+    
+    // Создаем временное сообщение для UI
+    const tempMessage = {
+        ...messageData,
+        files: attachedFiles.map(f => ({
+            name: f.name,
+            type: f.type,
+            size: f.size,
+            isLocal: true
+        })),
+        is_local: true,
+        status: 'sending'
+    };
+    
+    // Добавляем в UI
+    if (!appData.channels[currentChannel]) {
+        appData.channels[currentChannel] = {
+            id: currentChannel,
+            name: currentChannel,
+            type: 'public',
+            messages: [],
+            pinned: []
+        };
+    }
+    
+    appData.channels[currentChannel].messages.push(tempMessage);
+    appendMessage(tempMessage);
+    
+    // Очищаем поля
+    input.value = '';
+    input.style.height = 'auto';
+    clearAttachments();
+    cancelReply();
+    
+    // Отправляем на сервер
+    try {
+        const response = await fetch('/api/s3/save-message-with-files', {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            updateMessageStatus(messageId, 'delivered');
+            showNotification('Сообщение отправлено', 'success');
+        } else {
+            throw new Error('Ошибка сохранения');
+        }
+    } catch (error) {
+        console.error('❌ Ошибка отправки:', error);
+        updateMessageStatus(messageId, 'error');
+        showNotification('Ошибка отправки', 'error');
+    }
+    
+    scrollToBottom();
+    playSound('send');
 }
 
 function createMessageElement(message) {
@@ -1677,11 +1464,6 @@ function createMessageElement(message) {
         hour: '2-digit', 
         minute: '2-digit' 
     });
-    
-    // Create message element
-    const messageElement = document.createElement('div');
-    messageElement.className = `message ${isOutgoing ? 'outgoing' : 'incoming'}`;
-    messageElement.dataset.messageId = message.id;
     
     // Get user avatar (photo_url from Telegram or fallback to initial)
     const userAvatar = getUserAvatar(user, userColor, userName);
@@ -1802,7 +1584,6 @@ function createMessageElement(message) {
                 `;
                 
                 // Инициализируем перемотку после добавления в DOM
-                // Используем requestAnimationFrame для гарантии что элемент в DOM
                 requestAnimationFrame(() => {
                     const messageElement = document.querySelector(`[data-message-id="${message.id}"]`);
                     if (messageElement) {
@@ -1871,10 +1652,16 @@ function createMessageElement(message) {
         let statusIcon = 'fa-check';
         if (message.is_local) {
             statusIcon = 'fa-clock';
-        } else if (message.delivered) {
+        } else if (message.status === 'sending') {
+            statusIcon = 'fa-clock';
+        } else if (message.status === 'sent') {
+            statusIcon = 'fa-check';
+        } else if (message.status === 'delivered') {
             statusIcon = 'fa-check-double';
-        } else if (message.read) {
+        } else if (message.status === 'read') {
             statusIcon = 'fa-check-double text-primary';
+        } else if (message.status === 'error') {
+            statusIcon = 'fa-exclamation-circle text-error';
         }
         
         statusHTML = `
@@ -1884,6 +1671,11 @@ function createMessageElement(message) {
             </div>
         `;
     }
+    
+    // Create message element
+    const messageElement = document.createElement('div');
+    messageElement.className = `message ${isOutgoing ? 'outgoing' : 'incoming'}`;
+    messageElement.dataset.messageId = message.id;
     
     // Assemble message
     messageElement.innerHTML = `
@@ -2311,13 +2103,13 @@ function selectGif(gifUrl) {
     // Add GIF as attachment - treat as photo to ensure it's saved
     const gifInfo = {
         id: 'gif_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
-        type: 'photo', // Treat as photo to ensure upload and save
+        type: 'photo',
         url: gifUrl,
         name: 'GIF',
         size: 0,
         isLocal: false,
         uploaded: true,
-        isGif: true // Mark as GIF for display
+        isGif: true
     };
     
     attachedFiles.push(gifInfo);
@@ -3005,26 +2797,22 @@ function playVoiceMessage(url, element) {
     });
     
     // Устанавливаем URL после настройки обработчиков
-    // Проверяем и исправляем URL если нужно
     let audioUrl = url;
     
     // Если URL из S3, проверяем доступность
     if (audioUrl.includes('s3.ru-3.storage.selcloud.ru')) {
-        // URL из S3 - используем как есть, но без crossOrigin для прямого доступа
         audio.crossOrigin = null;
         console.log('🎵 Воспроизведение из S3:', audioUrl);
     } else if (!audioUrl.startsWith('http')) {
-        // Если относительный URL, делаем абсолютным
         audioUrl = audioUrl.startsWith('/') ? window.location.origin + audioUrl : window.location.origin + '/' + audioUrl;
         console.log('🎵 Воспроизведение локального файла:', audioUrl);
     } else {
         console.log('🎵 Воспроизведение внешнего URL:', audioUrl);
     }
     
-    // Пробуем загрузить
     audio.src = audioUrl;
     
-    // Дополнительная проверка доступности файла
+    // Проверка доступности файла
     fetch(audioUrl, { method: 'HEAD' })
         .then(response => {
             if (!response.ok) {
@@ -3037,7 +2825,6 @@ function playVoiceMessage(url, element) {
         })
         .catch(err => {
             console.error('❌ Ошибка проверки файла:', err);
-            // Не показываем ошибку, так как может быть CORS блокировка HEAD запроса
         });
     
     // Останавливаем все другие плееры
@@ -3094,7 +2881,6 @@ function playVoiceMessage(url, element) {
         console.error('❌ Ошибка воспроизведения:', err, url);
         if (playButton) playButton.className = 'fas fa-play';
         
-        // Пробуем альтернативный способ
         if (err.name === 'NotAllowedError') {
             showNotification('Разрешите воспроизведение аудио в браузере', 'warning');
         } else if (err.name === 'NotSupportedError') {
@@ -5158,11 +4944,9 @@ function playSound(type) {
     const soundsEnabled = localStorage.getItem('sounds_enabled') !== 'false';
     if (!soundsEnabled) return;
     
-    // Simple sound implementation
     const audio = document.getElementById('audio-player');
     if (!audio) return;
     
-    // In a real app, you would have different sound files
     audio.currentTime = 0;
     audio.play().catch(e => console.log('Audio play failed:', e));
 }
@@ -5194,18 +4978,15 @@ function downloadFile(url, filename) {
 }
 
 function showMoreMenu() {
-    // Implementation for more menu
     showNotification('Меню', 'info');
 }
 
 function closeAllMenus(e) {
-    // Close all open menus except if clicked inside
     const menus = ['attach-menu', 'emoji-picker', 'message-actions-menu', 'forward-menu'];
     
     menus.forEach(menuId => {
         const menu = document.getElementById(menuId);
         if (menu && menu.style.display !== 'none') {
-            // Check if click was inside the menu or its trigger button
             const triggerId = menuId === 'attach-menu' ? 'btn-attach' : 
                             menuId === 'emoji-picker' ? 'btn-emoji' : null;
             const trigger = triggerId ? document.getElementById(triggerId) : null;
@@ -5255,47 +5036,6 @@ function toggleReaction(messageId, emoji) {
     }
 }
 
-function updateMessageReactions(messageId) {
-    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
-    if (!messageElement) return;
-    
-    const message = findMessageById(messageId);
-    if (!message) return;
-    
-    let reactionsContainer = messageElement.querySelector('.message-reactions');
-    
-    if (message.reactions && Object.keys(message.reactions).length > 0) {
-        if (!reactionsContainer) {
-            reactionsContainer = document.createElement('div');
-            reactionsContainer.className = 'message-reactions';
-            const messageContent = messageElement.querySelector('.message-content');
-            if (messageContent) {
-                messageContent.appendChild(reactionsContainer);
-            }
-        }
-        
-        const reactions = Object.entries(message.reactions)
-            .map(([emoji, users]) => {
-                const count = users.length;
-                const hasReacted = users.includes(currentUserId);
-                return `
-                    <div class="reaction ${hasReacted ? 'user-reacted' : ''}" 
-                         data-emoji="${emoji}"
-                         onclick="toggleReaction('${messageId}', '${emoji}')">
-                        <span class="reaction-emoji">${emoji}</span>
-                        <span class="reaction-count">${count}</span>
-                    </div>
-                `;
-            })
-            .join('');
-        
-        reactionsContainer.innerHTML = reactions;
-    } else {
-        if (reactionsContainer) {
-            reactionsContainer.remove();
-        }
-    }
-
 function updateMessageReactions(message) {
     const messageElement = document.querySelector(`[data-message-id="${message.id}"]`);
     if (!messageElement) return;
@@ -5337,6 +5077,324 @@ function updateReactionsHTML(container, message) {
         .join('');
     
     container.innerHTML = reactionsHTML;
+}
+
+// ===== COMPRESSION FUNCTIONS =====
+async function compressImage(file, quality = 0.7, maxWidth = 1600) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const img = new Image();
+            img.onload = function() {
+                let width = img.width;
+                let height = img.height;
+                
+                if (width > maxWidth) {
+                    height = Math.round((height * maxWidth) / width);
+                    width = maxWidth;
+                }
+                
+                let finalQuality = quality;
+                if (file.size > 5 * 1024 * 1024) {
+                    finalQuality = 0.6;
+                } else if (file.size > 2 * 1024 * 1024) {
+                    finalQuality = 0.65;
+                }
+                
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                
+                const ctx = canvas.getContext('2d');
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                
+                ctx.drawImage(img, 0, 0, width, height);
+                
+                const compressedDataUrl = canvas.toDataURL('image/jpeg', finalQuality);
+                
+                canvas.toBlob(function(blob) {
+                    resolve({
+                        blob: blob,
+                        dataUrl: compressedDataUrl,
+                        width: width,
+                        height: height,
+                        size: blob.size,
+                        compressed: true,
+                        originalSize: file.size
+                    });
+                }, 'image/jpeg', finalQuality);
+            };
+            
+            img.onerror = reject;
+            img.src = e.target.result;
+        };
+        
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+async function compressVideo(file, maxBitrate = 1500000, maxWidth = 1280) {
+    return new Promise((resolve, reject) => {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        video.muted = true;
+        
+        video.onloadedmetadata = async function() {
+            const originalWidth = video.videoWidth;
+            const originalHeight = video.videoHeight;
+            const duration = video.duration;
+            const originalSize = file.size;
+            
+            let width = originalWidth;
+            let height = originalHeight;
+            
+            if (width > maxWidth) {
+                height = Math.round((height * maxWidth) / width);
+                width = maxWidth;
+            }
+            
+            if (originalSize > 10 * 1024 * 1024 && MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
+                try {
+                    const compressedBlob = await compressVideoWithMediaRecorder(video, width, height, maxBitrate);
+                    if (compressedBlob && compressedBlob.size < originalSize * 0.9) {
+                        resolve({
+                            originalWidth,
+                            originalHeight,
+                            targetWidth: width,
+                            targetHeight: height,
+                            duration,
+                            compressed: true,
+                            compressedBlob: compressedBlob,
+                            size: compressedBlob.size,
+                            originalSize: originalSize,
+                            maxBitrate
+                        });
+                        return;
+                    }
+                } catch (error) {
+                    console.warn('Видео сжатие через MediaRecorder не удалось:', error);
+                }
+            }
+            
+            resolve({
+                originalWidth,
+                originalHeight,
+                targetWidth: width,
+                targetHeight: height,
+                duration,
+                compressed: false,
+                size: originalSize,
+                maxBitrate
+            });
+        };
+        
+        video.onerror = reject;
+        video.src = URL.createObjectURL(file);
+    });
+}
+
+async function compressVideoWithMediaRecorder(videoElement, targetWidth, targetHeight, maxBitrate) {
+    return new Promise((resolve, reject) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext('2d');
+        
+        const stream = canvas.captureStream(30);
+        const options = {
+            mimeType: 'video/webm;codecs=vp9',
+            videoBitsPerSecond: maxBitrate
+        };
+        
+        if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+            options.mimeType = 'video/webm;codecs=vp8';
+            if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                options.mimeType = 'video/webm';
+            }
+        }
+        
+        const mediaRecorder = new MediaRecorder(stream, options);
+        const chunks = [];
+        
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) {
+                chunks.push(e.data);
+            }
+        };
+        
+        mediaRecorder.onstop = () => {
+            const blob = new Blob(chunks, { type: options.mimeType });
+            resolve(blob);
+        };
+        
+        mediaRecorder.onerror = reject;
+        
+        videoElement.currentTime = 0;
+        videoElement.play();
+        
+        const drawFrame = () => {
+            if (videoElement.ended || videoElement.paused) {
+                mediaRecorder.stop();
+                return;
+            }
+            
+            ctx.drawImage(videoElement, 0, 0, targetWidth, targetHeight);
+            requestAnimationFrame(drawFrame);
+        };
+        
+        videoElement.onplay = () => {
+            mediaRecorder.start();
+            drawFrame();
+        };
+        
+        setTimeout(() => {
+            if (mediaRecorder.state !== 'inactive') {
+                videoElement.pause();
+                mediaRecorder.stop();
+            }
+        }, videoElement.duration * 1000 + 1000);
+    });
+}
+
+// ===== LAZY LOADING FUNCTIONS =====
+function initLazyLoading() {
+    if ('IntersectionObserver' in window) {
+        observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const img = entry.target;
+                    
+                    // Load image
+                    if (img.dataset.src) {
+                        img.src = img.dataset.src;
+                        img.removeAttribute('data-src');
+                        
+                        // Load full quality image after preview
+                        if (img.dataset.fullSrc) {
+                            setTimeout(() => {
+                                const fullImg = new Image();
+                                fullImg.onload = function() {
+                                    img.src = this.src;
+                                };
+                                fullImg.src = img.dataset.fullSrc;
+                            }, 1000);
+                        }
+                    }
+                    
+                    // Load video thumbnail
+                    if (img.dataset.poster) {
+                        img.src = img.dataset.poster;
+                        img.removeAttribute('data-poster');
+                    }
+                    
+                    observer.unobserve(img);
+                }
+            });
+        }, {
+            root: null,
+            rootMargin: '50px',
+            threshold: 0.1
+        });
+        
+        // Start observing images
+        setTimeout(() => {
+            document.querySelectorAll('img[data-src], img[data-poster]').forEach(img => {
+                observer.observe(img);
+            });
+        }, 100);
+    }
+}
+
+function observeImage(img) {
+    if (observer && (img.dataset.src || img.dataset.poster)) {
+        observer.observe(img);
+    }
+}
+
+// ===== PREVIEW FUNCTIONS =====
+async function createImagePreview(file, maxWidth = 400, quality = 0.6) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const img = new Image();
+            img.onload = function() {
+                let width = img.width;
+                let height = img.height;
+                
+                if (width > maxWidth) {
+                    height = Math.round((height * maxWidth) / width);
+                    width = maxWidth;
+                }
+                
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+                
+                const previewDataUrl = canvas.toDataURL('image/jpeg', quality);
+                
+                resolve({
+                    dataUrl: previewDataUrl,
+                    width: width,
+                    height: height,
+                    isPreview: true
+                });
+            };
+            
+            img.onerror = reject;
+            img.src = e.target.result;
+        };
+        
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+async function createVideoPreview(file, maxWidth = 400) {
+    return new Promise((resolve, reject) => {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        
+        video.onloadedmetadata = function() {
+            this.currentTime = Math.min(1, this.duration * 0.1);
+            
+            this.onseeked = function() {
+                const canvas = document.createElement('canvas');
+                let width = this.videoWidth;
+                let height = this.videoHeight;
+                
+                if (width > maxWidth) {
+                    height = Math.round((height * maxWidth) / width);
+                    width = maxWidth;
+                }
+                
+                canvas.width = width;
+                canvas.height = height;
+                
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(this, 0, 0, width, height);
+                
+                const previewDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+                
+                resolve({
+                    dataUrl: previewDataUrl,
+                    width: width,
+                    height: height,
+                    duration: this.duration,
+                    isPreview: true
+                });
+                
+                URL.revokeObjectURL(this.src);
+            };
+        };
+        
+        video.onerror = reject;
+        video.src = URL.createObjectURL(file);
+    });
 }
 
 // ===== POLL FUNCTIONS =====
@@ -5502,7 +5560,6 @@ function createPollElement(message) {
 }
 
 function voteInPoll(pollId, optionId) {
-    // Find message with this poll
     const channel = appData.channels[currentChannel];
     if (!channel) return;
     
@@ -5511,34 +5568,28 @@ function voteInPoll(pollId, optionId) {
     
     const poll = message.poll;
     
-    // Check if poll is closed
     if (poll.is_closed) {
         showNotification('Опрос закрыт', 'error');
         return;
     }
     
-    // Check if user already voted for this option
     const option = poll.options.find(opt => opt.id === optionId);
     if (!option) return;
     
     const hasVoted = option.voters.includes(currentUserId);
     
     if (poll.multiple) {
-        // Multiple choice
         if (hasVoted) {
-            // Remove vote
             const index = option.voters.indexOf(currentUserId);
             option.voters.splice(index, 1);
             option.votes--;
             poll.total_votes--;
         } else {
-            // Add vote
             option.voters.push(currentUserId);
             option.votes++;
             poll.total_votes++;
         }
     } else {
-        // Single choice - remove from all other options first
         poll.options.forEach(opt => {
             const index = opt.voters.indexOf(currentUserId);
             if (index > -1) {
@@ -5548,7 +5599,6 @@ function voteInPoll(pollId, optionId) {
             }
         });
         
-        // Add to selected option
         if (!hasVoted) {
             option.voters.push(currentUserId);
             option.votes++;
@@ -5556,10 +5606,7 @@ function voteInPoll(pollId, optionId) {
         }
     }
     
-    // Update in S3
     updateMessageInS3(message);
-    
-    // Update UI
     updatePollDisplay(message);
     
     showNotification('Голос учтен', 'success');
@@ -5578,11 +5625,7 @@ function closePoll(pollId) {
     if (!message || !message.poll) return;
     
     message.poll.is_closed = true;
-    
-    // Update in S3
     updateMessageInS3(message);
-    
-    // Update UI
     updatePollDisplay(message);
     
     showNotification('Опрос закрыт', 'success');
@@ -5609,240 +5652,24 @@ window.handleMessageAction = handleMessageAction;
 window.addQuickReaction = addQuickReaction;
 window.downloadVoiceMessage = downloadVoiceMessage;
 window.scrollToBottom = scrollToBottom;
+window.sendMessageWithFiles = sendMessageWithFiles;
 
 // ===== INITIALIZATION =====
 document.addEventListener('DOMContentLoaded', function() {
-    // Set viewport height
     adjustViewport();
     
-    // Start app
-    // Инициализация приложения, голосового плеера, реакций, кнопки скролла и меню сообщений
+    window.addEventListener('resize', adjustViewport);
+    window.addEventListener('orientationchange', adjustViewport);
+    
+    document.addEventListener('touchmove', function(e) {
+        if (e.scale !== 1) e.preventDefault();
+    }, { passive: false });
+    
     setTimeout(() => {
         if (typeof initApp === 'function') {
             initApp();
         }
-
-        // 🎧 Плеер голосовых сообщений
-        document.querySelectorAll('.voice-message').forEach(vm => {
-            let audio = vm.querySelector('audio');
-            let playBtn = vm.querySelector('.voice-play');
-            let progress = vm.querySelector('.voice-progress');
-            let downloadBtn = vm.querySelector('.voice-download');
-
-            // Кнопка Play/Pause
-            if (playBtn && audio) {
-                playBtn.addEventListener('click', e => {
-                    if (audio.paused) {
-                        audio.play();
-                    } else {
-                        audio.pause();
-                    }
-                });
-                audio.addEventListener('play', () => {
-                    playBtn.classList.add('playing');
-                });
-                audio.addEventListener('pause', () => {
-                    playBtn.classList.remove('playing');
-                });
-            }
-
-            // Прогресс-бар с перемоткой
-            if (progress && audio) {
-                audio.addEventListener('timeupdate', () => {
-                    progress.value = audio.currentTime / audio.duration || 0;
-                });
-                progress.addEventListener('input', () => {
-                    audio.currentTime = progress.value * audio.duration;
-                });
-            }
-
-            // Скачивание голосовых
-            if (downloadBtn && audio) {
-                downloadBtn.addEventListener('click', e => {
-                    e.stopPropagation();
-                    const src = audio.src;
-                    const a = document.createElement('a');
-                    a.href = src;
-                    a.download = src.split('/').pop();
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                });
-            }
-
-            // Автовоспроизведение при выборе (если надо)
-            vm.addEventListener('focus', () => {
-                if(audio) audio.play();
-            });
-        });
-
-        // 📋 Контекстное меню для сообщений
-        document.querySelectorAll('.message').forEach(msgEl => {
-            // Показывать меню при правом клике или долгом касании
-            ['contextmenu', 'touchstart'].forEach(evtName => {
-                let timer;
-                msgEl.addEventListener(evtName, e => {
-                    e.preventDefault();
-                    if (evtName === 'touchstart') {
-                        timer = setTimeout(() => showMessageContextMenu(e, msgEl), 400);
-                        msgEl.addEventListener('touchend', () => clearTimeout(timer), {once: true});
-                    } else {
-                        showMessageContextMenu(e, msgEl);
-                    }
-                });
-            });
-        });
-
-        function showMessageContextMenu(e, msgEl) {
-            // Проверка прав
-            const canEdit = isAdmin || msgEl.dataset.userId === appData.user.id;
-            let menu = document.createElement('div');
-            menu.className = 'custom-context-menu';
-            const actions = [
-                {name: "Ответить", handler: () => replyToMessage(msgEl)},
-                {name: "Переслать", handler: () => forwardMessage(msgEl)},
-                {name: "Копировать", handler: () => copyMessageText(msgEl)}
-            ];
-            if (canEdit) {
-                actions.push(
-                    {name: "Закрепить", handler: () => pinMessage(msgEl)},
-                    {name: "Выделить", handler: () => highlightMessage(msgEl)},
-                    {name: "Удалить", handler: () => deleteMessage(msgEl)}
-                );
-            }
-            actions.forEach(a => {
-                let item = document.createElement('div');
-                item.className = 'context-menu-item';
-                item.textContent = a.name;
-                item.addEventListener('click', e => {
-                    a.handler();
-                    document.body.removeChild(menu);
-                });
-                menu.appendChild(item);
-            });
-            menu.style.top = `${(e.touches?.[0]?.clientY || e.clientY) + 2}px`;
-            menu.style.left = `${(e.touches?.[0]?.clientX || e.clientX) + 2}px`;
-            document.body.appendChild(menu);
-            function hide() {
-                if (document.body.contains(menu)) document.body.removeChild(menu);
-            }
-            setTimeout(() => {
-                document.addEventListener('click', hide, {once:true});
-                document.addEventListener('touchstart', hide, {once:true});
-            }, 0);
-        }
-
-        // 😊 Реакции
-        document.querySelectorAll('.message').forEach(msgEl => {
-            // Показывать смайлик при наведении
-            let reactBtn = msgEl.querySelector('.react-btn');
-            if (!reactBtn) {
-                reactBtn = document.createElement('div');
-                reactBtn.className = 'react-btn';
-                reactBtn.title = 'Добавить реакцию';
-                reactBtn.innerHTML = '😊';
-                msgEl.appendChild(reactBtn);
-            }
-            msgEl.addEventListener('mouseenter', () => reactBtn.style.display = 'block');
-            msgEl.addEventListener('mouseleave', () => reactBtn.style.display = 'none');
-
-            // Быстрый выбор из 8 эмодзи
-            let emojiPicker = msgEl.querySelector('.msg-emoji-picker');
-            if (!emojiPicker) {
-                emojiPicker = document.createElement('div');
-                emojiPicker.className = 'msg-emoji-picker';
-                '😀😂😍😮😢😡👍🔥'.split('').forEach(e => {
-                    const emojiBtn = document.createElement('span');
-                    emojiBtn.textContent = e;
-                    emojiBtn.className = 'msg-emoji-btn';
-                    emojiBtn.addEventListener('click', () => {
-                        addReactionToMessage(msgEl, e);
-                        emojiPicker.style.display = 'none';
-                    });
-                    emojiPicker.appendChild(emojiBtn);
-                });
-                emojiPicker.style.display = 'none';
-                msgEl.appendChild(emojiPicker);
-            }
-            reactBtn.addEventListener('click', () => {
-                if (emojiPicker.style.display === 'none') emojiPicker.style.display = 'flex';
-                else emojiPicker.style.display = 'none';
-            });
-        });
-
-        function addReactionToMessage(msgEl, emoji) {
-            // Тут должна быть логика для обработки и отображения реакции + выделение своей
-            let reacts = msgEl.querySelector('.message-reactions');
-            if (!reacts) {
-                reacts = document.createElement('div');
-                reacts.className = 'message-reactions';
-                msgEl.appendChild(reacts);
-            }
-            let emojiEl = Array.from(reacts.children).find(el => el.textContent.includes(emoji));
-            if (!emojiEl) {
-                emojiEl = document.createElement('span');
-                emojiEl.className = 'reaction';
-                emojiEl.textContent = `${emoji} 1`;
-                emojiEl.classList.add('mine');
-                reacts.appendChild(emojiEl);
-            } else {
-                // Увеличить счетчик и выделить свою реакцию
-                let count = parseInt(emojiEl.textContent.replace(emoji, '').trim()) || 0;
-                emojiEl.textContent = `${emoji} ${count+1}`;
-                emojiEl.classList.add('mine');
-            }
-        }
-
-        // ⬇️ Кнопка скролла вниз
-        let scrollBtn = document.querySelector('.scroll-down-btn');
-        if (!scrollBtn) {
-            scrollBtn = document.createElement('button');
-            scrollBtn.className = 'scroll-down-btn';
-            scrollBtn.title = 'В конец';
-            scrollBtn.innerHTML = '⬇️';
-            Object.assign(scrollBtn.style, {
-                position: 'fixed',
-                right: '36px',
-                bottom: '90px',
-                zIndex: 99,
-                display: 'none',
-                borderRadius: '50%',
-                background: 'var(--scroll-btn-bg, #333)',
-                color: 'var(--scroll-btn-color, #fff)',
-                boxShadow: '0 2px 8px rgba(0,0,0,.14)',
-                transition: 'opacity 0.4s'
-            });
-            document.body.appendChild(scrollBtn);
-        }
-
-        function checkScrollButton() {
-            const sc = document.querySelector('.message-list, .chat-history, .messages');
-            if (sc && sc.scrollTop < sc.scrollHeight - sc.clientHeight - 300) {
-                scrollBtn.style.display = 'block';
-                scrollBtn.style.opacity = '1';
-            } else {
-                scrollBtn.style.opacity = '0';
-                setTimeout(() => scrollBtn.style.display = 'none', 400);
-            }
-        }
-        const msgList = document.querySelector('.message-list, .chat-history, .messages');
-        if (msgList) {
-            msgList.addEventListener('scroll', checkScrollButton);
-            checkScrollButton();
-        }
-        scrollBtn.addEventListener('click', () => {
-            const sc = document.querySelector('.message-list, .chat-history, .messages');
-            if (sc) {
-                sc.scrollTo({top: sc.scrollHeight, behavior: 'smooth'});
-            }
-        });
-
-        // Тёмная тема для кнопки (в зависимости от фона документа)
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-            scrollBtn.style.background = '#222';
-            scrollBtn.style.color = '#fff';
-        }
-    }, 100);
+    }, 500);
 });
 
 if (document.readyState === 'complete') {
@@ -5851,5 +5678,4 @@ if (document.readyState === 'complete') {
             initApp();
         }
     }, 100);
-}
 }
