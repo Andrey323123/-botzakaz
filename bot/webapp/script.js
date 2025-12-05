@@ -398,6 +398,25 @@ function initUI() {
         });
     });
     
+    // Кнопка скролла вниз
+    const btnScrollDown = document.getElementById('btn-scroll-down');
+    if (btnScrollDown) {
+        btnScrollDown.addEventListener('click', scrollToBottom);
+        initScrollButton();
+    }
+    
+    // Инициализация контекстного меню
+    document.addEventListener('contextmenu', function(e) {
+        const messageElement = e.target.closest('.message');
+        if (messageElement) {
+            e.preventDefault();
+            const messageId = messageElement.dataset.messageId;
+            if (messageId) {
+                showMessageActionsMenu(messageId, e.clientX, e.clientY);
+            }
+        }
+    });
+    
     // Settings toggles
     const themeSwitch = document.getElementById('theme-switch');
     const notificationsSwitch = document.getElementById('notifications-switch');
@@ -595,12 +614,23 @@ function initMessageActions() {
             
             if (e.target.closest('.voice-play-btn')) {
                 // Voice message play
+                e.stopPropagation();
                 const voiceMessage = e.target.closest('.voice-message');
                 if (voiceMessage) {
                     const audioUrl = voiceMessage.dataset.audioUrl;
                     if (audioUrl) {
                         playVoiceMessage(audioUrl, voiceMessage);
                     }
+                }
+                return;
+            }
+            
+            // Перемотка голосового сообщения
+            if (e.target.closest('.voice-waveform') || e.target.closest('.voice-waveform-container')) {
+                e.stopPropagation();
+                const voiceMessage = e.target.closest('.voice-message');
+                if (voiceMessage) {
+                    seekVoiceMessage(voiceMessage, e);
                 }
                 return;
             }
@@ -741,29 +771,72 @@ function closeMessageActionsMenu() {
 }
 
 function handleMessageAction(action, messageId) {
-    const message = findMessageById(messageId);
+    const msgId = messageId || currentMessageId;
+    const message = findMessageById(msgId);
     if (!message) return;
     
     switch(action) {
         case 'reply':
-            setReplyMessage(messageId);
+            setReplyMessage(msgId);
             break;
         case 'edit':
-            editMessagePrompt(messageId);
+            editMessagePrompt(msgId);
             break;
         case 'forward':
-            showForwardMenu(messageId);
+            showForwardMenu(msgId);
             break;
         case 'pin':
-            pinMessage(messageId);
+            pinMessage(msgId);
             break;
         case 'copy':
-            copyMessageText(messageId);
+            copyMessageText(msgId);
+            break;
+        case 'select':
+            selectMessage(msgId);
             break;
         case 'delete':
-            deleteMessageConfirm(messageId);
+            deleteMessageConfirm(msgId);
             break;
     }
+}
+
+// Выделение сообщения
+let selectedMessages = new Set();
+function selectMessage(messageId) {
+    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (!messageElement) return;
+    
+    if (selectedMessages.has(messageId)) {
+        selectedMessages.delete(messageId);
+        messageElement.classList.remove('selected');
+    } else {
+        selectedMessages.add(messageId);
+        messageElement.classList.add('selected');
+        
+        // Автовоспроизведение голосового сообщения при выборе
+        const voiceMessage = messageElement.querySelector('.voice-message');
+        if (voiceMessage && voiceMessage.dataset.audioUrl) {
+            playVoiceMessage(voiceMessage.dataset.audioUrl, voiceMessage);
+        }
+    }
+    
+    updateSelectionUI();
+}
+
+function updateSelectionUI() {
+    // Можно добавить UI для множественного выбора
+    if (selectedMessages.size > 0) {
+        console.log(`Выбрано сообщений: ${selectedMessages.size}`);
+    }
+}
+
+function clearSelection() {
+    selectedMessages.forEach(msgId => {
+        const element = document.querySelector(`[data-message-id="${msgId}"]`);
+        if (element) element.classList.remove('selected');
+    });
+    selectedMessages.clear();
+    updateSelectionUI();
 }
 
 function setReplyMessage(messageId) {
@@ -1374,14 +1447,22 @@ function createMessageElement(message) {
                 `;
             } else if (file.type === 'voice') {
                 return `
-                    <div class="voice-message" data-audio-url="${file.url || ''}">
+                    <div class="voice-message" data-audio-url="${file.url || ''}" data-message-id="${message.id}" data-duration="${file.duration || 0}">
                         <button class="voice-play-btn">
                             <i class="fas fa-play"></i>
                         </button>
-                        <div class="voice-waveform">
-                            <div class="voice-progress" style="width: 0%"></div>
+                        <div class="voice-waveform-container">
+                            <div class="voice-waveform">
+                                <div class="voice-progress" style="width: 0%"></div>
+                            </div>
+                            <div class="voice-current-time">0:00</div>
                         </div>
                         <div class="voice-duration">${formatDuration(file.duration)}</div>
+                        ${file.url ? `
+                            <button class="voice-download-btn" onclick="downloadVoiceMessage(event, '${file.url}')" title="Скачать">
+                                <i class="fas fa-download"></i>
+                            </button>
+                        ` : ''}
                     </div>
                 `;
             } else {
@@ -1500,7 +1581,74 @@ function createMessageElement(message) {
         });
     }
     
+    // Добавляем кнопку реакций при наведении
+    addReactionButtonToMessage(messageElement, message.id);
+    
     return messageElement;
+}
+
+// Добавление кнопки реакций при наведении на сообщение
+function addReactionButtonToMessage(messageElement, messageId) {
+    // Проверяем, не добавлена ли уже кнопка
+    if (messageElement.querySelector('.message-reaction-btn')) return;
+    
+    const reactionBtn = document.createElement('button');
+    reactionBtn.className = 'message-reaction-btn';
+    reactionBtn.innerHTML = '<i class="far fa-smile"></i>';
+    reactionBtn.title = 'Добавить реакцию';
+    reactionBtn.onclick = (e) => {
+        e.stopPropagation();
+        showQuickReactionsMenu(messageId, reactionBtn);
+    };
+    
+    messageElement.appendChild(reactionBtn);
+    
+    // Показываем кнопку при наведении
+    messageElement.addEventListener('mouseenter', function() {
+        reactionBtn.style.opacity = '1';
+        reactionBtn.style.pointerEvents = 'auto';
+    });
+    
+    messageElement.addEventListener('mouseleave', function() {
+        reactionBtn.style.opacity = '0';
+        reactionBtn.style.pointerEvents = 'none';
+    });
+}
+
+// Показать меню быстрых реакций
+function showQuickReactionsMenu(messageId, button) {
+    const menu = document.getElementById('quick-reactions-menu');
+    if (!menu) return;
+    
+    const rect = button.getBoundingClientRect();
+    menu.style.left = `${rect.left - 150}px`;
+    menu.style.top = `${rect.top - 50}px`;
+    menu.style.display = 'flex';
+    menu.dataset.messageId = messageId;
+    
+    // Закрыть при клике вне меню
+    setTimeout(() => {
+        const closeMenu = (e) => {
+            if (!menu.contains(e.target) && !button.contains(e.target)) {
+                menu.style.display = 'none';
+                document.removeEventListener('click', closeMenu);
+            }
+        };
+        document.addEventListener('click', closeMenu);
+    }, 10);
+}
+
+// Добавить быструю реакцию
+function addQuickReaction(emoji) {
+    const menu = document.getElementById('quick-reactions-menu');
+    if (!menu) return;
+    
+    const messageId = menu.dataset.messageId;
+    if (messageId) {
+        toggleReaction(messageId, emoji);
+    }
+    
+    menu.style.display = 'none';
 }
 
 function appendMessage(message) {
@@ -2044,38 +2192,132 @@ async function sendVoiceMessage() {
     }
 }
 
+// Глобальный объект для хранения активных аудио плееров
+let activeVoicePlayers = {};
+
 function playVoiceMessage(url, element) {
+    const messageId = element.dataset.messageId;
+    
+    // Если уже есть активный плеер для этого сообщения, используем его
+    if (activeVoicePlayers[messageId]) {
+        const audio = activeVoicePlayers[messageId].audio;
+        const playButton = element.querySelector('.voice-play-btn i');
+        const progressBar = element.querySelector('.voice-progress');
+        const currentTimeEl = element.querySelector('.voice-current-time');
+        
+        if (audio.paused) {
+            audio.play();
+            playButton.className = 'fas fa-pause';
+        } else {
+            audio.pause();
+            playButton.className = 'fas fa-play';
+        }
+        return;
+    }
+    
+    // Создаем новый аудио плеер
     const audio = new Audio(url);
     const playButton = element.querySelector('.voice-play-btn i');
     const progressBar = element.querySelector('.voice-progress');
+    const currentTimeEl = element.querySelector('.voice-current-time');
+    const duration = parseFloat(element.dataset.duration) || 0;
     
-    playButton.className = 'fas fa-pause';
-    
-    audio.addEventListener('timeupdate', () => {
-        const progress = (audio.currentTime / audio.duration) * 100;
-        if (progressBar) {
-            progressBar.style.width = `${progress}%`;
+    // Останавливаем все другие плееры
+    Object.values(activeVoicePlayers).forEach(player => {
+        if (player.audio && !player.audio.paused) {
+            player.audio.pause();
+            const oldButton = player.element.querySelector('.voice-play-btn i');
+            if (oldButton) oldButton.className = 'fas fa-play';
+            const oldProgress = player.element.querySelector('.voice-progress');
+            if (oldProgress) oldProgress.style.width = '0%';
+            const oldTime = player.element.querySelector('.voice-current-time');
+            if (oldTime) oldTime.textContent = '0:00';
         }
     });
     
+    // Сохраняем плеер
+    activeVoicePlayers[messageId] = { audio, element };
+    
+    playButton.className = 'fas fa-pause';
+    
+    // Обновление прогресса
+    audio.addEventListener('timeupdate', () => {
+        const progress = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
+        if (progressBar) {
+            progressBar.style.width = `${progress}%`;
+        }
+        if (currentTimeEl) {
+            currentTimeEl.textContent = formatDuration(audio.currentTime);
+        }
+    });
+    
+    // Обработка окончания
     audio.addEventListener('ended', () => {
         playButton.className = 'fas fa-play';
         if (progressBar) {
             progressBar.style.width = '0%';
         }
+        if (currentTimeEl) {
+            currentTimeEl.textContent = '0:00';
+        }
+        delete activeVoicePlayers[messageId];
     });
     
+    // Обработка паузы
     audio.addEventListener('pause', () => {
         playButton.className = 'fas fa-play';
     });
     
-    if (audio.paused) {
-        audio.play();
-    } else {
-        audio.pause();
-        if (progressBar) {
-            progressBar.style.width = '0%';
-        }
+    // Обработка начала воспроизведения
+    audio.addEventListener('play', () => {
+        playButton.className = 'fas fa-pause';
+    });
+    
+    // Воспроизведение
+    audio.play().catch(err => {
+        console.error('Ошибка воспроизведения:', err);
+        playButton.className = 'fas fa-play';
+    });
+}
+
+// Перемотка голосового сообщения
+function seekVoiceMessage(element, event) {
+    const messageId = element.dataset.messageId;
+    const player = activeVoicePlayers[messageId];
+    
+    if (!player || !player.audio) return;
+    
+    const waveform = element.querySelector('.voice-waveform');
+    if (!waveform) return;
+    
+    const rect = waveform.getBoundingClientRect();
+    const clickX = event.clientX - rect.left;
+    const percentage = Math.max(0, Math.min(100, (clickX / rect.width) * 100));
+    
+    if (player.audio.duration) {
+        player.audio.currentTime = (percentage / 100) * player.audio.duration;
+    }
+}
+
+// Скачивание голосового сообщения
+function downloadVoiceMessage(event, url) {
+    event.stopPropagation();
+    if (url) {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `voice_${Date.now()}.ogg`;
+        link.click();
+    }
+}
+
+// Автовоспроизведение при выборе сообщения
+function autoPlayVoiceOnSelect(messageId) {
+    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (!messageElement) return;
+    
+    const voiceMessage = messageElement.querySelector('.voice-message');
+    if (voiceMessage && voiceMessage.dataset.audioUrl) {
+        playVoiceMessage(voiceMessage.dataset.audioUrl, voiceMessage);
     }
 }
 
@@ -2935,8 +3177,42 @@ function updateUserInfo() {
 function scrollToBottom() {
     const container = document.getElementById('messages-container');
     if (container) {
-        container.scrollTop = container.scrollHeight;
+        container.scrollTo({
+            top: container.scrollHeight,
+            behavior: 'smooth'
+        });
     }
+}
+
+// Инициализация кнопки скролла
+function initScrollButton() {
+    const container = document.getElementById('messages-container');
+    const btnScrollDown = document.getElementById('btn-scroll-down');
+    
+    if (!container || !btnScrollDown) return;
+    
+    function checkScrollButton() {
+        const scrollTop = container.scrollTop;
+        const scrollHeight = container.scrollHeight;
+        const clientHeight = container.clientHeight;
+        const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+        
+        // Показываем кнопку, если пользователь прокрутил вверх более чем на 200px
+        if (distanceFromBottom > 200) {
+            btnScrollDown.style.display = 'flex';
+            setTimeout(() => {
+                btnScrollDown.style.opacity = '1';
+            }, 10);
+        } else {
+            btnScrollDown.style.opacity = '0';
+            setTimeout(() => {
+                btnScrollDown.style.display = 'none';
+            }, 300);
+        }
+    }
+    
+    container.addEventListener('scroll', checkScrollButton);
+    checkScrollButton();
 }
 
 function scrollToBottomIfNeeded() {
@@ -3478,6 +3754,10 @@ window.toggleReaction = toggleReaction;
 window.voteInPoll = voteInPoll;
 window.closePoll = closePoll;
 window.showImagePreview = showImagePreview;
+window.handleMessageAction = handleMessageAction;
+window.addQuickReaction = addQuickReaction;
+window.downloadVoiceMessage = downloadVoiceMessage;
+window.scrollToBottom = scrollToBottom;
 
 // ===== INITIALIZATION =====
 document.addEventListener('DOMContentLoaded', function() {
@@ -3485,9 +3765,231 @@ document.addEventListener('DOMContentLoaded', function() {
     adjustViewport();
     
     // Start app
+    // Инициализация приложения, голосового плеера, реакций, кнопки скролла и меню сообщений
     setTimeout(() => {
         if (typeof initApp === 'function') {
             initApp();
+        }
+
+        // 🎧 Плеер голосовых сообщений
+        document.querySelectorAll('.voice-message').forEach(vm => {
+            let audio = vm.querySelector('audio');
+            let playBtn = vm.querySelector('.voice-play');
+            let progress = vm.querySelector('.voice-progress');
+            let downloadBtn = vm.querySelector('.voice-download');
+
+            // Кнопка Play/Pause
+            if (playBtn && audio) {
+                playBtn.addEventListener('click', e => {
+                    if (audio.paused) {
+                        audio.play();
+                    } else {
+                        audio.pause();
+                    }
+                });
+                audio.addEventListener('play', () => {
+                    playBtn.classList.add('playing');
+                });
+                audio.addEventListener('pause', () => {
+                    playBtn.classList.remove('playing');
+                });
+            }
+
+            // Прогресс-бар с перемоткой
+            if (progress && audio) {
+                audio.addEventListener('timeupdate', () => {
+                    progress.value = audio.currentTime / audio.duration || 0;
+                });
+                progress.addEventListener('input', () => {
+                    audio.currentTime = progress.value * audio.duration;
+                });
+            }
+
+            // Скачивание голосовых
+            if (downloadBtn && audio) {
+                downloadBtn.addEventListener('click', e => {
+                    e.stopPropagation();
+                    const src = audio.src;
+                    const a = document.createElement('a');
+                    a.href = src;
+                    a.download = src.split('/').pop();
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                });
+            }
+
+            // Автовоспроизведение при выборе (если надо)
+            vm.addEventListener('focus', () => {
+                if(audio) audio.play();
+            });
+        });
+
+        // 📋 Контекстное меню для сообщений
+        document.querySelectorAll('.message').forEach(msgEl => {
+            // Показывать меню при правом клике или долгом касании
+            ['contextmenu', 'touchstart'].forEach(evtName => {
+                let timer;
+                msgEl.addEventListener(evtName, e => {
+                    e.preventDefault();
+                    if (evtName === 'touchstart') {
+                        timer = setTimeout(() => showMessageContextMenu(e, msgEl), 400);
+                        msgEl.addEventListener('touchend', () => clearTimeout(timer), {once: true});
+                    } else {
+                        showMessageContextMenu(e, msgEl);
+                    }
+                });
+            });
+        });
+
+        function showMessageContextMenu(e, msgEl) {
+            // Проверка прав
+            const canEdit = isAdmin || msgEl.dataset.userId === appData.user.id;
+            let menu = document.createElement('div');
+            menu.className = 'custom-context-menu';
+            const actions = [
+                {name: "Ответить", handler: () => replyToMessage(msgEl)},
+                {name: "Переслать", handler: () => forwardMessage(msgEl)},
+                {name: "Копировать", handler: () => copyMessageText(msgEl)}
+            ];
+            if (canEdit) {
+                actions.push(
+                    {name: "Закрепить", handler: () => pinMessage(msgEl)},
+                    {name: "Выделить", handler: () => highlightMessage(msgEl)},
+                    {name: "Удалить", handler: () => deleteMessage(msgEl)}
+                );
+            }
+            actions.forEach(a => {
+                let item = document.createElement('div');
+                item.className = 'context-menu-item';
+                item.textContent = a.name;
+                item.addEventListener('click', e => {
+                    a.handler();
+                    document.body.removeChild(menu);
+                });
+                menu.appendChild(item);
+            });
+            menu.style.top = `${(e.touches?.[0]?.clientY || e.clientY) + 2}px`;
+            menu.style.left = `${(e.touches?.[0]?.clientX || e.clientX) + 2}px`;
+            document.body.appendChild(menu);
+            function hide() {
+                if (document.body.contains(menu)) document.body.removeChild(menu);
+            }
+            setTimeout(() => {
+                document.addEventListener('click', hide, {once:true});
+                document.addEventListener('touchstart', hide, {once:true});
+            }, 0);
+        }
+
+        // 😊 Реакции
+        document.querySelectorAll('.message').forEach(msgEl => {
+            // Показывать смайлик при наведении
+            let reactBtn = msgEl.querySelector('.react-btn');
+            if (!reactBtn) {
+                reactBtn = document.createElement('div');
+                reactBtn.className = 'react-btn';
+                reactBtn.title = 'Добавить реакцию';
+                reactBtn.innerHTML = '😊';
+                msgEl.appendChild(reactBtn);
+            }
+            msgEl.addEventListener('mouseenter', () => reactBtn.style.display = 'block');
+            msgEl.addEventListener('mouseleave', () => reactBtn.style.display = 'none');
+
+            // Быстрый выбор из 8 эмодзи
+            let emojiPicker = msgEl.querySelector('.msg-emoji-picker');
+            if (!emojiPicker) {
+                emojiPicker = document.createElement('div');
+                emojiPicker.className = 'msg-emoji-picker';
+                '😀😂😍😮😢😡👍🔥'.split('').forEach(e => {
+                    const emojiBtn = document.createElement('span');
+                    emojiBtn.textContent = e;
+                    emojiBtn.className = 'msg-emoji-btn';
+                    emojiBtn.addEventListener('click', () => {
+                        addReactionToMessage(msgEl, e);
+                        emojiPicker.style.display = 'none';
+                    });
+                    emojiPicker.appendChild(emojiBtn);
+                });
+                emojiPicker.style.display = 'none';
+                msgEl.appendChild(emojiPicker);
+            }
+            reactBtn.addEventListener('click', () => {
+                if (emojiPicker.style.display === 'none') emojiPicker.style.display = 'flex';
+                else emojiPicker.style.display = 'none';
+            });
+        });
+
+        function addReactionToMessage(msgEl, emoji) {
+            // Тут должна быть логика для обработки и отображения реакции + выделение своей
+            let reacts = msgEl.querySelector('.message-reactions');
+            if (!reacts) {
+                reacts = document.createElement('div');
+                reacts.className = 'message-reactions';
+                msgEl.appendChild(reacts);
+            }
+            let emojiEl = Array.from(reacts.children).find(el => el.textContent.includes(emoji));
+            if (!emojiEl) {
+                emojiEl = document.createElement('span');
+                emojiEl.className = 'reaction';
+                emojiEl.textContent = `${emoji} 1`;
+                emojiEl.classList.add('mine');
+                reacts.appendChild(emojiEl);
+            } else {
+                // Увеличить счетчик и выделить свою реакцию
+                let count = parseInt(emojiEl.textContent.replace(emoji, '').trim()) || 0;
+                emojiEl.textContent = `${emoji} ${count+1}`;
+                emojiEl.classList.add('mine');
+            }
+        }
+
+        // ⬇️ Кнопка скролла вниз
+        let scrollBtn = document.querySelector('.scroll-down-btn');
+        if (!scrollBtn) {
+            scrollBtn = document.createElement('button');
+            scrollBtn.className = 'scroll-down-btn';
+            scrollBtn.title = 'В конец';
+            scrollBtn.innerHTML = '⬇️';
+            Object.assign(scrollBtn.style, {
+                position: 'fixed',
+                right: '36px',
+                bottom: '90px',
+                zIndex: 99,
+                display: 'none',
+                borderRadius: '50%',
+                background: 'var(--scroll-btn-bg, #333)',
+                color: 'var(--scroll-btn-color, #fff)',
+                boxShadow: '0 2px 8px rgba(0,0,0,.14)',
+                transition: 'opacity 0.4s'
+            });
+            document.body.appendChild(scrollBtn);
+        }
+
+        function checkScrollButton() {
+            const sc = document.querySelector('.message-list, .chat-history, .messages');
+            if (sc && sc.scrollTop < sc.scrollHeight - sc.clientHeight - 300) {
+                scrollBtn.style.display = 'block';
+                scrollBtn.style.opacity = '1';
+            } else {
+                scrollBtn.style.opacity = '0';
+                setTimeout(() => scrollBtn.style.display = 'none', 400);
+            }
+        }
+        const msgList = document.querySelector('.message-list, .chat-history, .messages');
+        if (msgList) {
+            msgList.addEventListener('scroll', checkScrollButton);
+            checkScrollButton();
+        }
+        scrollBtn.addEventListener('click', () => {
+            const sc = document.querySelector('.message-list, .chat-history, .messages');
+            if (sc) {
+                sc.scrollTo({top: sc.scrollHeight, behavior: 'smooth'});
+            }
+        });
+
+        // Тёмная тема для кнопки (в зависимости от фона документа)
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            scrollBtn.style.background = '#222';
+            scrollBtn.style.color = '#fff';
         }
     }, 100);
 });
