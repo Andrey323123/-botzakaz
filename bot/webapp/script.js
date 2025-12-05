@@ -13,9 +13,6 @@ let s3Status = 'Не проверено';
 let lastUpdateTime = 0;
 let isSyncing = false;
 let syncInterval = null;
-let fileCache = {};
-let pendingPreloads = {};
-let messageCache = {};
 
 let appData = {
     users: {},
@@ -33,7 +30,6 @@ const API_CONFIG = {
         getMessages: '/api/s3/get-messages',
         getUsers: '/api/s3/get-users',
         updateUser: '/api/s3/update-user',
-        getFileUrl: '/api/s3/get-file-url',
         health: '/health',
         initDb: '/init-db'
     },
@@ -91,9 +87,6 @@ async function initApp() {
         // Загружаем пользователей
         await loadUsers();
         
-        // Предзагружаем файлы из сообщений
-        await preloadAllFiles();
-        
         // Загружаем сообщения
         await loadMessages();
         
@@ -109,156 +102,6 @@ async function initApp() {
         updateLoadingText(`Ошибка: ${error.message}`);
         
         setTimeout(hideLoadingScreen, 3000);
-    }
-}
-
-// ===== ПРЕДЗАГРУЗКА ФАЙЛОВ =====
-async function preloadFile(url, fileId) {
-    if (fileCache[url]) {
-        console.log(`✅ Файл уже в кэше: ${fileId}`);
-        return fileCache[url];
-    }
-    
-    if (pendingPreloads[url]) {
-        console.log(`⏳ Файл уже загружается: ${fileId}`);
-        return pendingPreloads[url];
-    }
-    
-    console.log(`🔍 Начинаем предзагрузку файла: ${fileId}`);
-    
-    const promise = new Promise((resolve, reject) => {
-        // Проверяем тип файла
-        const isImage = url.match(/\.(jpg|jpeg|png|gif|webp)$/i) || 
-                       url.includes('image/') ||
-                       (fileId && fileId.includes('photo'));
-        
-        if (isImage) {
-            console.log(`🖼️ Предзагрузка изображения: ${fileId}`);
-            const img = new Image();
-            
-            img.crossOrigin = 'anonymous';
-            
-            img.onload = () => {
-                console.log(`✅ Изображение предзагружено: ${fileId}`);
-                fileCache[url] = {
-                    url: url,
-                    type: 'image',
-                    element: img,
-                    loaded: true
-                };
-                delete pendingPreloads[url];
-                resolve(fileCache[url]);
-            };
-            
-            img.onerror = (error) => {
-                console.warn(`⚠️ Ошибка предзагрузки изображения ${fileId}:`, error);
-                delete pendingPreloads[url];
-                
-                // Все равно сохраняем URL для использования
-                fileCache[url] = {
-                    url: url,
-                    type: 'image',
-                    loaded: false,
-                    error: true
-                };
-                resolve(fileCache[url]);
-            };
-            
-            img.src = url;
-            pendingPreloads[url] = promise;
-            
-            // Таймаут для длительных загрузок
-            setTimeout(() => {
-                if (pendingPreloads[url]) {
-                    console.log(`⏰ Таймаут предзагрузки: ${fileId}`);
-                    delete pendingPreloads[url];
-                    resolve({
-                        url: url,
-                        type: 'image',
-                        loaded: false,
-                        timeout: true
-                    });
-                }
-            }, 10000);
-            
-        } else {
-            // Для документов просто кэшируем URL
-            console.log(`📄 Кэшируем URL документа: ${fileId}`);
-            fileCache[url] = {
-                url: url,
-                type: 'document',
-                loaded: true
-            };
-            resolve(fileCache[url]);
-        }
-    });
-    
-    return promise;
-}
-
-async function preloadAllFiles() {
-    console.log('🔍 Начинаем предзагрузку всех файлов...');
-    
-    try {
-        const messages = getAllMessages();
-        const preloadPromises = [];
-        
-        for (const message of messages) {
-            if (message.files && message.files.length > 0) {
-                for (const file of message.files) {
-                    if (file.url) {
-                        preloadPromises.push(preloadFile(file.url, file.id || file.name));
-                    }
-                }
-            }
-        }
-        
-        if (preloadPromises.length > 0) {
-            await Promise.allSettled(preloadPromises);
-            console.log(`✅ Предзагружено ${preloadPromises.length} файлов`);
-        }
-        
-    } catch (error) {
-        console.error('❌ Ошибка предзагрузки файлов:', error);
-    }
-}
-
-function getFilePreview(fileInfo) {
-    if (!fileInfo || !fileInfo.url) {
-        return {
-            url: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect width="100" height="100" fill="%23f0f0f0"/><text x="50" y="55" font-family="Arial" font-size="14" text-anchor="middle" fill="%23999">Файл</text></svg>',
-            type: 'unknown',
-            loaded: false
-        };
-    }
-    
-    const cached = fileCache[fileInfo.url];
-    if (cached) {
-        return cached;
-    }
-    
-    // Начинаем загрузку в фоне
-    preloadFile(fileInfo.url, fileInfo.id || fileInfo.name);
-    
-    // Возвращаем заглушку
-    const isImage = fileInfo.type === 'photo' || 
-                   fileInfo.mimeType?.startsWith('image/') ||
-                   fileInfo.url.match(/\.(jpg|jpeg|png|gif|webp)$/i);
-    
-    if (isImage) {
-        return {
-            url: fileInfo.url,
-            type: 'image',
-            loaded: false,
-            loading: true
-        };
-    } else {
-        return {
-            url: fileInfo.url,
-            type: 'document',
-            loaded: false,
-            loading: true
-        };
     }
 }
 
@@ -367,9 +210,6 @@ async function loadMessagesFromS3(section = 'main') {
                 
                 console.log(`📨 Загружено ${messages.length} сообщений из ${section}`);
                 
-                // Предзагружаем файлы новых сообщений
-                await preloadNewFiles(messages);
-                
                 // Обновляем отображение
                 if (currentSection === section) {
                     updateMessagesDisplay();
@@ -386,26 +226,8 @@ async function loadMessagesFromS3(section = 'main') {
     }
 }
 
-async function preloadNewFiles(messages) {
-    try {
-        for (const message of messages) {
-            if (message.files && message.files.length > 0) {
-                for (const file of message.files) {
-                    if (file.url && !fileCache[file.url]) {
-                        preloadFile(file.url, file.id || file.name);
-                    }
-                }
-            }
-        }
-    } catch (error) {
-        console.error('❌ Ошибка предзагрузки новых файлов:', error);
-    }
-}
-
 async function uploadFileToS3(file, type) {
     return new Promise((resolve, reject) => {
-        showUploadProgress(true, `Загрузка ${file.name}...`);
-        
         const formData = new FormData();
         formData.append('file', file);
         formData.append('user_id', currentUserId);
@@ -417,16 +239,7 @@ async function uploadFileToS3(file, type) {
         const xhr = new XMLHttpRequest();
         xhr.open('POST', API_CONFIG.endpoints.uploadFile, true);
         
-        xhr.upload.onprogress = function(e) {
-            if (e.lengthComputable) {
-                const percent = Math.round((e.loaded / e.total) * 100);
-                updateUploadProgress(percent);
-            }
-        };
-        
         xhr.onload = function() {
-            showUploadProgress(false);
-            
             try {
                 const response = JSON.parse(xhr.responseText);
                 
@@ -447,9 +260,6 @@ async function uploadFileToS3(file, type) {
                         isLocal: false
                     };
                     
-                    // Предзагружаем файл сразу после загрузки
-                    preloadFile(fileInfo.url, fileInfo.id);
-                    
                     resolve(fileInfo);
                 } else {
                     console.error('❌ Ошибка API:', response.message);
@@ -462,7 +272,6 @@ async function uploadFileToS3(file, type) {
         };
         
         xhr.onerror = function() {
-            showUploadProgress(false);
             console.error('❌ Ошибка сети');
             reject(new Error('Network error'));
         };
@@ -632,15 +441,6 @@ async function saveMessage(message) {
             // Обновляем ID сообщения
             message.id = messageId;
             
-            // Предзагружаем файлы из сообщения
-            if (message.files && message.files.length > 0) {
-                for (const file of message.files) {
-                    if (file.url) {
-                        preloadFile(file.url, file.id || file.name);
-                    }
-                }
-            }
-            
             // Добавляем в локальный кэш для немедленного отображения
             if (currentSection === 'main') {
                 appData.messages_main.push(message);
@@ -746,66 +546,40 @@ function createMessageElement(message) {
     let content = escapeHtml(message.content || '').replace(/\n/g, '<br>');
     content = content.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" class="message-link">$1</a>');
     
-    // Файлы
+    // Файлы - ПРОСТОЕ отображение без заглушек
     let filesHTML = '';
     if (message.files && message.files.length > 0) {
         filesHTML = message.files.map(file => {
-            const filePreview = getFilePreview(file);
-            const isImage = filePreview.type === 'image';
-            const isLoading = filePreview.loading;
-            
-            let fileContent = '';
+            const isImage = file.type === 'photo' || 
+                           (file.mimeType && file.mimeType.startsWith('image/')) ||
+                           (file.url && file.url.match(/\.(jpg|jpeg|png|gif|webp)$/i));
             
             if (isImage) {
-                if (filePreview.loaded) {
-                    // Изображение загружено
-                    fileContent = `<img src="${filePreview.url}" alt="${escapeHtml(file.name || 'Изображение')}" class="message-file-image" loading="lazy" onload="this.parentElement.classList.remove('loading')">`;
-                } else if (isLoading) {
-                    // Показываем прелоадер для изображения
-                    fileContent = `
-                        <div class="image-loader">
-                            <div class="loader-spinner"></div>
-                            <div class="loader-text">Загрузка...</div>
-                        </div>
-                        <img src="${filePreview.url}" alt="${escapeHtml(file.name || 'Изображение')}" class="message-file-image hidden" loading="lazy" onload="this.classList.remove('hidden'); this.parentElement.querySelector('.image-loader').style.display='none';">
-                    `;
-                } else {
-                    // Ошибка загрузки - показываем заглушку
-                    fileContent = `
-                        <div class="file-error">
+                return `
+                    <div class="message-file">
+                        <div class="message-file-header">
                             <i class="fas fa-image"></i>
-                            <span>Не удалось загрузить</span>
-                            <button onclick="retryLoadFile('${escapeHtml(filePreview.url)}', '${escapeHtml(file.id || file.name)}', this)" class="retry-btn">
-                                <i class="fas fa-redo"></i>
-                            </button>
+                            <span class="message-file-name">${escapeHtml(file.name || 'Изображение')}</span>
+                            <a href="${file.url}" target="_blank" class="download-btn" title="Открыть">
+                                <i class="fas fa-external-link-alt"></i>
+                            </a>
                         </div>
-                    `;
-                }
+                        <img src="${file.url}" alt="${escapeHtml(file.name || 'Изображение')}" class="message-file-image" loading="lazy">
+                    </div>
+                `;
             } else {
-                // Документ
-                fileContent = `
-                    <div class="file-preview-document">
-                        <i class="fas fa-file"></i>
-                        <span>${escapeHtml(file.name || 'Документ')}</span>
-                        <span class="file-size">${formatFileSize(file.size || 0)}</span>
+                return `
+                    <div class="message-file">
+                        <div class="message-file-header">
+                            <i class="fas fa-file"></i>
+                            <span class="message-file-name">${escapeHtml(file.name || 'Документ')}</span>
+                            <a href="${file.url}" target="_blank" class="download-btn" title="Открыть">
+                                <i class="fas fa-external-link-alt"></i>
+                            </a>
+                        </div>
                     </div>
                 `;
             }
-            
-            return `
-                <div class="message-file ${isLoading ? 'loading' : ''}">
-                    <div class="message-file-header">
-                        <i class="fas fa-${isImage ? 'image' : 'file'}"></i>
-                        <span class="message-file-name">${escapeHtml(file.name || 'Файл')}</span>
-                        <a href="${filePreview.url}" target="_blank" class="download-btn" title="Открыть" ${isLoading ? 'style="pointer-events: none; opacity: 0.5;"' : ''}>
-                            <i class="fas fa-external-link-alt"></i>
-                        </a>
-                    </div>
-                    <div class="message-file-content">
-                        ${fileContent}
-                    </div>
-                </div>
-            `;
         }).join('');
     }
     
@@ -833,18 +607,6 @@ function createMessageElement(message) {
     `;
     
     return div;
-}
-
-function retryLoadFile(url, fileId, button) {
-    const loader = button.closest('.file-error');
-    if (loader) {
-        loader.innerHTML = '<div class="loader-spinner small"></div>';
-        
-        preloadFile(url, fileId).then(() => {
-            // Перезагружаем сообщения
-            updateMessagesDisplay();
-        });
-    }
 }
 
 async function uploadFile(file, type) {
@@ -891,13 +653,6 @@ async function uploadFileLocally(file, type) {
                 uploadedAt: Date.now(),
                 uploadedByName: currentUser.first_name || 'Неизвестно',
                 isLocal: true
-            };
-            
-            // Предзагружаем локальный файл
-            fileCache[fileInfo.url] = {
-                url: fileInfo.url,
-                type: type === 'photo' ? 'image' : 'document',
-                loaded: true
             };
             
             resolve(fileInfo);
@@ -1390,24 +1145,7 @@ function showFilePreview(fileInfo) {
     
     if (fileInfo.type === 'photo') {
         icon = 'fa-image';
-        // Предзагружаем превью
-        const img = new Image();
-        img.src = fileInfo.url;
-        img.onload = () => {
-            const imgElement = preview.querySelector('.file-preview-image');
-            if (imgElement) {
-                imgElement.src = fileInfo.url;
-                imgElement.classList.remove('hidden');
-            }
-        };
-        
-        previewContent = `
-            <div class="image-loader">
-                <div class="loader-spinner"></div>
-                <div class="loader-text">Загрузка...</div>
-            </div>
-            <img src="${fileInfo.url}" alt="${fileInfo.name}" class="file-preview-image hidden" loading="lazy">
-        `;
+        previewContent = `<img src="${fileInfo.url}" alt="${fileInfo.name}" class="file-preview-image" loading="lazy">`;
     } else {
         previewContent = `
             <div class="file-preview-document">
@@ -1660,10 +1398,6 @@ window.clearCache = function() {
         
         keysToRemove.forEach(key => localStorage.removeItem(key));
         
-        // Очищаем кэш файлов
-        fileCache = {};
-        pendingPreloads = {};
-        
         showNotification('Локальный кэш очищен', 'success');
         setTimeout(() => location.reload(), 1000);
     }
@@ -1671,7 +1405,6 @@ window.clearCache = function() {
 
 window.removeFilePreview = removeFilePreview;
 window.clearAttachments = clearAttachments;
-window.retryLoadFile = retryLoadFile;
 
 // ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 function updateLoadingText(text) {
