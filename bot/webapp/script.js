@@ -543,9 +543,27 @@ function initUI() {
     const notificationsSwitch = document.getElementById('notifications-switch');
     const soundsSwitch = document.getElementById('sounds-switch');
     
-    if (themeSwitch) themeSwitch.addEventListener('change', toggleTheme);
-    if (notificationsSwitch) notificationsSwitch.addEventListener('change', toggleNotifications);
-    if (soundsSwitch) soundsSwitch.addEventListener('change', toggleSounds);
+    if (themeSwitch) {
+        themeSwitch.addEventListener('change', toggleTheme);
+        // Load saved theme
+        const savedTheme = localStorage.getItem('telegram_chat_theme') || 'light';
+        themeSwitch.checked = savedTheme === 'dark';
+        applyTheme(savedTheme);
+    }
+    
+    if (notificationsSwitch) {
+        notificationsSwitch.addEventListener('change', toggleNotifications);
+        // Load saved setting
+        const savedNotifications = localStorage.getItem('notificationsEnabled') !== 'false';
+        notificationsSwitch.checked = savedNotifications;
+    }
+    
+    if (soundsSwitch) {
+        soundsSwitch.addEventListener('change', toggleSounds);
+        // Load saved setting
+        const savedSounds = localStorage.getItem('soundsEnabled') !== 'false';
+        soundsSwitch.checked = savedSounds;
+    }
     
     // Close modals
     document.querySelectorAll('.btn-close-modal').forEach(btn => {
@@ -600,16 +618,30 @@ function updateAdminVisibility() {
 
 function toggleNotifications() {
     const switchEl = document.getElementById('notifications-switch');
+    if (!switchEl) return;
+    
     const enabled = switchEl.checked;
-    showNotification(`Уведомления ${enabled ? 'включены' : 'выключены'}`, 'info');
-    localStorage.setItem('notifications_enabled', enabled);
+    localStorage.setItem('notificationsEnabled', enabled.toString());
+    
+    if (enabled && 'Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+    }
+    
+    showNotification(enabled ? 'Уведомления включены' : 'Уведомления выключены', 'info');
 }
 
 function toggleSounds() {
     const switchEl = document.getElementById('sounds-switch');
+    if (!switchEl) return;
+    
     const enabled = switchEl.checked;
-    showNotification(`Звуки ${enabled ? 'включены' : 'выключены'}`, 'info');
-    localStorage.setItem('sounds_enabled', enabled);
+    localStorage.setItem('soundsEnabled', enabled.toString());
+    
+    if (enabled) {
+        playSound('notification');
+    }
+    
+    showNotification(enabled ? 'Звуки включены' : 'Звуки выключены', 'info');
 }
 
 // ===== SIDEBAR FUNCTIONS =====
@@ -1610,8 +1642,19 @@ async function sendMessage() {
     // Play sound if enabled
     playSound('send');
     
-    // Save to S3 in background
-    saveMessageToS3(message).then(success => {
+    // Save to S3 in background - ensure all data is included
+    const messageToSave = {
+        ...message,
+        id: messageId,
+        channel: currentChannel,
+        section: currentSection || 'main',
+        reactions: message.reactions || {},
+        files: message.files || [],
+        timestamp: message.timestamp || Date.now(),
+        user: currentUser
+    };
+    
+    saveMessageToS3(messageToSave).then(success => {
         if (success) {
             message.is_local = false;
             updateMessageStatus(messageId, 'sent');
@@ -3494,8 +3537,105 @@ function handleAdminAction(action) {
         case 'stats':
             showStatistics();
             break;
+        default:
+            console.log('Unknown admin action:', action);
     }
+}
+
+function showAdminSettings() {
+    // Settings are already in sidebar, just scroll to them
+    const settingsSection = document.querySelector('.sidebar-section:has(.settings-list)');
+    if (settingsSection) {
+        settingsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
+function showStatistics() {
+    const modal = document.getElementById('statistics-modal');
+    if (!modal) {
+        // Create statistics modal if doesn't exist
+        createStatisticsModal();
+        return;
+    }
+    showModal('statistics-modal');
+    loadStatistics();
+}
+
+function createStatisticsModal() {
+    const modal = document.createElement('div');
+    modal.id = 'statistics-modal';
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">Статистика</div>
+                <button class="btn-close-modal" data-modal="statistics-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="statistics-content">
+                    <div class="loading">Загрузка статистики...</div>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    showModal('statistics-modal');
+    loadStatistics();
+}
+
+function loadStatistics() {
+    const content = document.getElementById('statistics-content');
+    if (!content) return;
     
+    // Calculate statistics
+    const totalMessages = Object.values(appData.channels).reduce((sum, ch) => sum + (ch.messages?.length || 0), 0);
+    const totalUsers = Object.keys(usersCache).length;
+    const totalChannels = Object.keys(appData.channels).length;
+    const totalFiles = Object.values(appData.channels).reduce((sum, ch) => {
+        return sum + (ch.messages?.reduce((s, m) => s + (m.files?.length || 0), 0) || 0);
+    }, 0);
+    
+    const onlineUsers = Object.values(usersCache).filter(u => u.is_online).length;
+    
+    content.innerHTML = `
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-comments"></i></div>
+                <div class="stat-value">${totalMessages}</div>
+                <div class="stat-label">Сообщений</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-users"></i></div>
+                <div class="stat-value">${totalUsers}</div>
+                <div class="stat-label">Пользователей</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-circle"></i></div>
+                <div class="stat-value">${onlineUsers}</div>
+                <div class="stat-label">Онлайн</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-hashtag"></i></div>
+                <div class="stat-value">${totalChannels}</div>
+                <div class="stat-label">Каналов</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-file"></i></div>
+                <div class="stat-value">${totalFiles}</div>
+                <div class="stat-label">Файлов</div>
+            </div>
+        </div>
+    `;
+}
+
+function showAdminSettings() {
+    // Settings are already in sidebar, just scroll to them
+    const settingsSection = document.querySelector('.sidebar-section:has(.settings-list)');
+    if (settingsSection) {
+        settingsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
     closeSidebar();
 }
 
@@ -4119,28 +4259,35 @@ async function loadChannels() {
 
 async function loadMessages() {
     try {
-        const response = await fetch(`${API_CONFIG.endpoints.getMessages}?channel=${currentChannel}&since=${lastUpdateTime}`);
+        // Load messages from S3 using section parameter
+        const section = currentSection || 'main';
+        const response = await fetch(`${API_CONFIG.endpoints.getMessages}?section=${section}`);
         if (response.ok) {
             const data = await response.json();
             if (data.status === 'success') {
                 const messages = data.messages || [];
                 
+                // Filter messages by current channel if needed
+                const channelMessages = messages.filter(msg => 
+                    !msg.channel || msg.channel === currentChannel || currentChannel === 'main'
+                );
+                
                 // Update messages
                 if (appData.channels[currentChannel]) {
-                    appData.channels[currentChannel].messages = messages;
+                    appData.channels[currentChannel].messages = channelMessages;
                 } else {
                     appData.channels[currentChannel] = {
                         id: currentChannel,
                         name: currentChannel,
                         type: 'public',
-                        messages: messages,
+                        messages: channelMessages,
                         pinned: []
                     };
                 }
                 
-                lastUpdateTime = data.lastUpdate || Date.now();
+                lastUpdateTime = Date.now();
                 
-                console.log(`📨 Загружено ${messages.length} сообщений`);
+                console.log(`📨 Загружено ${channelMessages.length} сообщений из ${messages.length} всего`);
                 
                 // Update display
                 updateMessagesDisplay();
@@ -5100,11 +5247,54 @@ function toggleReaction(messageId, emoji) {
     updateMessageInS3(message);
     
     // Update UI
-    updateMessageReactions(message);
+    updateMessageReactions(message.id);
     
-    // Play sound
-    playSound('reaction');
+    // Play sound if enabled
+    if (localStorage.getItem('soundsEnabled') !== 'false') {
+        playSound('reaction');
+    }
 }
+
+function updateMessageReactions(messageId) {
+    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (!messageElement) return;
+    
+    const message = findMessageById(messageId);
+    if (!message) return;
+    
+    let reactionsContainer = messageElement.querySelector('.message-reactions');
+    
+    if (message.reactions && Object.keys(message.reactions).length > 0) {
+        if (!reactionsContainer) {
+            reactionsContainer = document.createElement('div');
+            reactionsContainer.className = 'message-reactions';
+            const messageContent = messageElement.querySelector('.message-content');
+            if (messageContent) {
+                messageContent.appendChild(reactionsContainer);
+            }
+        }
+        
+        const reactions = Object.entries(message.reactions)
+            .map(([emoji, users]) => {
+                const count = users.length;
+                const hasReacted = users.includes(currentUserId);
+                return `
+                    <div class="reaction ${hasReacted ? 'user-reacted' : ''}" 
+                         data-emoji="${emoji}"
+                         onclick="toggleReaction('${messageId}', '${emoji}')">
+                        <span class="reaction-emoji">${emoji}</span>
+                        <span class="reaction-count">${count}</span>
+                    </div>
+                `;
+            })
+            .join('');
+        
+        reactionsContainer.innerHTML = reactions;
+    } else {
+        if (reactionsContainer) {
+            reactionsContainer.remove();
+        }
+    }
 
 function updateMessageReactions(message) {
     const messageElement = document.querySelector(`[data-message-id="${message.id}"]`);
@@ -5661,4 +5851,5 @@ if (document.readyState === 'complete') {
             initApp();
         }
     }, 100);
+}
 }
