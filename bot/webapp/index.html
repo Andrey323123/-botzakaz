@@ -64,6 +64,13 @@
 
         <!-- Messages Container -->
         <div class="messages-container" id="messages-container">
+            <!-- Unread Messages Badge -->
+            <div class="unread-badge" id="unread-badge" style="display: none;">
+                <button class="btn-unread" id="btn-unread">
+                    <i class="fas fa-check-double"></i>
+                    <span id="unread-count">0</span> непрочитанных
+                </button>
+            </div>
             <div class="messages-wrapper" id="messages-wrapper">
                 <!-- Messages are loaded here -->
             </div>
@@ -93,6 +100,10 @@
             <div class="action-item" data-action="pin">
                 <i class="fas fa-thumbtack"></i>
                 <span>Закрепить</span>
+            </div>
+            <div class="action-item" data-action="unpin" style="display: none;">
+                <i class="fas fa-thumbtack"></i>
+                <span>Открепить</span>
             </div>
             <div class="action-item" data-action="copy">
                 <i class="fas fa-copy"></i>
@@ -214,6 +225,18 @@
                         </div>
                         <span>Опрос</span>
                     </div>
+                    <div class="attach-item" data-type="sticker">
+                        <div class="attach-icon">
+                            <i class="fas fa-smile"></i>
+                        </div>
+                        <span>Стикер</span>
+                    </div>
+                    <div class="attach-item" data-type="gif">
+                        <div class="attach-icon">
+                            <i class="fas fa-film"></i>
+                        </div>
+                        <span>GIF</span>
+                    </div>
                 </div>
 
                 <div class="input-wrapper">
@@ -308,6 +331,19 @@
                     </button>
                 </div>
 
+                <!-- Sections/Topics List -->
+                <div class="sidebar-section" id="sections-section">
+                    <div class="section-title">
+                        <span>Разделы</span>
+                        <button class="btn-add-section" id="btn-add-section" title="Создать раздел" style="display: none;">
+                            <i class="fas fa-plus"></i>
+                        </button>
+                    </div>
+                    <div class="sections-list" id="sections-list">
+                        <!-- Sections will be loaded here -->
+                    </div>
+                </div>
+
                 <!-- Admin Panel -->
                 <div class="sidebar-section admin-section" id="admin-section" style="display: none;">
                     <div class="section-title">Управление</div>
@@ -344,6 +380,13 @@
                                 <input type="checkbox" id="theme-switch">
                                 <span class="toggle-slider"></span>
                             </div>
+                        </div>
+                        <div class="setting-item" id="mirror-constructor-btn" onclick="showMirrorConstructor()">
+                            <div class="setting-icon">
+                                <i class="fas fa-code"></i>
+                            </div>
+                            <span>Создать зеркало</span>
+                            <i class="fas fa-chevron-right"></i>
                         </div>
                         <div class="setting-item">
                             <div class="setting-icon">
@@ -430,6 +473,77 @@
             </div>
         </div>
 
+        <!-- Users List Modal (only for admins) -->
+        <div class="modal" id="users-list-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div class="modal-title">Участники группы</div>
+                    <button class="btn-close-modal" data-modal="users-list-modal">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="users-search">
+                        <input type="text" id="users-search-input" placeholder="Поиск участников..." class="search-input">
+                    </div>
+                    <div class="users-list" id="users-list">
+                        <!-- Users will be loaded here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- User Actions Modal -->
+        <div class="modal" id="user-actions-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div class="modal-title">Действия с пользователем</div>
+                    <button class="btn-close-modal" data-modal="user-actions-modal">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="user-info-preview" id="user-info-preview">
+                        <!-- User info will be loaded here -->
+                    </div>
+                    <div class="user-actions-list">
+                        <div class="action-group">
+                            <div class="action-group-title">Роль</div>
+                            <select id="user-role-select" class="form-select">
+                                <option value="user">Участник</option>
+                                <option value="moderator">Модератор</option>
+                                <option value="admin">Администратор</option>
+                                <option value="main_admin">Главный админ</option>
+                            </select>
+                        </div>
+                        <div class="action-group">
+                            <div class="action-group-title">Действия</div>
+                            <button class="btn-action" id="btn-mute-user" data-action="mute">
+                                <i class="fas fa-volume-mute"></i>
+                                <span>Заглушить</span>
+                            </button>
+                            <button class="btn-action" id="btn-unmute-user" data-action="unmute" style="display: none;">
+                                <i class="fas fa-volume-up"></i>
+                                <span>Разглушить</span>
+                            </button>
+                            <button class="btn-action danger" id="btn-ban-user" data-action="ban">
+                                <i class="fas fa-ban"></i>
+                                <span>Забанить</span>
+                            </button>
+                            <button class="btn-action danger" id="btn-unban-user" data-action="unban" style="display: none;">
+                                <i class="fas fa-check-circle"></i>
+                                <span>Разбанить</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-modal-secondary" data-modal="user-actions-modal">Отмена</button>
+                    <button class="btn-modal-primary" id="btn-save-user-actions">Сохранить</button>
+                </div>
+            </div>
+        </div>
+
         <div class="modal" id="image-preview-modal">
             <div class="modal-content image-preview">
                 <img id="preview-image" src="" alt="">
@@ -456,6 +570,87 @@
                 <button class="btn-close-preview" id="btn-close-video">
                     <i class="fas fa-times"></i>
                 </button>
+            </div>
+        </div>
+
+        <!-- Sticker Picker Modal -->
+        <div class="modal" id="sticker-picker-modal">
+            <div class="modal-content sticker-picker">
+                <div class="modal-header">
+                    <div class="modal-title">Выберите стикер</div>
+                    <button class="btn-close-modal" data-modal="sticker-picker-modal">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="sticker-search">
+                        <input type="text" id="sticker-search-input" placeholder="Поиск стикеров..." class="search-input">
+                    </div>
+                    <div class="sticker-sets" id="sticker-sets">
+                        <div class="loading-stickers">Загрузка стикеров...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- GIF Picker Modal -->
+        <div class="modal" id="gif-picker-modal">
+            <div class="modal-content gif-picker">
+                <div class="modal-header">
+                    <div class="modal-title">Выберите GIF</div>
+                    <button class="btn-close-modal" data-modal="gif-picker-modal">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="gif-search">
+                        <input type="text" id="gif-search-input" placeholder="Поиск GIF..." class="search-input">
+                        <button class="btn-search-gif" id="btn-search-gif">
+                            <i class="fas fa-search"></i>
+                        </button>
+                    </div>
+                    <div class="gif-grid" id="gif-grid">
+                        <div class="loading-gifs">Загрузка GIF...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mirror Constructor Modal -->
+        <div class="modal" id="mirror-constructor-modal">
+            <div class="modal-content mirror-constructor">
+                <div class="modal-header">
+                    <div class="modal-title">Создать зеркало</div>
+                    <button class="btn-close-modal" data-modal="mirror-constructor-modal">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="mirror-name">Название зеркала</label>
+                        <input type="text" id="mirror-name" placeholder="Мое зеркало" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label for="mirror-token">Токен бота Telegram</label>
+                        <input type="text" id="mirror-token" placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz" class="form-input">
+                        <small class="form-hint">Токен можно получить у @BotFather в Telegram</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="mirror-domain">Домен (необязательно)</label>
+                        <input type="text" id="mirror-domain" placeholder="https://your-domain.com" class="form-input">
+                        <small class="form-hint">Если не указан, будет использован текущий домен</small>
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="mirror-public">
+                            <span>Публичное зеркало (доступно всем)</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-modal-secondary" data-modal="mirror-constructor-modal">Отмена</button>
+                    <button class="btn-modal-primary" id="btn-create-mirror">Создать зеркало</button>
+                </div>
             </div>
         </div>
     </div>
