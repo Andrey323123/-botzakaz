@@ -1,5 +1,5 @@
 // Telegram Chat App - Botfs23
-// Версия с прямым доступом к Selectel S3 через браузе
+// Версия с использованием Flask API для работы с S3
 
 // ===== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ =====
 let tg = null;
@@ -11,27 +11,28 @@ let usersCache = {};
 let attachedFiles = [];
 let s3Status = 'Не проверено';
 
-// ===== КОНФИГУРАЦИЯ SELECTEL S3 (прямой доступ) =====
-const S3_CONFIG = {
-    endpoint: 'https://s3.ru-3.storage.selcloud.ru',
-    bucket: 'telegram-chat-files',
-    accessKeyId: '25d16365251e45ec9b678de28dafd86b',
-    secretAccessKey: 'cc56887e78d14bdbae867638726a816b',
+let appData = {
+    users: {},
+    messages_main: [],
+    messages_news: []
+};
+
+// API endpoints
+const API_CONFIG = {
+    baseUrl: window.location.origin,
+    endpoints: {
+        checkS3: '/api/s3/check',
+        uploadFile: '/api/s3/proxy-upload',
+        saveMessage: '/api/s3/save-message',
+        health: '/health',
+        initDb: '/init-db'
+    },
     maxFileSize: 10 * 1024 * 1024,
     allowedTypes: {
         image: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
         document: ['application/pdf', 'text/plain', 'application/msword', 
                   'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
     }
-};
-
-// Пути к данным в S3
-const S3_PATHS = {
-    users: 'data/users.json',
-    messages_main: 'data/messages_main.json',
-    messages_news: 'data/messages_news.json',
-    metadata: 'data/metadata.json',
-    files_index: 'data/files_index.json'
 };
 
 // Эмодзи
@@ -44,7 +45,7 @@ const EMOJI_CATEGORIES = {
 
 // ===== ИНИЦИАЛИЗАЦИЯ ПРИЛОЖЕНИЯ =====
 async function initApp() {
-    console.log('🚀 Инициализация приложения с прямым доступом к S3...');
+    console.log('🚀 Инициализация приложения с Flask API...');
     
     try {
         updateLoadingText('Подключение к Telegram...');
@@ -60,14 +61,14 @@ async function initApp() {
         // Инициализация UI
         initUI();
         
-        updateLoadingText('Проверка S3...');
+        updateLoadingText('Проверка S3 через API...');
         
-        // Проверка S3
+        // Проверка S3 через API
         await checkS3Connection();
         
-        updateLoadingText('Загрузка данных из облака...');
+        updateLoadingText('Загрузка данных...');
         
-        // Загрузка данных из S3
+        // Загрузка данных из S3 через API
         await loadDataFromS3();
         
         // Обновление интерфейса
@@ -84,7 +85,7 @@ async function initApp() {
         // Периодическая проверка новых сообщений
         setInterval(checkForUpdates, 5000);
         
-        console.log('✅ Приложение инициализировано с прямым доступом к S3');
+        console.log('✅ Приложение инициализировано');
         
     } catch (error) {
         console.error('❌ Ошибка инициализации:', error);
@@ -94,181 +95,80 @@ async function initApp() {
     }
 }
 
-// ===== S3 ФУНКЦИИ =====
+// ===== API ФУНКЦИИ =====
 async function checkS3Connection() {
-    console.log('🔌 Проверка подключения к Selectel S3...');
+    console.log('🔌 Проверка подключения к S3 через API...');
     
     try {
-        // Простая проверка - пытаемся получить метаданные бакета
-        const testUrl = `${S3_CONFIG.endpoint}/${S3_CONFIG.bucket}`;
-        
-        const response = await fetch(testUrl, {
-            method: 'HEAD',
+        const response = await fetch(API_CONFIG.endpoints.checkS3, {
+            method: 'GET',
             headers: {
-                'Authorization': 'Basic ' + btoa(`${S3_CONFIG.accessKeyId}:${S3_CONFIG.secretAccessKey}`)
+                'Content-Type': 'application/json'
             }
         });
         
         if (response.ok) {
-            s3Status = '✅ Работает';
-            updateS3Status('✅ Работает', 'success');
-            console.log('✅ S3 подключение успешно');
-            return true;
+            const data = await response.json();
+            
+            if (data.connected) {
+                s3Status = '✅ Работает';
+                updateS3Status('✅ Работает', 'success');
+                console.log('✅ S3 подключение успешно');
+                return true;
+            } else {
+                s3Status = `❌ ${data.message}`;
+                updateS3Status(`❌ ${data.message}`, 'error');
+                console.error('❌ Ошибка S3:', data.message);
+                return false;
+            }
         } else {
-            s3Status = `❌ Ошибка: ${response.status}`;
-            updateS3Status(`❌ Ошибка: ${response.status}`, 'error');
-            console.error('❌ Ошибка S3:', response.status);
+            s3Status = '❌ Ошибка API';
+            updateS3Status('❌ Ошибка API', 'error');
+            console.error('❌ Ошибка API:', response.status);
             return false;
         }
         
     } catch (error) {
         s3Status = '❌ Нет подключения';
         updateS3Status('❌ Нет подключения', 'error');
-        console.error('❌ Ошибка подключения к S3:', error);
+        console.error('❌ Ошибка подключения к API:', error);
         return false;
     }
 }
 
 async function loadDataFromS3() {
-    console.log('📥 Загрузка данных из S3...');
+    console.log('📥 Загрузка данных через API...');
     
     try {
-        // Загружаем данные параллельно
-        const [usersData, messagesMainData, messagesNewsData] = await Promise.all([
-            loadS3Data(S3_PATHS.users, { users: {} }),
-            loadS3Data(S3_PATHS.messages_main, { messages: [] }),
-            loadS3Data(S3_PATHS.messages_news, { messages: [] })
-        ]);
+        // В этой версии данные загружаются при открытии чата через API
+        // Здесь просто инициализируем пустые структуры
+        appData.users = {};
+        appData.messages_main = [];
+        appData.messages_news = [];
         
-        appData.users = usersData.users || {};
-        appData.messages_main = messagesMainData.messages || [];
-        appData.messages_news = messagesNewsData.messages || [];
-        usersCache = appData.users;
-        
-        console.log(`📊 Данные загружены: ${Object.keys(appData.users).length} пользователей`);
+        console.log('📊 Структуры данных инициализированы');
         
         return true;
         
     } catch (error) {
-        console.error('❌ Ошибка загрузки данных из S3:', error);
-        
-        // Используем локальные данные как fallback
-        const localUsers = localStorage.getItem('local_users_backup');
-        const localMessages = localStorage.getItem(`local_messages_${currentSection}_backup`);
-        
-        if (localUsers) {
-            appData.users = JSON.parse(localUsers);
-            usersCache = appData.users;
-        }
-        
-        if (localMessages) {
-            if (currentSection === 'main') {
-                appData.messages_main = JSON.parse(localMessages);
-            } else {
-                appData.messages_news = JSON.parse(localMessages);
-            }
-        }
-        
-        return false;
-    }
-}
-
-async function loadS3Data(path, defaultValue = null) {
-    try {
-        const url = `${S3_CONFIG.endpoint}/${S3_CONFIG.bucket}/${path}`;
-        
-        console.log(`📥 Загрузка из S3: ${path}`);
-        
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: {
-                'Authorization': 'Basic ' + btoa(`${S3_CONFIG.accessKeyId}:${S3_CONFIG.secretAccessKey}`),
-                'Accept': 'application/json'
-            }
-        });
-        
-        if (response.ok) {
-            const data = await response.json();
-            console.log(`✅ Загружено из S3: ${path}`);
-            return data;
-        } else if (response.status === 404 && defaultValue !== null) {
-            console.log(`📝 Файл ${path} не найден, создаем...`);
-            await saveS3Data(path, defaultValue);
-            return defaultValue;
-        } else {
-            console.log(`⚠️ Ошибка ${response.status} при загрузке ${path}`);
-            return defaultValue;
-        }
-        
-    } catch (error) {
-        console.error(`❌ Ошибка загрузки ${path}:`, error);
-        
-        // Fallback на localStorage
-        const localStorageKey = `s3_backup_${path.replace(/\//g, '_')}`;
-        const backup = localStorage.getItem(localStorageKey);
-        
-        if (backup) {
-            console.log(`🔄 Используем backup из localStorage: ${path}`);
-            return JSON.parse(backup);
-        }
-        
-        return defaultValue;
-    }
-}
-
-async function saveS3Data(path, data) {
-    try {
-        const url = `${S3_CONFIG.endpoint}/${S3_CONFIG.bucket}/${path}`;
-        const content = JSON.stringify(data, null, 2);
-        
-        console.log(`💾 Сохранение в S3: ${path}`);
-        
-        const response = await fetch(url, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Basic ' + btoa(`${S3_CONFIG.accessKeyId}:${S3_CONFIG.secretAccessKey}`)
-            },
-            body: content
-        });
-        
-        if (response.ok) {
-            // Сохраняем backup в localStorage
-            const localStorageKey = `s3_backup_${path.replace(/\//g, '_')}`;
-            localStorage.setItem(localStorageKey, content);
-            
-            console.log(`✅ Сохранено в S3: ${path}`);
-            return true;
-        } else {
-            console.error(`❌ Ошибка сохранения ${path}: ${response.status}`);
-            return false;
-        }
-        
-    } catch (error) {
-        console.error(`❌ Ошибка сохранения ${path}:`, error);
+        console.error('❌ Ошибка загрузки данных:', error);
         return false;
     }
 }
 
 async function uploadFileToS3(file, type) {
     return new Promise((resolve, reject) => {
-        showUploadProgress(true, `Загрузка ${file.name} в S3...`);
+        showUploadProgress(true, `Загрузка ${file.name}...`);
         
-        const timestamp = Date.now();
-        const randomStr = Math.random().toString(36).substring(2, 10);
-        const fileExt = file.name.split('.').pop().toLowerCase();
-        const fileName = `file_${timestamp}_${randomStr}.${fileExt}`;
-        const filePath = `uploads/${type}/${currentUserId}/${fileName}`;
-        const fileUrl = `${S3_CONFIG.endpoint}/${S3_CONFIG.bucket}/${filePath}`;
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('user_id', currentUserId);
+        formData.append('type', type);
         
-        console.log(`📤 Загрузка файла в S3: ${fileName}`);
+        console.log(`📤 Загрузка файла через API: ${file.name}`);
         
         const xhr = new XMLHttpRequest();
-        xhr.open('PUT', fileUrl, true);
-        
-        // Заголовки для Selectel S3
-        xhr.setRequestHeader('Content-Type', file.type);
-        xhr.setRequestHeader('Authorization', 'Basic ' + btoa(`${S3_CONFIG.accessKeyId}:${S3_CONFIG.secretAccessKey}`));
+        xhr.open('POST', API_CONFIG.endpoints.uploadFile, true);
         
         xhr.upload.onprogress = function(e) {
             if (e.lengthComputable) {
@@ -280,26 +180,33 @@ async function uploadFileToS3(file, type) {
         xhr.onload = function() {
             showUploadProgress(false);
             
-            if (xhr.status === 200) {
-                console.log('✅ Файл загружен успешно в S3');
+            try {
+                const response = JSON.parse(xhr.responseText);
                 
-                const fileInfo = {
-                    id: `s3_${timestamp}_${randomStr}`,
-                    url: fileUrl,
-                    name: file.name,
-                    type: type,
-                    size: file.size,
-                    mimeType: file.type,
-                    uploadedBy: currentUserId,
-                    uploadedAt: timestamp,
-                    uploadedByName: currentUser.first_name || 'Неизвестно',
-                    isLocal: false
-                };
-                
-                resolve(fileInfo);
-            } else {
-                console.error(`❌ Ошибка S3: ${xhr.status}`, xhr.responseText);
-                reject(new Error(`S3 error: ${xhr.status}`));
+                if (xhr.status === 200 && response.status === 'success') {
+                    console.log('✅ Файл загружен успешно через API');
+                    
+                    const fileInfo = {
+                        id: `file_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`,
+                        url: response.file_url,
+                        name: file.name,
+                        type: type,
+                        size: file.size,
+                        mimeType: file.type,
+                        uploadedBy: currentUserId,
+                        uploadedAt: Date.now(),
+                        uploadedByName: currentUser.first_name || 'Неизвестно',
+                        isLocal: false
+                    };
+                    
+                    resolve(fileInfo);
+                } else {
+                    console.error('❌ Ошибка API:', response.message);
+                    reject(new Error(response.message || 'API error'));
+                }
+            } catch (parseError) {
+                console.error('❌ Ошибка парсинга ответа:', parseError);
+                reject(new Error('Invalid response from server'));
             }
         };
         
@@ -309,54 +216,66 @@ async function uploadFileToS3(file, type) {
             reject(new Error('Network error'));
         };
         
-        xhr.send(file);
+        xhr.send(formData);
     });
+}
+
+async function saveMessageToAPI(message) {
+    try {
+        const response = await fetch(API_CONFIG.endpoints.saveMessage, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(message)
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success') {
+                console.log('✅ Сообщение сохранено через API');
+                return true;
+            } else {
+                console.error('❌ Ошибка API:', data.message);
+                return false;
+            }
+        } else {
+            console.error('❌ Ошибка HTTP:', response.status);
+            return false;
+        }
+        
+    } catch (error) {
+        console.error('❌ Ошибка сохранения сообщения:', error);
+        return false;
+    }
 }
 
 // ===== ОСНОВНЫЕ ФУНКЦИИ =====
 async function saveUsersToS3() {
     try {
-        const data = {
-            meta: {
-                version: '1.0',
-                updated_at: new Date().toISOString(),
-                total_users: Object.keys(appData.users).length
-            },
-            users: appData.users
-        };
-        
-        return await saveS3Data(S3_PATHS.users, data);
+        // В этой версии пользователи сохраняются через сообщения
+        // Можно добавить отдельный endpoint при необходимости
+        return true;
         
     } catch (error) {
-        console.error('❌ Ошибка сохранения пользователей в S3:', error);
+        console.error('❌ Ошибка сохранения пользователей:', error);
         return false;
     }
 }
 
 async function saveMessagesToS3() {
     try {
-        const path = currentSection === 'main' ? S3_PATHS.messages_main : S3_PATHS.messages_news;
-        const messages = currentSection === 'main' ? appData.messages_main : appData.messages_news;
-        
-        const data = {
-            meta: {
-                version: '1.0',
-                updated_at: new Date().toISOString(),
-                total_messages: messages.length
-            },
-            messages: messages
-        };
-        
-        return await saveS3Data(path, data);
+        // Сообщения сохраняются через API при отправке
+        return true;
         
     } catch (error) {
-        console.error('❌ Ошибка сохранения сообщений в S3:', error);
+        console.error('❌ Ошибка сохранения сообщений:', error);
         return false;
     }
 }
 
 async function loadUsers() {
-    console.log('👥 Загрузка пользователей из S3...');
+    console.log('👥 Загрузка пользователей...');
     
     try {
         if (!currentUser.id) {
@@ -379,10 +298,7 @@ async function loadUsers() {
         // Обновляем данные
         appData.users = usersCache;
         
-        // Сохраняем в S3
-        await saveUsersToS3();
-        
-        console.log(`✅ Пользователь ${currentUser.first_name} добавлен в S3`);
+        console.log(`✅ Пользователь ${currentUser.first_name} добавлен`);
         
     } catch (error) {
         console.error('❌ Ошибка загрузки пользователей:', error);
@@ -391,24 +307,35 @@ async function loadUsers() {
 
 async function saveMessage(message) {
     try {
-        // Добавляем сообщение в соответствующий массив
-        if (currentSection === 'main') {
-            appData.messages_main.push(message);
-        } else {
-            appData.messages_news.push(message);
+        // Сохраняем сообщение через API
+        const saved = await saveMessageToAPI(message);
+        
+        if (saved) {
+            // Также добавляем в локальный кэш для немедленного отображения
+            if (currentSection === 'main') {
+                appData.messages_main.push(message);
+            } else {
+                appData.messages_news.push(message);
+            }
         }
         
-        // Сохраняем в S3
-        return await saveMessagesToS3();
+        return saved;
         
     } catch (error) {
-        console.error('❌ Ошибка сохранения сообщения в S3:', error);
+        console.error('❌ Ошибка сохранения сообщения:', error);
         
         // Fallback: сохраняем локально
         const key = `local_message_backup_${currentSection}`;
         let messages = JSON.parse(localStorage.getItem(key) || '[]');
         messages.push(message);
         localStorage.setItem(key, JSON.stringify(messages));
+        
+        // Добавляем в локальный кэш для отображения
+        if (currentSection === 'main') {
+            appData.messages_main.push(message);
+        } else {
+            appData.messages_news.push(message);
+        }
         
         return true;
     }
@@ -507,25 +434,25 @@ function createMessageElement(message) {
 
 async function uploadFile(file, type) {
     try {
-        const allowedTypes = [...S3_CONFIG.allowedTypes.image, ...S3_CONFIG.allowedTypes.document];
+        const allowedTypes = [...API_CONFIG.allowedTypes.image, ...API_CONFIG.allowedTypes.document];
         
         if (!allowedTypes.includes(file.type)) {
             throw new Error(`Тип файла ${file.type} не поддерживается`);
         }
         
-        if (file.size > S3_CONFIG.maxFileSize) {
-            throw new Error(`Файл слишком большой. Максимум: ${S3_CONFIG.maxFileSize / 1024 / 1024}MB`);
+        if (file.size > API_CONFIG.maxFileSize) {
+            throw new Error(`Файл слишком большой. Максимум: ${API_CONFIG.maxFileSize / 1024 / 1024}MB`);
         }
         
-        console.log(`📤 Начало загрузки в S3: ${file.name}`);
+        console.log(`📤 Начало загрузки файла: ${file.name}`);
         
         const fileInfo = await uploadFileToS3(file, type);
         
-        showNotification('Файл загружен в облако S3', 'success');
+        showNotification('Файл загружен в облако', 'success');
         return fileInfo;
         
     } catch (error) {
-        console.error('❌ Ошибка загрузки файла в S3:', error);
+        console.error('❌ Ошибка загрузки файла:', error);
         showNotification('Ошибка загрузки файла в облако', 'error');
         
         // Fallback на локальное хранилище
@@ -604,12 +531,11 @@ async function sendMessage() {
         // Обновляем статус пользователя
         if (usersCache[currentUserId]) {
             usersCache[currentUserId].last_seen = Date.now();
-            await saveUsersToS3();
         }
         
-        showNotification('Сообщение отправлено и сохранено в облаке S3', 'success');
+        showNotification('Сообщение отправлено', 'success');
         
-        console.log(`📤 Сообщение сохранено в S3: ${text.substring(0, 50)}...`);
+        console.log(`📤 Сообщение отправлено: ${text.substring(0, 50)}...`);
     }
 }
 
@@ -618,11 +544,6 @@ async function checkForUpdates() {
     if (usersCache[currentUserId]) {
         usersCache[currentUserId].last_seen = Date.now();
         usersCache[currentUserId].last_active = new Date().toISOString();
-        
-        // Сохраняем статус каждые 30 секунд
-        if (Date.now() % 30000 < 2000) {
-            await saveUsersToS3();
-        }
     }
 }
 
@@ -1193,7 +1114,7 @@ function switchSection(sectionId) {
     
     const chatTitle = document.getElementById('chat-title');
     if (chatTitle) {
-        chatTitle.textContent = sectionId === 'main' ? 'Основной чат (S3)' : 'Новости (S3)';
+        chatTitle.textContent = sectionId === 'main' ? 'Основной чат' : 'Новости';
     }
     
     loadMessages();
@@ -1284,25 +1205,20 @@ window.exportS3Data = function() {
         messages_news: appData.messages_news,
         timestamp: new Date().toISOString(),
         s3_status: s3Status,
-        s3_config: {
-            bucket: S3_CONFIG.bucket,
-            endpoint: S3_CONFIG.endpoint,
-            accessKeyId: S3_CONFIG.accessKeyId,
-            secretAccessKey: S3_CONFIG.secretAccessKey
-        }
+        api_config: API_CONFIG
     };
     
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `telegram_chat_s3_backup_${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `telegram_chat_backup_${new Date().toISOString().split('T')[0]}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     
-    showNotification('Данные из S3 экспортированы', 'success');
+    showNotification('Данные экспортированы', 'success');
 };
 
 window.clearCache = function() {
