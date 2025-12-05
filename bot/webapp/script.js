@@ -1446,7 +1446,7 @@ function createMessageElement(message) {
                     </div>
                 `;
             } else if (file.type === 'voice') {
-                return `
+                const voiceHtml = `
                     <div class="voice-message" data-audio-url="${file.url || ''}" data-message-id="${message.id}" data-duration="${file.duration || 0}">
                         <button class="voice-play-btn">
                             <i class="fas fa-play"></i>
@@ -1465,6 +1465,21 @@ function createMessageElement(message) {
                         ` : ''}
                     </div>
                 `;
+                
+                // Инициализируем перемотку после добавления в DOM
+                // Используем requestAnimationFrame для гарантии что элемент в DOM
+                requestAnimationFrame(() => {
+                    const messageElement = document.querySelector(`[data-message-id="${message.id}"]`);
+                    if (messageElement) {
+                        const voiceElement = messageElement.querySelector('.voice-message');
+                        if (voiceElement && !voiceElement.dataset.seekInitialized) {
+                            voiceElement.dataset.seekInitialized = 'true';
+                            initVoiceSeek(voiceElement);
+                        }
+                    }
+                });
+                
+                return voiceHtml;
             } else {
                 return `
                     <a href="${file.url || '#'}" class="message-file" 
@@ -1587,7 +1602,7 @@ function createMessageElement(message) {
     return messageElement;
 }
 
-// Добавление кнопки реакций при наведении на сообщение
+// Добавление кнопки реакций (показывается при клике на сообщение)
 function addReactionButtonToMessage(messageElement, messageId) {
     // Проверяем, не добавлена ли уже кнопка
     if (messageElement.querySelector('.message-reaction-btn')) return;
@@ -1596,6 +1611,7 @@ function addReactionButtonToMessage(messageElement, messageId) {
     reactionBtn.className = 'message-reaction-btn';
     reactionBtn.innerHTML = '<i class="far fa-smile"></i>';
     reactionBtn.title = 'Добавить реакцию';
+    reactionBtn.style.display = 'none';
     reactionBtn.onclick = (e) => {
         e.stopPropagation();
         showQuickReactionsMenu(messageId, reactionBtn);
@@ -1603,15 +1619,43 @@ function addReactionButtonToMessage(messageElement, messageId) {
     
     messageElement.appendChild(reactionBtn);
     
-    // Показываем кнопку при наведении
-    messageElement.addEventListener('mouseenter', function() {
+    // Показываем кнопку при клике на сообщение (не на реакциях или других элементах)
+    let clickTimeout = null;
+    messageElement.addEventListener('click', function(e) {
+        // Игнорируем клики на реакциях, кнопках, ссылках
+        if (e.target.closest('.reaction') || 
+            e.target.closest('button') || 
+            e.target.closest('a') ||
+            e.target.closest('.voice-message') ||
+            e.target.closest('.message-media')) {
+            return;
+        }
+        
+        // Показываем кнопку реакций
+        const rect = messageElement.getBoundingClientRect();
+        reactionBtn.style.left = `${rect.right + 8}px`;
+        reactionBtn.style.top = `${rect.top + rect.height / 2 - 16}px`;
+        reactionBtn.style.display = 'flex';
         reactionBtn.style.opacity = '1';
-        reactionBtn.style.pointerEvents = 'auto';
+        
+        // Скрываем через 3 секунды или при клике вне сообщения
+        clearTimeout(clickTimeout);
+        clickTimeout = setTimeout(() => {
+            reactionBtn.style.opacity = '0';
+            setTimeout(() => {
+                reactionBtn.style.display = 'none';
+            }, 200);
+        }, 3000);
     });
     
-    messageElement.addEventListener('mouseleave', function() {
-        reactionBtn.style.opacity = '0';
-        reactionBtn.style.pointerEvents = 'none';
+    // Скрываем при клике вне сообщения
+    document.addEventListener('click', function hideReactionBtn(e) {
+        if (!messageElement.contains(e.target) && !reactionBtn.contains(e.target)) {
+            reactionBtn.style.opacity = '0';
+            setTimeout(() => {
+                reactionBtn.style.display = 'none';
+            }, 200);
+        }
     });
 }
 
@@ -2215,12 +2259,102 @@ function playVoiceMessage(url, element) {
         return;
     }
     
-    // Создаем новый аудио плеер
-    const audio = new Audio(url);
+    // Проверяем URL
+    if (!url || url === '') {
+        console.error('❌ URL голосового сообщения пустой');
+        showNotification('Ошибка: URL голосового сообщения не найден', 'error');
+        return;
+    }
+    
+    // Создаем новый аудио плеер с crossOrigin для CORS
+    const audio = new Audio();
+    audio.crossOrigin = 'anonymous';
+    audio.preload = 'auto';
+    
     const playButton = element.querySelector('.voice-play-btn i');
     const progressBar = element.querySelector('.voice-progress');
     const currentTimeEl = element.querySelector('.voice-current-time');
     const duration = parseFloat(element.dataset.duration) || 0;
+    
+    // Обработка ошибок загрузки
+    audio.addEventListener('error', (e) => {
+        console.error('❌ Ошибка загрузки аудио:', e, url);
+        const error = audio.error;
+        let errorMsg = 'Ошибка воспроизведения';
+        
+        if (error) {
+            switch(error.code) {
+                case error.MEDIA_ERR_ABORTED:
+                    errorMsg = 'Загрузка прервана';
+                    break;
+                case error.MEDIA_ERR_NETWORK:
+                    errorMsg = 'Ошибка сети при загрузке';
+                    break;
+                case error.MEDIA_ERR_DECODE:
+                    errorMsg = 'Ошибка декодирования аудио';
+                    break;
+                case error.MEDIA_ERR_SRC_NOT_SUPPORTED:
+                    errorMsg = 'Формат аудио не поддерживается';
+                    break;
+            }
+        }
+        
+        showNotification(errorMsg, 'error');
+        if (playButton) playButton.className = 'fas fa-play';
+    });
+    
+    // Обработка загрузки метаданных
+    audio.addEventListener('loadedmetadata', () => {
+        console.log('✅ Метаданные аудио загружены:', audio.duration);
+    });
+    
+    // Обработка начала загрузки
+    audio.addEventListener('loadstart', () => {
+        console.log('🔄 Начало загрузки аудио:', url);
+        if (playButton) playButton.className = 'fas fa-spinner fa-spin';
+    });
+    
+    // Обработка готовности к воспроизведению
+    audio.addEventListener('canplay', () => {
+        console.log('✅ Аудио готово к воспроизведению');
+        if (playButton) playButton.className = 'fas fa-pause';
+    });
+    
+    // Устанавливаем URL после настройки обработчиков
+    // Проверяем и исправляем URL если нужно
+    let audioUrl = url;
+    
+    // Если URL из S3, проверяем доступность
+    if (audioUrl.includes('s3.ru-3.storage.selcloud.ru')) {
+        // URL из S3 - используем как есть, но без crossOrigin для прямого доступа
+        audio.crossOrigin = null;
+        console.log('🎵 Воспроизведение из S3:', audioUrl);
+    } else if (!audioUrl.startsWith('http')) {
+        // Если относительный URL, делаем абсолютным
+        audioUrl = audioUrl.startsWith('/') ? window.location.origin + audioUrl : window.location.origin + '/' + audioUrl;
+        console.log('🎵 Воспроизведение локального файла:', audioUrl);
+    } else {
+        console.log('🎵 Воспроизведение внешнего URL:', audioUrl);
+    }
+    
+    // Пробуем загрузить
+    audio.src = audioUrl;
+    
+    // Дополнительная проверка доступности файла
+    fetch(audioUrl, { method: 'HEAD' })
+        .then(response => {
+            if (!response.ok) {
+                console.error('❌ Файл недоступен:', response.status, audioUrl);
+                showNotification('Файл недоступен для воспроизведения', 'error');
+                if (playButton) playButton.className = 'fas fa-play';
+            } else {
+                console.log('✅ Файл доступен, Content-Type:', response.headers.get('Content-Type'));
+            }
+        })
+        .catch(err => {
+            console.error('❌ Ошибка проверки файла:', err);
+            // Не показываем ошибку, так как может быть CORS блокировка HEAD запроса
+        });
     
     // Останавливаем все другие плееры
     Object.values(activeVoicePlayers).forEach(player => {
@@ -2238,11 +2372,9 @@ function playVoiceMessage(url, element) {
     // Сохраняем плеер
     activeVoicePlayers[messageId] = { audio, element };
     
-    playButton.className = 'fas fa-pause';
-    
     // Обновление прогресса
     audio.addEventListener('timeupdate', () => {
-        const progress = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
+        const progress = audio.duration && !isNaN(audio.duration) ? (audio.currentTime / audio.duration) * 100 : 0;
         if (progressBar) {
             progressBar.style.width = `${progress}%`;
         }
@@ -2253,7 +2385,7 @@ function playVoiceMessage(url, element) {
     
     // Обработка окончания
     audio.addEventListener('ended', () => {
-        playButton.className = 'fas fa-play';
+        if (playButton) playButton.className = 'fas fa-play';
         if (progressBar) {
             progressBar.style.width = '0%';
         }
@@ -2265,18 +2397,27 @@ function playVoiceMessage(url, element) {
     
     // Обработка паузы
     audio.addEventListener('pause', () => {
-        playButton.className = 'fas fa-play';
+        if (playButton) playButton.className = 'fas fa-play';
     });
     
     // Обработка начала воспроизведения
     audio.addEventListener('play', () => {
-        playButton.className = 'fas fa-pause';
+        if (playButton) playButton.className = 'fas fa-pause';
     });
     
     // Воспроизведение
     audio.play().catch(err => {
-        console.error('Ошибка воспроизведения:', err);
-        playButton.className = 'fas fa-play';
+        console.error('❌ Ошибка воспроизведения:', err, url);
+        if (playButton) playButton.className = 'fas fa-play';
+        
+        // Пробуем альтернативный способ
+        if (err.name === 'NotAllowedError') {
+            showNotification('Разрешите воспроизведение аудио в браузере', 'warning');
+        } else if (err.name === 'NotSupportedError') {
+            showNotification('Формат аудио не поддерживается', 'error');
+        } else {
+            showNotification('Ошибка воспроизведения аудио', 'error');
+        }
     });
 }
 
@@ -2285,7 +2426,18 @@ function seekVoiceMessage(element, event) {
     const messageId = element.dataset.messageId;
     const player = activeVoicePlayers[messageId];
     
-    if (!player || !player.audio) return;
+    // Если плеер не запущен, запускаем его сначала
+    if (!player || !player.audio) {
+        const audioUrl = element.dataset.audioUrl;
+        if (audioUrl) {
+            playVoiceMessage(audioUrl, element);
+            // Ждем немного и повторяем попытку перемотки
+            setTimeout(() => {
+                seekVoiceMessage(element, event);
+            }, 100);
+        }
+        return;
+    }
     
     const waveform = element.querySelector('.voice-waveform');
     if (!waveform) return;
@@ -2294,9 +2446,66 @@ function seekVoiceMessage(element, event) {
     const clickX = event.clientX - rect.left;
     const percentage = Math.max(0, Math.min(100, (clickX / rect.width) * 100));
     
-    if (player.audio.duration) {
+    if (player.audio.duration && !isNaN(player.audio.duration)) {
         player.audio.currentTime = (percentage / 100) * player.audio.duration;
     }
+}
+
+// Инициализация перемотки для голосовых сообщений
+function initVoiceSeek(element) {
+    const waveform = element.querySelector('.voice-waveform');
+    if (!waveform) return;
+    
+    waveform.style.cursor = 'pointer';
+    
+    waveform.addEventListener('click', function(e) {
+        e.stopPropagation();
+        seekVoiceMessage(element, e);
+    });
+    
+    // Поддержка перетаскивания для перемотки
+    let isDragging = false;
+    
+    waveform.addEventListener('mousedown', function(e) {
+        isDragging = true;
+        seekVoiceMessage(element, e);
+    });
+    
+    waveform.addEventListener('mousemove', function(e) {
+        if (isDragging) {
+            seekVoiceMessage(element, e);
+        }
+    });
+    
+    waveform.addEventListener('mouseup', function() {
+        isDragging = false;
+    });
+    
+    waveform.addEventListener('mouseleave', function() {
+        isDragging = false;
+    });
+    
+    // Touch события для мобильных
+    waveform.addEventListener('touchstart', function(e) {
+        e.stopPropagation();
+        isDragging = true;
+        const touch = e.touches[0];
+        const fakeEvent = { clientX: touch.clientX };
+        seekVoiceMessage(element, fakeEvent);
+    });
+    
+    waveform.addEventListener('touchmove', function(e) {
+        if (isDragging) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const fakeEvent = { clientX: touch.clientX };
+            seekVoiceMessage(element, fakeEvent);
+        }
+    });
+    
+    waveform.addEventListener('touchend', function() {
+        isDragging = false;
+    });
 }
 
 // Скачивание голосового сообщения
@@ -2992,8 +3201,35 @@ async function saveMessageToS3(message) {
 }
 
 async function updateMessageInS3(message) {
-    // Same as saveMessageToS3 for now
-    return saveMessageToS3(message);
+    try {
+        const response = await fetch(API_CONFIG.endpoints.saveMessage, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(message)
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            console.log('✅ Реакция сохранена в S3:', message.id);
+            return true;
+        } else {
+            console.error('❌ Ошибка сохранения реакции:', response.statusText);
+            // Сохраняем локально как резерв
+            if (typeof saveMessageLocally === 'function') {
+                saveMessageLocally(message);
+            }
+            return false;
+        }
+    } catch (error) {
+        console.error('❌ Ошибка сохранения реакции:', error);
+        // Сохраняем локально как резерв
+        if (typeof saveMessageLocally === 'function') {
+            saveMessageLocally(message);
+        }
+        return false;
+    }
 }
 
 async function saveChannelToS3(channel) {
