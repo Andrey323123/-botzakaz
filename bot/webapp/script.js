@@ -28,6 +28,13 @@ let isSyncing = false;
 let syncInterval = null;
 let observer = null; // Для ленивой загрузки
 let imagePreviews = {}; // Кэш превью изображений
+let unreadCount = 0; // Количество непрочитанных сообщений
+let lastReadMessageId = null; // ID последнего прочитанного сообщения
+let currentSection = 'main'; // Текущий раздел/топик
+let sections = {}; // Разделы/топики
+let pinnedMessagesList = []; // Закрепленные сообщения
+let mutedUsers = new Set(); // Заглушенные пользователи
+let bannedUsers = new Set(); // Забаненные пользователи
 
 // Data structure
 let appData = {
@@ -153,6 +160,9 @@ async function initApp() {
         // Load channels
         await loadChannels();
         
+        // Load sections
+        await loadSectionsFromS3();
+        
         // Load messages for current channel
         await loadMessages();
         
@@ -198,11 +208,18 @@ function initTelegram() {
                 currentUser = tg.initDataUnsafe.user;
                 currentUserId = currentUser.id.toString();
                 
-                // Check if user is admin (for demo purposes)
-                if (currentUserId === '123456789' || currentUser.username === 'admin') {
-                    isAdmin = true;
-                    isMainAdmin = true;
+                // Get photo_url from Telegram if available
+                if (currentUser.photo_url) {
+                    currentUser.photo_url = currentUser.photo_url;
+                } else {
+                    // Generate photo_url from Telegram API
+                    // Format: https://api.telegram.org/file/bot<token>/photos/<file_path>
+                    // For now, use a placeholder that will be replaced with actual photo
+                    currentUser.photo_url = null; // Will be fetched if needed
                 }
+                
+                // Load user role from S3 or set default
+                loadUserRole();
                 
                 console.log('👤 Telegram пользователь:', currentUser);
                 
@@ -328,6 +345,10 @@ function initUI() {
     const btnMore = document.getElementById('btn-more');
     if (btnMore) btnMore.addEventListener('click', showMoreMenu);
     
+    // Unread badge button
+    const btnUnread = document.getElementById('btn-unread');
+    if (btnUnread) btnUnread.addEventListener('click', scrollToUnread);
+    
     // Message input
     const messageInput = document.getElementById('message-input');
     const sendButton = document.getElementById('btn-send');
@@ -397,6 +418,57 @@ function initUI() {
             handleAdminAction(action);
         });
     });
+    
+    // User actions modal handlers
+    const btnSaveUserActions = document.getElementById('btn-save-user-actions');
+    const btnMuteUser = document.getElementById('btn-mute-user');
+    const btnUnmuteUser = document.getElementById('btn-unmute-user');
+    const btnBanUser = document.getElementById('btn-ban-user');
+    const btnUnbanUser = document.getElementById('btn-unban-user');
+    
+    if (btnSaveUserActions) {
+        btnSaveUserActions.addEventListener('click', saveUserActions);
+    }
+    if (btnMuteUser) {
+        btnMuteUser.addEventListener('click', () => {
+            if (currentEditingUserId) muteUser(currentEditingUserId);
+        });
+    }
+    if (btnUnmuteUser) {
+        btnUnmuteUser.addEventListener('click', () => {
+            if (currentEditingUserId) unmuteUser(currentEditingUserId);
+        });
+    }
+    if (btnBanUser) {
+        btnBanUser.addEventListener('click', () => {
+            if (currentEditingUserId) banUser(currentEditingUserId);
+        });
+    }
+    if (btnUnbanUser) {
+        btnUnbanUser.addEventListener('click', () => {
+            if (currentEditingUserId) unbanUser(currentEditingUserId);
+        });
+    }
+    
+    // Mirror constructor button
+    const btnCreateMirror = document.getElementById('btn-create-mirror');
+    if (btnCreateMirror) {
+        btnCreateMirror.addEventListener('click', createMirror);
+    }
+    
+    // GIF search button
+    const btnSearchGif = document.getElementById('btn-search-gif');
+    const gifSearchInput = document.getElementById('gif-search-input');
+    if (btnSearchGif && gifSearchInput) {
+        btnSearchGif.addEventListener('click', () => {
+            loadGifs(gifSearchInput.value);
+        });
+        gifSearchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                loadGifs(gifSearchInput.value);
+            }
+        });
+    }
     
     // Кнопка скролла вниз
     const btnScrollDown = document.getElementById('btn-scroll-down');
@@ -730,10 +802,10 @@ function updateMessageActionsMenu(messageId) {
     const message = findMessageById(messageId);
     if (!message) return;
     
-    const isOwnMessage = message.user_id === currentUserId;
-    const canEdit = isOwnMessage || isAdmin;
-    const canDelete = isOwnMessage || isAdmin;
-    const canPin = isAdmin;
+    const canEdit = canEditMessage(message);
+    const canDelete = canDeleteMessage(message);
+    const canPin = (isAdmin || isMainAdmin) && !message.pinned;
+    const canUnpin = (isAdmin || isMainAdmin) && message.pinned;
     const canForward = true;
     
     const menuItems = document.querySelectorAll('.action-item');
@@ -749,6 +821,9 @@ function updateMessageActionsMenu(messageId) {
                 break;
             case 'pin':
                 item.style.display = canPin ? 'flex' : 'none';
+                break;
+            case 'unpin':
+                item.style.display = canUnpin ? 'flex' : 'none';
                 break;
             case 'forward':
                 item.style.display = canForward ? 'flex' : 'none';
@@ -787,6 +862,9 @@ function handleMessageAction(action, messageId) {
             break;
         case 'pin':
             pinMessage(msgId);
+            break;
+        case 'unpin':
+            unpinMessage(msgId);
             break;
         case 'copy':
             copyMessageText(msgId);
@@ -999,7 +1077,7 @@ function closeReactionPicker() {
 }
 
 // ===== COMPRESSION FUNCTIONS =====
-async function compressImage(file, quality = 0.8, maxWidth = 1920) {
+async function compressImage(file, quality = 0.7, maxWidth = 1600) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = function(e) {
@@ -1009,9 +1087,18 @@ async function compressImage(file, quality = 0.8, maxWidth = 1920) {
                 let width = img.width;
                 let height = img.height;
                 
+                // More aggressive compression: reduce size more
                 if (width > maxWidth) {
                     height = Math.round((height * maxWidth) / width);
                     width = maxWidth;
+                }
+                
+                // For very large images, reduce quality further
+                let finalQuality = quality;
+                if (file.size > 5 * 1024 * 1024) { // > 5MB
+                    finalQuality = 0.6;
+                } else if (file.size > 2 * 1024 * 1024) { // > 2MB
+                    finalQuality = 0.65;
                 }
                 
                 // Create canvas for compression
@@ -1021,13 +1108,17 @@ async function compressImage(file, quality = 0.8, maxWidth = 1920) {
                 
                 const ctx = canvas.getContext('2d');
                 
+                // Improve image quality during resize
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                
                 // Apply compression
                 ctx.drawImage(img, 0, 0, width, height);
                 
                 // Get compressed data URL
-                const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+                const compressedDataUrl = canvas.toDataURL('image/jpeg', finalQuality);
                 
-                // Convert back to Blob
+                // Convert back to Blob with optimized quality
                 canvas.toBlob(function(blob) {
                     resolve({
                         blob: blob,
@@ -1038,7 +1129,7 @@ async function compressImage(file, quality = 0.8, maxWidth = 1920) {
                         compressed: true,
                         originalSize: file.size
                     });
-                }, 'image/jpeg', quality);
+                }, 'image/jpeg', finalQuality);
             };
             
             img.onerror = reject;
@@ -1050,16 +1141,18 @@ async function compressImage(file, quality = 0.8, maxWidth = 1920) {
     });
 }
 
-async function compressVideo(file, maxBitrate = 2000000, maxWidth = 1280) {
+async function compressVideo(file, maxBitrate = 1500000, maxWidth = 1280) {
     return new Promise((resolve, reject) => {
         // Create video element to get metadata
         const video = document.createElement('video');
         video.preload = 'metadata';
+        video.muted = true; // Mute for processing
         
-        video.onloadedmetadata = function() {
+        video.onloadedmetadata = async function() {
             const originalWidth = video.videoWidth;
             const originalHeight = video.videoHeight;
             const duration = video.duration;
+            const originalSize = file.size;
             
             // Calculate new dimensions while maintaining aspect ratio
             let width = originalWidth;
@@ -1070,22 +1163,112 @@ async function compressVideo(file, maxBitrate = 2000000, maxWidth = 1280) {
                 width = maxWidth;
             }
             
-            // In a real app, you would use FFmpeg or a video compression library
-            // For now, we'll use the original file with metadata
+            // Try to compress video using MediaRecorder API if file is large
+            if (originalSize > 10 * 1024 * 1024 && MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
+                try {
+                    const compressedBlob = await compressVideoWithMediaRecorder(video, width, height, maxBitrate);
+                    if (compressedBlob && compressedBlob.size < originalSize * 0.9) {
+                        // Only use compressed version if it's significantly smaller
+                        resolve({
+                            originalWidth,
+                            originalHeight,
+                            targetWidth: width,
+                            targetHeight: height,
+                            duration,
+                            compressed: true,
+                            compressedBlob: compressedBlob,
+                            size: compressedBlob.size,
+                            originalSize: originalSize,
+                            maxBitrate
+                        });
+                        return;
+                    }
+                } catch (error) {
+                    console.warn('Видео сжатие через MediaRecorder не удалось:', error);
+                }
+            }
+            
+            // Fallback: return metadata without compression
             resolve({
                 originalWidth,
                 originalHeight,
                 targetWidth: width,
                 targetHeight: height,
                 duration,
-                compressed: false, // Mark as not compressed since we're not actually compressing
-                size: file.size,
+                compressed: false,
+                size: originalSize,
                 maxBitrate
             });
         };
         
         video.onerror = reject;
         video.src = URL.createObjectURL(file);
+    });
+}
+
+// Helper function to compress video using MediaRecorder
+async function compressVideoWithMediaRecorder(videoElement, targetWidth, targetHeight, maxBitrate) {
+    return new Promise((resolve, reject) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext('2d');
+        
+        const stream = canvas.captureStream(30); // 30 fps
+        const options = {
+            mimeType: 'video/webm;codecs=vp9',
+            videoBitsPerSecond: maxBitrate
+        };
+        
+        if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+            options.mimeType = 'video/webm;codecs=vp8';
+            if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                options.mimeType = 'video/webm';
+            }
+        }
+        
+        const mediaRecorder = new MediaRecorder(stream, options);
+        const chunks = [];
+        
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) {
+                chunks.push(e.data);
+            }
+        };
+        
+        mediaRecorder.onstop = () => {
+            const blob = new Blob(chunks, { type: options.mimeType });
+            resolve(blob);
+        };
+        
+        mediaRecorder.onerror = reject;
+        
+        // Draw video frames to canvas
+        videoElement.currentTime = 0;
+        videoElement.play();
+        
+        const drawFrame = () => {
+            if (videoElement.ended || videoElement.paused) {
+                mediaRecorder.stop();
+                return;
+            }
+            
+            ctx.drawImage(videoElement, 0, 0, targetWidth, targetHeight);
+            requestAnimationFrame(drawFrame);
+        };
+        
+        videoElement.onplay = () => {
+            mediaRecorder.start();
+            drawFrame();
+        };
+        
+        // Stop after duration
+        setTimeout(() => {
+            if (mediaRecorder.state !== 'inactive') {
+                videoElement.pause();
+                mediaRecorder.stop();
+            }
+        }, videoElement.duration * 1000 + 1000);
     });
 }
 
@@ -1230,6 +1413,36 @@ async function createVideoPreview(file, maxWidth = 400) {
 
 // ===== MESSAGE CREATION AND DISPLAY =====
 async function sendMessage() {
+    // Check if user is banned
+    if (bannedUsers.has(currentUserId)) {
+        showNotification('Вы забанены и не можете отправлять сообщения', 'error');
+        return;
+    }
+    
+    // Check if user is muted
+    if (mutedUsers.has(currentUserId)) {
+        showNotification('Вы заглушены и не можете отправлять сообщения', 'error');
+        return;
+    }
+    
+    // Check if user is banned
+    if (bannedUsers.has(currentUserId)) {
+        showNotification('Вы забанены и не можете отправлять сообщения', 'error');
+        return;
+    }
+    
+    // Check if user is muted
+    if (mutedUsers.has(currentUserId)) {
+        showNotification('Вы заглушены и не можете отправлять сообщения', 'error');
+        return;
+    }
+    
+    // Check permissions
+    if (!checkSectionPermission(currentSection)) {
+        showNotification('У вас нет прав на отправку сообщений в этом разделе', 'error');
+        return;
+    }
+    
     const input = document.getElementById('message-input');
     const text = input.value.trim();
     
@@ -1269,8 +1482,12 @@ async function sendMessage() {
                         console.log(`🖼️ Изображение сжато: ${formatFileSize(fileInfo.originalSize)} → ${formatFileSize(fileInfo.size)}`);
                     }
                     
-                    // Apply compression for videos (in real app)
-                    if (fileInfo.type === 'video' && fileInfo.compressionOptions) {
+                    // Apply compression for videos
+                    if (fileInfo.type === 'video' && fileInfo.compressedBlob) {
+                        fileToUpload = fileInfo.compressedBlob;
+                        fileInfo.size = fileInfo.compressedBlob.size;
+                        console.log(`🎥 Видео сжато: ${formatFileSize(fileInfo.originalSize)} → ${formatFileSize(fileInfo.size)}`);
+                    } else if (fileInfo.type === 'video' && fileInfo.compressionOptions) {
                         console.log(`🎥 Видео будет сжато до: ${fileInfo.compressionOptions.targetWidth}px`);
                     }
                     
@@ -1363,11 +1580,14 @@ function createMessageElement(message) {
     messageElement.className = `message ${isOutgoing ? 'outgoing' : 'incoming'}`;
     messageElement.dataset.messageId = message.id;
     
+    // Get user avatar (photo_url from Telegram or fallback to initial)
+    const userAvatar = getUserAvatar(user, userColor, userName);
+    
     // Check if deleted
     if (message.deleted) {
         messageElement.innerHTML = `
-            <div class="message-avatar" style="background-color: ${userColor}">
-                ${userName.charAt(0).toUpperCase()}
+            <div class="message-avatar">
+                ${userAvatar}
             </div>
             <div class="message-content">
                 <div class="message-bubble deleted">
@@ -1553,8 +1773,8 @@ function createMessageElement(message) {
     // Assemble message
     messageElement.innerHTML = `
         ${!isOutgoing ? `
-            <div class="message-avatar" style="background-color: ${userColor}">
-                ${userName.charAt(0).toUpperCase()}
+            <div class="message-avatar">
+                ${getUserAvatar(user, userColor, userName)}
             </div>
         ` : ''}
         
@@ -1790,6 +2010,268 @@ function handleAttachment(type) {
         case 'poll':
             createPoll();
             break;
+        case 'sticker':
+            showStickerPicker();
+            break;
+        case 'gif':
+            showGifPicker();
+            break;
+    }
+}
+
+// ===== STICKERS & GIFS =====
+async function showStickerPicker() {
+    const modal = document.getElementById('sticker-picker-modal');
+    if (!modal) return;
+    
+    modal.style.display = 'flex';
+    
+    // Load stickers from Telegram Bot API
+    await loadTelegramStickers();
+}
+
+async function loadTelegramStickers() {
+    const stickerSets = document.getElementById('sticker-sets');
+    if (!stickerSets) return;
+    
+    stickerSets.innerHTML = '<div class="loading-stickers">Загрузка стикеров...</div>';
+    
+    try {
+        // Try to get stickers via Telegram WebApp API
+        if (tg && tg.initDataUnsafe) {
+            // Use Telegram Bot API to get sticker sets
+            const response = await fetch('/api/telegram/get-sticker-sets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_id: currentUserId
+                })
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.status === 'success' && data.sticker_sets) {
+                    displayStickerSets(data.sticker_sets);
+                    return;
+                }
+            }
+        }
+        
+        // Fallback: show popular sticker sets
+        displayStickerSets([]);
+    } catch (error) {
+        console.error('Ошибка загрузки стикеров:', error);
+        stickerSets.innerHTML = '<div class="error-message">Не удалось загрузить стикеры</div>';
+    }
+}
+
+function displayStickerSets(stickerSets) {
+    const container = document.getElementById('sticker-sets');
+    if (!container) return;
+    
+    if (stickerSets.length === 0) {
+        // Show default sticker sets
+        container.innerHTML = `
+            <div class="sticker-set">
+                <div class="sticker-set-title">Популярные стикеры</div>
+                <div class="sticker-grid">
+                    <div class="sticker-item" onclick="selectSticker('https://telegram.org/img/t_logo.png')">
+                        <img src="https://telegram.org/img/t_logo.png" alt="Telegram">
+                    </div>
+                </div>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = stickerSets.map(set => `
+        <div class="sticker-set">
+            <div class="sticker-set-title">${set.title || set.name}</div>
+            <div class="sticker-grid">
+                ${set.stickers.map(sticker => `
+                    <div class="sticker-item" onclick="selectSticker('${sticker.file_url || sticker.url}')">
+                        <img src="${sticker.thumb_url || sticker.file_url || sticker.url}" alt="Sticker">
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `).join('');
+}
+
+function selectSticker(stickerUrl) {
+    // Add sticker as attachment
+    const stickerInfo = {
+        id: 'sticker_' + Date.now(),
+        type: 'sticker',
+        url: stickerUrl,
+        name: 'Стикер',
+        isLocal: false,
+        uploaded: true
+    };
+    
+    attachedFiles.push(stickerInfo);
+    showFilePreview(stickerInfo);
+    
+    // Close modal
+    const modal = document.getElementById('sticker-picker-modal');
+    if (modal) modal.style.display = 'none';
+    
+    // Enable send button
+    document.getElementById('btn-send').disabled = false;
+}
+
+async function showGifPicker() {
+    const modal = document.getElementById('gif-picker-modal');
+    if (!modal) return;
+    
+    modal.style.display = 'flex';
+    
+    // Load popular GIFs
+    await loadGifs();
+}
+
+async function loadGifs(query = '') {
+    const gifGrid = document.getElementById('gif-grid');
+    if (!gifGrid) return;
+    
+    gifGrid.innerHTML = '<div class="loading-gifs">Загрузка GIF...</div>';
+    
+    try {
+        // Use Giphy API or similar service
+        const url = query 
+            ? `/api/gifs/search?q=${encodeURIComponent(query)}`
+            : '/api/gifs/trending';
+        
+        const response = await fetch(url);
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success' && data.gifs) {
+                displayGifs(data.gifs);
+                return;
+            }
+        }
+        
+        // Fallback: show placeholder GIFs
+        displayGifs([]);
+    } catch (error) {
+        console.error('Ошибка загрузки GIF:', error);
+        gifGrid.innerHTML = '<div class="error-message">Не удалось загрузить GIF</div>';
+    }
+}
+
+function displayGifs(gifs) {
+    const container = document.getElementById('gif-grid');
+    if (!container) return;
+    
+    if (gifs.length === 0) {
+        container.innerHTML = `
+            <div class="gif-item" onclick="selectGif('https://media.giphy.com/media/3o7aCTPPm4OHfRLSH6/giphy.gif')">
+                <img src="https://media.giphy.com/media/3o7aCTPPm4OHfRLSH6/giphy.gif" alt="GIF">
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = gifs.map(gif => `
+        <div class="gif-item" onclick="selectGif('${gif.url || gif.images?.original?.url}')">
+            <img src="${gif.thumb_url || gif.images?.preview?.url || gif.url}" alt="GIF">
+        </div>
+    `).join('');
+}
+
+function selectGif(gifUrl) {
+    // Add GIF as attachment
+    const gifInfo = {
+        id: 'gif_' + Date.now(),
+        type: 'gif',
+        url: gifUrl,
+        name: 'GIF',
+        isLocal: false,
+        uploaded: true
+    };
+    
+    attachedFiles.push(gifInfo);
+    showFilePreview(gifInfo);
+    
+    // Close modal
+    const modal = document.getElementById('gif-picker-modal');
+    if (modal) modal.style.display = 'none';
+    
+    // Enable send button
+    document.getElementById('btn-send').disabled = false;
+}
+
+// Make functions global
+window.selectSticker = selectSticker;
+window.selectGif = selectGif;
+
+// ===== MIRROR CONSTRUCTOR =====
+function showMirrorConstructor() {
+    const modal = document.getElementById('mirror-constructor-modal');
+    if (modal) {
+        modal.style.display = 'flex';
+    }
+}
+
+async function createMirror() {
+    const name = document.getElementById('mirror-name')?.value.trim();
+    const token = document.getElementById('mirror-token')?.value.trim();
+    const domain = document.getElementById('mirror-domain')?.value.trim() || window.location.origin;
+    const isPublic = document.getElementById('mirror-public')?.checked || false;
+    
+    if (!name || !token) {
+        showNotification('Заполните все обязательные поля', 'error');
+        return;
+    }
+    
+    // Validate token format (basic check)
+    if (!token.match(/^\d+:[A-Za-z0-9_-]+$/)) {
+        showNotification('Неверный формат токена', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/mirrors/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: name,
+                token: token,
+                domain: domain,
+                public: isPublic,
+                created_by: currentUserId
+            })
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success') {
+                showNotification('Зеркало успешно создано!', 'success');
+                
+                // Close modal
+                const modal = document.getElementById('mirror-constructor-modal');
+                if (modal) modal.style.display = 'none';
+                
+                // Reset form
+                document.getElementById('mirror-name').value = '';
+                document.getElementById('mirror-token').value = '';
+                document.getElementById('mirror-domain').value = '';
+                document.getElementById('mirror-public').checked = false;
+                
+                // Show mirror URL
+                if (data.mirror_url) {
+                    showNotification(`Зеркало доступно по адресу: ${data.mirror_url}`, 'info');
+                }
+            } else {
+                showNotification(data.message || 'Ошибка создания зеркала', 'error');
+            }
+        } else {
+            showNotification('Ошибка создания зеркала', 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка создания зеркала:', error);
+        showNotification('Ошибка создания зеркала', 'error');
     }
 }
 
@@ -1864,8 +2346,8 @@ async function processAttachment(file) {
             // Show compression in progress
             showUploadProgress(true, 'Сжатие изображения...');
             
-            // Compress image
-            const compressed = await compressImage(file, 0.8, 1920);
+            // Compress image (uses default: quality 0.7, maxWidth 1600)
+            const compressed = await compressImage(file);
             fileInfo.compressedBlob = compressed.blob;
             fileInfo.compressed = true;
             fileInfo.originalSize = compressed.originalSize;
@@ -1885,10 +2367,19 @@ async function processAttachment(file) {
             // Show compression in progress
             showUploadProgress(true, 'Обработка видео...');
             
-            // Get video metadata for compression options
-            const compressionOptions = await compressVideo(file, 2000000, 1280);
+            // Get video metadata and compress if possible
+            const compressionOptions = await compressVideo(file);
             fileInfo.compressionOptions = compressionOptions;
             fileInfo.duration = compressionOptions.duration;
+            
+            // Use compressed blob if available
+            if (compressionOptions.compressed && compressionOptions.compressedBlob) {
+                fileInfo.compressedBlob = compressionOptions.compressedBlob;
+                fileInfo.compressed = true;
+                fileInfo.originalSize = compressionOptions.originalSize;
+                fileInfo.size = compressionOptions.size;
+                console.log(`🎥 Видео сжато: ${formatFileSize(fileInfo.originalSize)} → ${formatFileSize(fileInfo.size)} (${Math.round((1 - fileInfo.size / fileInfo.originalSize) * 100)}% меньше)`);
+            }
             
             // Create video preview
             const preview = await createVideoPreview(file, 400);
@@ -1902,7 +2393,11 @@ async function processAttachment(file) {
             // Hide progress
             showUploadProgress(false);
             
-            console.log(`🎥 Видео будет сжато до: ${compressionOptions.targetWidth}x${compressionOptions.targetHeight}`);
+            if (compressionOptions.compressed) {
+                console.log(`🎥 Видео сжато до: ${compressionOptions.targetWidth}x${compressionOptions.targetHeight}`);
+            } else {
+                console.log(`🎥 Видео будет сжато до: ${compressionOptions.targetWidth}x${compressionOptions.targetHeight} (требуется серверная обработка)`);
+            }
             
         } else {
             // For other files, just create data URL
@@ -2755,10 +3250,266 @@ function handleAdminAction(action) {
     closeSidebar();
 }
 
+// ===== USER MANAGEMENT =====
 function showUserManagement() {
-    // Implementation for user management
-    showModal('manage-users-modal');
+    if (!isAdmin && !isMainAdmin) {
+        showNotification('Только админы могут просматривать список участников', 'error');
+        return;
+    }
+    
+    const modal = document.getElementById('users-list-modal');
+    if (modal) {
+        modal.style.display = 'flex';
+        loadUsersList();
+    }
 }
+
+function loadUsersList() {
+    const usersList = document.getElementById('users-list');
+    if (!usersList) return;
+    
+    usersList.innerHTML = '';
+    
+    // Get all users from cache
+    const users = Object.values(usersCache);
+    
+    if (users.length === 0) {
+        usersList.innerHTML = '<div class="empty-state">Нет участников</div>';
+        return;
+    }
+    
+    // Sort users: admins first, then by name
+    users.sort((a, b) => {
+        const roleOrder = { 'main_admin': 0, 'admin': 1, 'moderator': 2, 'user': 3 };
+        const roleA = roleOrder[a.role] || 3;
+        const roleB = roleOrder[b.role] || 3;
+        if (roleA !== roleB) return roleA - roleB;
+        return (a.first_name || '').localeCompare(b.first_name || '');
+    });
+    
+    users.forEach(user => {
+        const userItem = createUserListItem(user);
+        usersList.appendChild(userItem);
+    });
+    
+    // Add search functionality
+    const searchInput = document.getElementById('users-search-input');
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            filterUsersList(e.target.value);
+        });
+    }
+}
+
+function createUserListItem(user) {
+    const userItem = document.createElement('div');
+    userItem.className = 'user-item';
+    userItem.dataset.userId = user.id;
+    
+    const userColor = stringToColor(user.id);
+    const userName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Пользователь';
+    const userRole = user.role || 'user';
+    const roleInfo = appData.roles[userRole] || appData.roles.user;
+    
+    const isMuted = mutedUsers.has(user.id.toString());
+    const isBanned = bannedUsers.has(user.id.toString());
+    
+    userItem.innerHTML = `
+        <div class="user-item-avatar">
+            ${getUserAvatar(user, userColor, userName)}
+        </div>
+        <div class="user-item-info">
+            <div class="user-item-name">${escapeHtml(userName)}</div>
+            <div class="user-item-meta">
+                <span class="user-role-badge" style="background-color: ${roleInfo.color}">
+                    ${roleInfo.name}
+                </span>
+                ${isMuted ? '<span class="user-status-badge muted"><i class="fas fa-volume-mute"></i> Заглушен</span>' : ''}
+                ${isBanned ? '<span class="user-status-badge banned"><i class="fas fa-ban"></i> Забанен</span>' : ''}
+            </div>
+        </div>
+        <button class="btn-user-action" onclick="showUserActions('${user.id}')">
+            <i class="fas fa-ellipsis-v"></i>
+        </button>
+    `;
+    
+    return userItem;
+}
+
+function filterUsersList(query) {
+    const usersList = document.getElementById('users-list');
+    if (!usersList) return;
+    
+    const userItems = usersList.querySelectorAll('.user-item');
+    const lowerQuery = query.toLowerCase();
+    
+    userItems.forEach(item => {
+        const userName = item.querySelector('.user-item-name')?.textContent.toLowerCase() || '';
+        if (userName.includes(lowerQuery)) {
+            item.style.display = 'flex';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+}
+
+let currentEditingUserId = null;
+
+function showUserActions(userId) {
+    if (!isAdmin && !isMainAdmin) {
+        showNotification('Только админы могут управлять пользователями', 'error');
+        return;
+    }
+    
+    currentEditingUserId = userId;
+    const user = usersCache[userId];
+    if (!user) return;
+    
+    const modal = document.getElementById('user-actions-modal');
+    const preview = document.getElementById('user-info-preview');
+    const roleSelect = document.getElementById('user-role-select');
+    const muteBtn = document.getElementById('btn-mute-user');
+    const unmuteBtn = document.getElementById('btn-unmute-user');
+    const banBtn = document.getElementById('btn-ban-user');
+    const unbanBtn = document.getElementById('btn-unban-user');
+    
+    if (!modal) return;
+    
+    // Update preview
+    const userColor = stringToColor(user.id);
+    const userName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Пользователь';
+    
+    if (preview) {
+        preview.innerHTML = `
+            <div class="user-preview-avatar">
+                ${getUserAvatar(user, userColor, userName)}
+            </div>
+            <div class="user-preview-name">${escapeHtml(userName)}</div>
+            <div class="user-preview-username">@${user.username || 'без имени'}</div>
+        `;
+    }
+    
+    // Set current role
+    if (roleSelect) {
+        roleSelect.value = user.role || 'user';
+    }
+    
+    // Update mute/ban buttons
+    const isMuted = mutedUsers.has(userId.toString());
+    const isBanned = bannedUsers.has(userId.toString());
+    
+    if (muteBtn) muteBtn.style.display = isMuted ? 'none' : 'block';
+    if (unmuteBtn) unmuteBtn.style.display = isMuted ? 'block' : 'none';
+    if (banBtn) banBtn.style.display = isBanned ? 'none' : 'block';
+    if (unbanBtn) unbanBtn.style.display = isBanned ? 'block' : 'none';
+    
+    modal.style.display = 'flex';
+}
+
+async function saveUserActions() {
+    if (!currentEditingUserId) return;
+    
+    const roleSelect = document.getElementById('user-role-select');
+    const newRole = roleSelect?.value || 'user';
+    
+    // Update role
+    await updateUserRole(currentEditingUserId, newRole);
+    
+    // Close modal
+    const modal = document.getElementById('user-actions-modal');
+    if (modal) modal.style.display = 'none';
+    
+    // Reload users list
+    loadUsersList();
+    
+    showNotification('Изменения сохранены', 'success');
+}
+
+async function updateUserRole(userId, role) {
+    if (!isMainAdmin && role === 'main_admin') {
+        showNotification('Только главный админ может назначать главных админов', 'error');
+        return;
+    }
+    
+    const user = usersCache[userId];
+    if (!user) return;
+    
+    user.role = role;
+    
+    // Update in S3
+    try {
+        const response = await fetch(API_CONFIG.endpoints.updateUser, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: userId,
+                role: role
+            })
+        });
+        
+        if (response.ok) {
+            console.log(`✅ Роль пользователя ${userId} обновлена на ${role}`);
+        }
+    } catch (error) {
+        console.error('❌ Ошибка обновления роли:', error);
+    }
+}
+
+function muteUser(userId) {
+    if (!isAdmin && !isMainAdmin) {
+        showNotification('Только админы могут заглушать пользователей', 'error');
+        return;
+    }
+    
+    mutedUsers.add(userId.toString());
+    showNotification('Пользователь заглушен', 'success');
+    saveUserActions();
+}
+
+function unmuteUser(userId) {
+    if (!isAdmin && !isMainAdmin) {
+        showNotification('Только админы могут разглушать пользователей', 'error');
+        return;
+    }
+    
+    mutedUsers.delete(userId.toString());
+    showNotification('Пользователь разглушен', 'success');
+    saveUserActions();
+}
+
+function banUser(userId) {
+    if (!isAdmin && !isMainAdmin) {
+        showNotification('Только админы могут банить пользователей', 'error');
+        return;
+    }
+    
+    if (userId === currentUserId) {
+        showNotification('Нельзя забанить самого себя', 'error');
+        return;
+    }
+    
+    bannedUsers.add(userId.toString());
+    showNotification('Пользователь забанен', 'success');
+    saveUserActions();
+}
+
+function unbanUser(userId) {
+    if (!isAdmin && !isMainAdmin) {
+        showNotification('Только админы могут разбанивать пользователей', 'error');
+        return;
+    }
+    
+    bannedUsers.delete(userId.toString());
+    showNotification('Пользователь разбанен', 'success');
+    saveUserActions();
+}
+
+// Make functions global for onclick handlers
+window.showUserActions = showUserActions;
+window.muteUser = muteUser;
+window.unmuteUser = unmuteUser;
+window.banUser = banUser;
+window.unbanUser = unbanUser;
 
 function showRoleManagement() {
     showModal('manage-roles-modal');
@@ -3003,6 +3754,32 @@ async function loadAllData() {
     }
 }
 
+// Load user role from S3
+async function loadUserRole() {
+    try {
+        const response = await fetch(`${API_CONFIG.endpoints.getUsers}?user_id=${currentUserId}`);
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success' && data.user) {
+                const userRole = data.user.role || 'user';
+                currentUser.role = userRole;
+                
+                // Set admin flags
+                isAdmin = userRole === 'admin' || userRole === 'main_admin' || userRole === 'moderator';
+                isMainAdmin = userRole === 'main_admin';
+                
+                console.log(`👤 Роль пользователя: ${userRole}`);
+            }
+        }
+    } catch (error) {
+        console.error('❌ Ошибка загрузки роли:', error);
+        // Default role
+        currentUser.role = 'user';
+        isAdmin = false;
+        isMainAdmin = false;
+    }
+}
+
 async function loadUsers() {
     try {
         const response = await fetch(API_CONFIG.endpoints.getUsers);
@@ -3010,6 +3787,12 @@ async function loadUsers() {
             const data = await response.json();
             if (data.status === 'success') {
                 usersCache = data.users || {};
+                
+                // Update current user with photo_url if available
+                if (usersCache[currentUserId] && usersCache[currentUserId].photo_url) {
+                    currentUser.photo_url = usersCache[currentUserId].photo_url;
+                }
+                
                 console.log(`👥 Загружено ${Object.keys(usersCache).length} пользователей`);
             }
         }
@@ -3136,8 +3919,299 @@ function updateMessagesDisplay() {
         }, 100);
     }
     
+    // Update unread count
+    updateUnreadCount();
+    
     // Scroll to bottom
     scrollToBottom();
+}
+
+// ===== UNREAD MESSAGES =====
+function updateUnreadCount() {
+    if (!lastReadMessageId) {
+        // First time - mark all as read
+        const messages = appData.channels[currentChannel]?.messages || [];
+        if (messages.length > 0) {
+            lastReadMessageId = messages[messages.length - 1].id;
+            unreadCount = 0;
+        }
+        return;
+    }
+    
+    const messages = appData.channels[currentChannel]?.messages || [];
+    const lastReadIndex = messages.findIndex(m => m.id === lastReadMessageId);
+    
+    if (lastReadIndex === -1 || lastReadIndex === messages.length - 1) {
+        unreadCount = 0;
+    } else {
+        unreadCount = messages.length - lastReadIndex - 1;
+    }
+    
+    // Update badge
+    const badge = document.getElementById('unread-badge');
+    const countEl = document.getElementById('unread-count');
+    
+    if (badge && countEl) {
+        if (unreadCount > 0) {
+            badge.style.display = 'flex';
+            countEl.textContent = unreadCount;
+        } else {
+            badge.style.display = 'none';
+        }
+    }
+}
+
+function scrollToUnread() {
+    if (!lastReadMessageId) {
+        scrollToBottom();
+        return;
+    }
+    
+    const messageElement = document.querySelector(`[data-message-id="${lastReadMessageId}"]`);
+    if (messageElement) {
+        messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // Mark as read
+        const messages = appData.channels[currentChannel]?.messages || [];
+        const lastIndex = messages.length - 1;
+        if (lastIndex >= 0) {
+            lastReadMessageId = messages[lastIndex].id;
+            unreadCount = 0;
+            updateUnreadCount();
+        }
+    } else {
+        scrollToBottom();
+    }
+}
+
+// ===== SECTIONS/TOPICS =====
+function checkSectionPermission(sectionId) {
+    const section = sections[sectionId] || sections['main'];
+    if (!section) return true; // Default section allows writing
+    
+    // Admins can always write
+    if (isAdmin || isMainAdmin) return true;
+    
+    // Check section permissions
+    if (section.readOnly && !isAdmin) {
+        return false; // Read-only for non-admins
+    }
+    
+    return true;
+}
+
+async function loadSectionsFromS3() {
+    try {
+        const response = await fetch('/api/s3/get-sections');
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success' && data.sections) {
+                sections = data.sections;
+            }
+        }
+    } catch (error) {
+        console.error('❌ Ошибка загрузки разделов:', error);
+    }
+    
+    // Ensure main section exists
+    if (!sections['main']) {
+        sections['main'] = {
+            id: 'main',
+            name: 'Основной',
+            readOnly: false,
+            description: 'Основной раздел для общения'
+        };
+    }
+    
+    updateSectionsDisplay();
+}
+
+function updateSectionsDisplay() {
+    const sectionsList = document.getElementById('sections-list');
+    const btnAddSection = document.getElementById('btn-add-section');
+    
+    if (!sectionsList) return;
+    
+    // Show add button only for admins
+    if (btnAddSection) {
+        btnAddSection.style.display = (isAdmin || isMainAdmin) ? 'inline-flex' : 'none';
+    }
+    
+    sectionsList.innerHTML = '';
+    
+    Object.values(sections).forEach(section => {
+        if (section.id === 'main') return; // Skip main, it's in channels
+        
+        const sectionItem = document.createElement('div');
+        sectionItem.className = `section-item ${currentSection === section.id ? 'active' : ''}`;
+        sectionItem.dataset.sectionId = section.id;
+        
+        sectionItem.innerHTML = `
+            <div class="section-icon">
+                <i class="fas fa-folder${section.readOnly ? '-open' : ''}"></i>
+            </div>
+            <div class="section-info">
+                <div class="section-name">${escapeHtml(section.name)}</div>
+                ${section.readOnly ? '<div class="section-badge read-only">Только чтение</div>' : ''}
+            </div>
+            ${(isAdmin || isMainAdmin) ? `
+                <button class="btn-section-action" onclick="editSection('${section.id}')" title="Редактировать">
+                    <i class="fas fa-edit"></i>
+                </button>
+            ` : ''}
+        `;
+        
+        sectionItem.addEventListener('click', (e) => {
+            if (!e.target.closest('.btn-section-action')) {
+                switchSection(section.id);
+            }
+        });
+        
+        sectionsList.appendChild(sectionItem);
+    });
+}
+
+function switchSection(sectionId) {
+    currentSection = sectionId;
+    
+    // Update active state
+    document.querySelectorAll('.section-item').forEach(item => {
+        item.classList.toggle('active', item.dataset.sectionId === sectionId);
+    });
+    
+    // Load messages for this section
+    loadMessages();
+    
+    // Update header
+    const section = sections[sectionId];
+    if (section) {
+        document.getElementById('chat-title').textContent = section.name;
+    }
+}
+
+function createSection(name, description = '', readOnly = false) {
+    if (!isAdmin && !isMainAdmin) {
+        showNotification('Только админы могут создавать разделы', 'error');
+        return;
+    }
+    
+    const sectionId = 'section_' + Date.now();
+    const section = {
+        id: sectionId,
+        name: name,
+        description: description,
+        readOnly: readOnly,
+        created_by: currentUserId,
+        created_at: Date.now()
+    };
+    
+    sections[sectionId] = section;
+    
+    // Save to S3
+    saveSectionsToS3();
+    
+    updateSectionsDisplay();
+    showNotification('Раздел создан', 'success');
+}
+
+function editSection(sectionId) {
+    const section = sections[sectionId];
+    if (!section) return;
+    
+    const newName = prompt('Название раздела:', section.name);
+    if (!newName) return;
+    
+    const newDescription = prompt('Описание:', section.description || '');
+    const readOnly = confirm('Только чтение для не-админов?');
+    
+    section.name = newName;
+    section.description = newDescription;
+    section.readOnly = readOnly;
+    
+    // Save to S3
+    saveSectionsToS3();
+    
+    updateSectionsDisplay();
+    showNotification('Раздел обновлен', 'success');
+}
+
+async function saveSectionsToS3() {
+    try {
+        const response = await fetch('/api/s3/save-sections', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                sections: sections
+            })
+        });
+        
+        if (response.ok) {
+            console.log('✅ Разделы сохранены в S3');
+        }
+    } catch (error) {
+        console.error('❌ Ошибка сохранения разделов:', error);
+    }
+}
+
+window.editSection = editSection;
+
+function canEditMessage(message) {
+    const isOwnMessage = message.user_id === currentUserId;
+    return isOwnMessage || isAdmin || isMainAdmin;
+}
+
+function canDeleteMessage(message) {
+    const isOwnMessage = message.user_id === currentUserId;
+    return isOwnMessage || isAdmin || isMainAdmin;
+}
+
+// ===== PINNED MESSAGES =====
+async function pinMessage(messageId) {
+    if (!isAdmin && !isMainAdmin) {
+        showNotification('Только админы могут закреплять сообщения', 'error');
+        return;
+    }
+    
+    const message = findMessageById(messageId);
+    if (!message) return;
+    
+    message.pinned = true;
+    message.pinned_at = Date.now();
+    message.pinned_by = currentUserId;
+    
+    // Add to pinned list
+    if (!pinnedMessagesList.find(m => m.id === messageId)) {
+        pinnedMessagesList.push(message);
+    }
+    
+    // Save to S3
+    await updateMessageInS3(message);
+    
+    showNotification('Сообщение закреплено', 'success');
+    updateMessagesDisplay();
+}
+
+async function unpinMessage(messageId) {
+    if (!isAdmin && !isMainAdmin) {
+        showNotification('Только админы могут откреплять сообщения', 'error');
+        return;
+    }
+    
+    const message = findMessageById(messageId);
+    if (!message) return;
+    
+    message.pinned = false;
+    message.pinned_at = null;
+    message.pinned_by = null;
+    
+    // Remove from pinned list
+    pinnedMessagesList = pinnedMessagesList.filter(m => m.id !== messageId);
+    
+    // Save to S3
+    await updateMessageInS3(message);
+    
+    showNotification('Сообщение откреплено', 'success');
+    updateMessagesDisplay();
 }
 
 function updateChannelsSidebar() {
@@ -3485,6 +4559,14 @@ function formatDuration(seconds) {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+// Get user avatar HTML (photo_url from Telegram or fallback)
+function getUserAvatar(user, userColor, userName) {
+    if (user && user.photo_url) {
+        return `<img src="${user.photo_url}" alt="${userName}" class="avatar-image" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div class="avatar-initial" style="background-color: ${userColor}; display: none; align-items: center; justify-content: center; width: 100%; height: 100%; border-radius: 50%; color: white; font-weight: 600; font-size: 14px;">${userName.charAt(0).toUpperCase()}</div>`;
+    }
+    return `<div class="avatar-initial" style="background-color: ${userColor}; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; border-radius: 50%; color: white; font-weight: 600; font-size: 14px;">${userName.charAt(0).toUpperCase()}</div>`;
 }
 
 function stringToColor(str) {
@@ -3848,8 +4930,8 @@ function createPollElement(message) {
     messageElement.dataset.messageId = message.id;
     messageElement.innerHTML = `
         ${!isOutgoing ? `
-            <div class="message-avatar" style="background-color: ${userColor}">
-                ${userName.charAt(0).toUpperCase()}
+            <div class="message-avatar">
+                ${getUserAvatar(user, userColor, userName)}
             </div>
         ` : ''}
         
