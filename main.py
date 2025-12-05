@@ -65,12 +65,19 @@ def upload_to_s3(file_data, filepath, content_type='application/octet-stream'):
         
         flask_logger.info(f"📤 Загрузка файла в S3: {filepath}")
         
-        s3_client.put_object(
-            Bucket=S3_BUCKET,
-            Key=filepath,
-            Body=file_data,
-            ContentType=content_type
-        )
+        # Дополнительные параметры для публичного доступа к медиа файлам
+        put_params = {
+            'Bucket': S3_BUCKET,
+            'Key': filepath,
+            'Body': file_data,
+            'ContentType': content_type
+        }
+        
+        # Для аудио/видео файлов добавляем Cache-Control
+        if content_type.startswith('audio/') or content_type.startswith('video/'):
+            put_params['CacheControl'] = 'public, max-age=31536000'
+        
+        s3_client.put_object(**put_params)
         
         file_url = generate_s3_url(filepath)
         flask_logger.info(f"✅ Файл загружен в S3: {file_url}")
@@ -98,7 +105,21 @@ def add_cors_headers(response):
     """Добавляем CORS заголовки вручную"""
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Range'
+    response.headers['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length'
+    # Поддержка Range запросов для аудио/видео
+    if request.method == 'GET' and request.path.startswith('/api/s3/'):
+        response.headers['Accept-Ranges'] = 'bytes'
+    return response
+
+@flask_app.route('/api/s3/<path:filename>', methods=['OPTIONS'])
+def handle_options(filename):
+    """Обработка preflight запросов"""
+    response = flask_app.make_default_options_response()
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Range'
+    response.headers['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length'
     return response
 
 @flask_app.route('/')
@@ -149,6 +170,120 @@ def init_database():
         }), 500
 
 # ===== API ДЛЯ ФРОНТЕНДА =====
+@flask_app.route('/api/s3/upload', methods=['POST', 'OPTIONS'])
+def upload_file_to_s3():
+    """Загрузка файла в S3"""
+    if request.method == 'OPTIONS':
+        return '', 200
+    
+    return proxy_upload_to_s3()
+
+@flask_app.route('/api/s3/upload-voice', methods=['POST', 'OPTIONS'])
+def upload_voice_to_s3():
+    """Загрузка голосового сообщения в S3"""
+    if request.method == 'OPTIONS':
+        return '', 200
+    
+    try:
+        if 'file' not in request.files:
+            return jsonify({'status': 'error', 'message': 'No file provided'}), 400
+        
+        file = request.files['file']
+        user_id = request.form.get('user_id')
+        
+        if not user_id:
+            return jsonify({'status': 'error', 'message': 'User ID required'}), 400
+        
+        if file.filename == '':
+            return jsonify({'status': 'error', 'message': 'No selected file'}), 400
+        
+        # Читаем файл
+        file_data = file.read()
+        
+        # Генерируем уникальное имя файла для голосового
+        unique_filename = f"{uuid.uuid4()}.ogg"
+        filepath = f"uploads/voice/{user_id}/{unique_filename}"
+        
+        # Загружаем в S3 с правильным Content-Type для аудио
+        file_url = upload_to_s3(
+            file_data,
+            filepath,
+            content_type='audio/ogg'  # или 'audio/webm' в зависимости от формата
+        )
+        
+        # Получаем длительность если передана
+        duration = request.form.get('duration', 0)
+        
+        return jsonify({
+            'status': 'success',
+            'file_url': file_url,
+            'filename': unique_filename,
+            'size': len(file_data),
+            'type': 'voice',
+            'duration': int(duration) if duration else 0
+        })
+        
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка загрузки голосового: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@flask_app.route('/api/s3/upload-video', methods=['POST', 'OPTIONS'])
+def upload_video_to_s3():
+    """Загрузка видео в S3"""
+    if request.method == 'OPTIONS':
+        return '', 200
+    
+    try:
+        if 'file' not in request.files:
+            return jsonify({'status': 'error', 'message': 'No file provided'}), 400
+        
+        file = request.files['file']
+        user_id = request.form.get('user_id')
+        
+        if not user_id:
+            return jsonify({'status': 'error', 'message': 'User ID required'}), 400
+        
+        if file.filename == '':
+            return jsonify({'status': 'error', 'message': 'No selected file'}), 400
+        
+        # Читаем файл
+        file_data = file.read()
+        
+        # Генерируем уникальное имя файла
+        filename = secure_filename(file.filename)
+        ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else 'mp4'
+        unique_filename = f"{uuid.uuid4()}.{ext}"
+        filepath = f"uploads/video/{user_id}/{unique_filename}"
+        
+        # Определяем Content-Type для видео
+        video_content_types = {
+            'mp4': 'video/mp4',
+            'webm': 'video/webm',
+            'mov': 'video/quicktime',
+            'avi': 'video/x-msvideo'
+        }
+        content_type = video_content_types.get(ext, 'video/mp4')
+        
+        # Загружаем в S3
+        file_url = upload_to_s3(
+            file_data,
+            filepath,
+            content_type=content_type
+        )
+        
+        return jsonify({
+            'status': 'success',
+            'file_url': file_url,
+            'filename': filename,
+            'unique_filename': unique_filename,
+            'size': len(file_data),
+            'type': 'video'
+        })
+        
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка загрузки видео: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 @flask_app.route('/api/s3/proxy-upload', methods=['POST'])
 def proxy_upload_to_s3():
     """Прокси загрузка файла в S3 через бэкенд"""
@@ -423,9 +558,81 @@ def serve_static(filename):
     file_path = os.path.join(WEBAPP_DIR, filename)
     
     if os.path.exists(file_path):
-        return send_from_directory(WEBAPP_DIR, filename)
+        response = send_from_directory(WEBAPP_DIR, filename)
+        
+        # Добавляем поддержку Range запросов для аудио/видео файлов
+        if filename.endswith(('.ogg', '.mp3', '.wav', '.m4a', '.webm', '.mp4', '.mov', '.avi')):
+            response.headers['Accept-Ranges'] = 'bytes'
+            response.headers['Cache-Control'] = 'public, max-age=31536000'
+        
+        return response
     
     return "File not found", 404
+
+# Прокси для аудио файлов из S3 с поддержкой Range запросов
+@flask_app.route('/api/s3/audio/<path:filepath>', methods=['GET', 'HEAD', 'OPTIONS'])
+def proxy_audio_from_s3(filepath):
+    """Прокси для аудио файлов из S3 с поддержкой Range запросов"""
+    if request.method == 'OPTIONS':
+        return '', 200
+    
+    try:
+        if not s3_client:
+            return jsonify({'status': 'error', 'message': 'S3 client not initialized'}), 500
+        
+        # Получаем Range заголовок для перемотки
+        range_header = request.headers.get('Range')
+        
+        # Получаем объект из S3
+        s3_key = f"uploads/voice/{filepath}"
+        
+        if range_header:
+            # Поддержка Range запросов для перемотки
+            range_match = range_header.replace('bytes=', '').split('-')
+            start = int(range_match[0]) if range_match[0] else 0
+            end = int(range_match[1]) if range_match[1] else None
+            
+            try:
+                range_str = f'bytes={start}-{end}' if end else f'bytes={start}-'
+                obj = s3_client.get_object(
+                    Bucket=S3_BUCKET,
+                    Key=s3_key,
+                    Range=range_str
+                )
+                
+                content = obj['Body'].read()
+                content_length = obj.get('ContentLength', len(content))
+                content_range = obj.get('ContentRange', f'bytes {start}-{start + content_length - 1}/*')
+                
+                response = flask_app.make_response(content)
+                response.headers['Content-Type'] = 'audio/ogg'
+                response.headers['Content-Length'] = str(content_length)
+                response.headers['Content-Range'] = content_range
+                response.headers['Accept-Ranges'] = 'bytes'
+                response.status_code = 206  # Partial Content
+                
+                return response
+            except Exception as e:
+                flask_logger.error(f"❌ Ошибка Range запроса: {e}")
+                # Fallback на полный файл
+                pass
+        
+        # Полный файл
+        obj = s3_client.get_object(Bucket=S3_BUCKET, Key=s3_key)
+        content = obj['Body'].read()
+        content_length = obj.get('ContentLength', len(content))
+        
+        response = flask_app.make_response(content)
+        response.headers['Content-Type'] = 'audio/ogg'
+        response.headers['Content-Length'] = str(content_length)
+        response.headers['Accept-Ranges'] = 'bytes'
+        response.headers['Cache-Control'] = 'public, max-age=31536000'
+        
+        return response
+        
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка получения аудио из S3: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 # Экспортируем app для gunicorn
 app = flask_app
