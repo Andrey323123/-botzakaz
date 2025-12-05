@@ -1,4 +1,4 @@
-/// Telegram Mini App - Complete Full Featured Chat
+// Telegram Mini App - Complete Full Featured Chat
 // All features: video, voice messages, reactions, channels, admin roles
 
 // ===== GLOBAL VARIABLES =====
