@@ -381,7 +381,7 @@
                                 <span class="toggle-slider"></span>
                             </div>
                         </div>
-                        <div class="setting-item" id="mirror-constructor-btn" onclick="showMirrorConstructor()">
+                        <div class="setting-item" id="mirror-constructor-btn">
                             <div class="setting-icon">
                                 <i class="fas fa-code"></i>
                             </div>
@@ -661,8 +661,356 @@
     <!-- Scripts -->
     <script src="script.js"></script>
     <script>
-        // Инициализация при загрузке
+        // ============================
+        // ОБРАБОТЧИКИ ОТКРЫТИЯ/ЗАКРЫТИЯ
+        // ============================
+        
         document.addEventListener('DOMContentLoaded', function() {
+            // Основные элементы
+            const app = document.getElementById('app');
+            const overlay = document.getElementById('overlay');
+            const loadingScreen = document.getElementById('loading-screen');
+            
+            // Меню и сайдбар
+            const btnMenu = document.getElementById('btn-menu');
+            const sidebar = document.getElementById('sidebar');
+            const btnCloseSidebar = document.getElementById('btn-close-sidebar');
+            
+            // Поиск
+            const btnSearch = document.getElementById('btn-search');
+            const searchBar = document.getElementById('search-bar');
+            const btnCloseSearch = document.getElementById('btn-close-search');
+            const btnClearSearch = document.getElementById('btn-clear-search');
+            const searchInput = document.getElementById('search-input');
+            
+            // Действия с сообщениями
+            const messageActionsMenu = document.getElementById('message-actions-menu');
+            
+            // Forward меню
+            const forwardMenu = document.getElementById('forward-menu');
+            const btnCloseForward = document.getElementById('btn-close-forward');
+            
+            // Пикер реакций
+            const reactionPicker = document.getElementById('reaction-picker');
+            
+            // Быстрые реакции
+            const quickReactionsMenu = document.getElementById('quick-reactions-menu');
+            
+            // Ввод сообщений
+            const btnAttach = document.getElementById('btn-attach');
+            const attachMenu = document.getElementById('attach-menu');
+            const btnEmoji = document.getElementById('btn-emoji');
+            const emojiPicker = document.getElementById('emoji-picker');
+            const btnVoice = document.getElementById('btn-voice');
+            const voiceRecorder = document.getElementById('voice-recorder');
+            const btnCancelRecording = document.getElementById('btn-cancel-recording');
+            const btnSendVoice = document.getElementById('btn-send-voice');
+            const btnCancelReply = document.getElementById('btn-cancel-reply');
+            const replyPreview = document.getElementById('reply-preview');
+            const btnScrollDown = document.getElementById('btn-scroll-down');
+            
+            // Модальные окна
+            const modals = {
+                'create-channel-modal': document.getElementById('create-channel-modal'),
+                'manage-roles-modal': document.getElementById('manage-roles-modal'),
+                'users-list-modal': document.getElementById('users-list-modal'),
+                'user-actions-modal': document.getElementById('user-actions-modal'),
+                'image-preview-modal': document.getElementById('image-preview-modal'),
+                'video-player-modal': document.getElementById('video-player-modal'),
+                'sticker-picker-modal': document.getElementById('sticker-picker-modal'),
+                'gif-picker-modal': document.getElementById('gif-picker-modal'),
+                'mirror-constructor-modal': document.getElementById('mirror-constructor-modal')
+            };
+            
+            const modalCloseButtons = document.querySelectorAll('.btn-close-modal, .btn-modal-secondary');
+            const btnClosePreview = document.getElementById('btn-close-preview');
+            const btnCloseVideo = document.getElementById('btn-close-video');
+            const mirrorConstructorBtn = document.getElementById('mirror-constructor-btn');
+            
+            // ======================
+            // ОБЩИЕ ФУНКЦИИ
+            // ======================
+            
+            function showElement(element) {
+                if (element) element.style.display = 'block';
+                if (element === sidebar || element === searchBar || 
+                    element === messageActionsMenu || element === forwardMenu ||
+                    Object.values(modals).some(modal => element === modal)) {
+                    overlay.style.display = 'block';
+                }
+            }
+            
+            function hideElement(element) {
+                if (element) element.style.display = 'none';
+                // Проверяем, если все меню закрыты - скрываем overlay
+                if (sidebar.style.display === 'none' && 
+                    searchBar.style.display === 'none' && 
+                    messageActionsMenu.style.display === 'none' &&
+                    forwardMenu.style.display === 'none' &&
+                    Object.values(modals).every(modal => modal.style.display === 'none')) {
+                    overlay.style.display = 'none';
+                }
+            }
+            
+            function closeAllMenus() {
+                hideElement(sidebar);
+                hideElement(searchBar);
+                hideElement(messageActionsMenu);
+                hideElement(forwardMenu);
+                hideElement(attachMenu);
+                hideElement(emojiPicker);
+                hideElement(quickReactionsMenu);
+                hideElement(reactionPicker);
+                hideElement(voiceRecorder);
+                hideElement(replyPreview);
+                
+                // Закрыть все модальные окна
+                Object.values(modals).forEach(modal => hideElement(modal));
+            }
+            
+            function showModal(modalId) {
+                closeAllMenus();
+                if (modals[modalId]) {
+                    showElement(modals[modalId]);
+                }
+            }
+            
+            // ======================
+            // ОБРАБОТЧИКИ КНОПОК
+            // ======================
+            
+            // Меню/Сайдбар
+            if (btnMenu) {
+                btnMenu.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    showElement(sidebar);
+                });
+            }
+            
+            if (btnCloseSidebar) {
+                btnCloseSidebar.addEventListener('click', function() {
+                    hideElement(sidebar);
+                });
+            }
+            
+            // Поиск
+            if (btnSearch) {
+                btnSearch.addEventListener('click', function() {
+                    showElement(searchBar);
+                    if (searchInput) searchInput.focus();
+                });
+            }
+            
+            if (btnCloseSearch) {
+                btnCloseSearch.addEventListener('click', function() {
+                    hideElement(searchBar);
+                    if (searchInput) searchInput.value = '';
+                });
+            }
+            
+            if (btnClearSearch) {
+                btnClearSearch.addEventListener('click', function() {
+                    if (searchInput) searchInput.value = '';
+                    searchInput.focus();
+                });
+            }
+            
+            // Forward меню
+            if (btnCloseForward) {
+                btnCloseForward.addEventListener('click', function() {
+                    hideElement(forwardMenu);
+                });
+            }
+            
+            // Ввод сообщений
+            if (btnAttach) {
+                btnAttach.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    if (attachMenu.style.display === 'block') {
+                        hideElement(attachMenu);
+                    } else {
+                        hideElement(emojiPicker);
+                        showElement(attachMenu);
+                    }
+                });
+            }
+            
+            if (btnEmoji) {
+                btnEmoji.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    if (emojiPicker.style.display === 'block') {
+                        hideElement(emojiPicker);
+                    } else {
+                        hideElement(attachMenu);
+                        showElement(emojiPicker);
+                    }
+                });
+            }
+            
+            if (btnVoice) {
+                btnVoice.addEventListener('click', function() {
+                    showElement(voiceRecorder);
+                    // Здесь будет логика начала записи
+                });
+            }
+            
+            if (btnCancelRecording) {
+                btnCancelRecording.addEventListener('click', function() {
+                    hideElement(voiceRecorder);
+                    // Здесь будет логика отмены записи
+                });
+            }
+            
+            if (btnSendVoice) {
+                btnSendVoice.addEventListener('click', function() {
+                    hideElement(voiceRecorder);
+                    // Здесь будет логика отправки голосового
+                });
+            }
+            
+            if (btnCancelReply) {
+                btnCancelReply.addEventListener('click', function() {
+                    hideElement(replyPreview);
+                });
+            }
+            
+            if (btnScrollDown) {
+                btnScrollDown.addEventListener('click', function() {
+                    const messagesWrapper = document.getElementById('messages-wrapper');
+                    if (messagesWrapper) {
+                        messagesWrapper.scrollTop = messagesWrapper.scrollHeight;
+                    }
+                });
+            }
+            
+            // Модальные окна
+            modalCloseButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    const modalId = this.getAttribute('data-modal');
+                    if (modalId && modals[modalId]) {
+                        hideElement(modals[modalId]);
+                    }
+                });
+            });
+            
+            if (btnClosePreview) {
+                btnClosePreview.addEventListener('click', function() {
+                    hideElement(modals['image-preview-modal']);
+                });
+            }
+            
+            if (btnCloseVideo) {
+                btnCloseVideo.addEventListener('click', function() {
+                    hideElement(modals['video-player-modal']);
+                });
+            }
+            
+            // Кнопка создания зеркала
+            if (mirrorConstructorBtn) {
+                mirrorConstructorBtn.addEventListener('click', function() {
+                    showModal('mirror-constructor-modal');
+                });
+            }
+            
+            // Кнопки в сайдбаре
+            const btnAddChannel = document.getElementById('btn-add-channel');
+            if (btnAddChannel) {
+                btnAddChannel.addEventListener('click', function() {
+                    showModal('create-channel-modal');
+                });
+            }
+            
+            // Admin menu items
+            document.querySelectorAll('.admin-item').forEach(item => {
+                item.addEventListener('click', function() {
+                    const action = this.getAttribute('data-action');
+                    switch(action) {
+                        case 'users':
+                            showModal('users-list-modal');
+                            break;
+                        case 'roles':
+                            showModal('manage-roles-modal');
+                            break;
+                        // Добавьте обработчики для других действий
+                    }
+                });
+            });
+            
+            // Attach menu items
+            document.querySelectorAll('.attach-item').forEach(item => {
+                item.addEventListener('click', function() {
+                    const type = this.getAttribute('data-type');
+                    hideElement(attachMenu);
+                    
+                    switch(type) {
+                        case 'sticker':
+                            showModal('sticker-picker-modal');
+                            break;
+                        case 'gif':
+                            showModal('gif-picker-modal');
+                            break;
+                        case 'photo':
+                        case 'file':
+                        case 'voice':
+                        case 'poll':
+                            // Здесь будет логика для других типов вложений
+                            console.log('Selected attachment type:', type);
+                            break;
+                    }
+                });
+            });
+            
+            // Message actions
+            document.querySelectorAll('.action-item').forEach(item => {
+                item.addEventListener('click', function() {
+                    const action = this.getAttribute('data-action');
+                    hideElement(messageActionsMenu);
+                    
+                    switch(action) {
+                        case 'reply':
+                            // Логика ответа
+                            break;
+                        case 'edit':
+                            // Логика редактирования
+                            break;
+                        case 'forward':
+                            showElement(forwardMenu);
+                            break;
+                        case 'pin':
+                        case 'unpin':
+                        case 'copy':
+                        case 'select':
+                        case 'delete':
+                            // Логика других действий
+                            break;
+                    }
+                });
+            });
+            
+            // Overlay клик
+            if (overlay) {
+                overlay.addEventListener('click', closeAllMenus);
+            }
+            
+            // Клик вне меню
+            document.addEventListener('click', function(e) {
+                if (attachMenu.style.display === 'block' && 
+                    !attachMenu.contains(e.target) && 
+                    e.target !== btnAttach) {
+                    hideElement(attachMenu);
+                }
+                
+                if (emojiPicker.style.display === 'block' && 
+                    !emojiPicker.contains(e.target) && 
+                    e.target !== btnEmoji) {
+                    hideElement(emojiPicker);
+                }
+            });
+            
+            // ======================
+            // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+            // ======================
+            
             // Устанавливаем высоту для мобильных устройств
             function setVh() {
                 let vh = window.innerHeight * 0.01;
@@ -678,6 +1026,10 @@
                 if (e.scale !== 1) e.preventDefault();
             }, { passive: false });
             
+            // Глобальные функции для использования в других скриптах
+            window.showModal = showModal;
+            window.closeAllMenus = closeAllMenus;
+            
             // Запускаем приложение
             setTimeout(() => {
                 if (typeof initApp === 'function') {
@@ -685,6 +1037,24 @@
                 }
             }, 500);
         });
+        
+        // Глобальные функции для реакций
+        function addQuickReaction(emoji) {
+            console.log('Quick reaction:', emoji);
+            // Здесь будет логика добавления реакции
+            const quickReactionsMenu = document.getElementById('quick-reactions-menu');
+            if (quickReactionsMenu) {
+                quickReactionsMenu.style.display = 'none';
+            }
+        }
+        
+        function showMirrorConstructor() {
+            const modal = document.getElementById('mirror-constructor-modal');
+            if (modal) {
+                modal.style.display = 'block';
+                document.getElementById('overlay').style.display = 'block';
+            }
+        }
     </script>
 </body>
 </html>
