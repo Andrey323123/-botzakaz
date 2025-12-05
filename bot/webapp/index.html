@@ -2,1052 +2,27 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Telegram Mini App - Full Featured</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Таблица файлов</title>
     <style>
-        /* ===== CSS RESET & BASE STYLES ===== */
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-            -webkit-tap-highlight-color: transparent;
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-            -webkit-text-size-adjust: 100%;
-        }
-
-        html, body {
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            font-family: var(--tg-font-family);
-            font-size: var(--tg-font-size-base);
-            line-height: var(--tg-line-height);
-            font-weight: var(--tg-font-weight-normal);
-            user-select: none;
-            touch-action: manipulation;
-            background: var(--tg-theme-bg-color, var(--tg-bg-color));
-            color: var(--tg-theme-text-color, var(--tg-text-primary));
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-            text-rendering: optimizeLegibility;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
 
         body {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            overflow: hidden;
-        }
-
-        /* ===== TELEGRAM THEME VARIABLES ===== */
-        :root {
-            --tg-blue: #3390ec;
-            --tg-blue-hover: #2b7fd8;
-            --tg-blue-light: #e3f2fd;
-            --tg-green: #34c759;
-            --tg-red: #ff3b30;
-            --tg-orange: #ff9500;
-            --tg-purple: #5856d6;
-            --tg-pink: #ff2d55;
-            --tg-yellow: #ffcc00;
-            --tg-cyan: #5ac8fa;
-            
-            /* Light Theme */
-            --tg-bg-color: #ffffff;
-            --tg-secondary-bg: #f1f1f1;
-            --tg-tertiary-bg: #e8e8e8;
-            --tg-text-primary: #000000;
-            --tg-text-secondary: #707579;
-            --tg-text-tertiary: #999999;
-            --tg-border-color: #e4e4e4;
-            --tg-hover-color: rgba(0, 0, 0, 0.05);
-            --tg-active-color: rgba(0, 0, 0, 0.08);
-            --tg-selection-bg: rgba(51, 144, 236, 0.15);
-            
-            /* Sizes */
-            --tg-header-height: 54px;
-            --tg-input-height: 52px;
-            --tg-sidebar-width: 280px;
-            --tg-border-radius: 10px;
-            --tg-border-radius-small: 6px;
-            --tg-border-radius-large: 18px;
-            --tg-border-radius-circle: 50%;
-            --tg-message-radius: 12px;
-            --tg-message-radius-small: 4px;
-            
-            /* Typography */
-            --tg-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            --tg-font-size-xs: 11px;
-            --tg-font-size-sm: 13px;
-            --tg-font-size-base: 15px;
-            --tg-font-size-lg: 17px;
-            --tg-font-size-xl: 20px;
-            --tg-line-height: 1.4;
-            --tg-font-weight-normal: 400;
-            --tg-font-weight-medium: 500;
-            --tg-font-weight-semibold: 600;
-            
-            /* Shadows */
-            --tg-shadow-small: 0 1px 2px rgba(0, 0, 0, 0.08);
-            --tg-shadow-medium: 0 2px 8px rgba(0, 0, 0, 0.12);
-            --tg-shadow-large: 0 4px 16px rgba(0, 0, 0, 0.16);
-            --tg-shadow-message: 0 1px 2px rgba(0, 0, 0, 0.1);
-            
-            /* Transitions */
-            --tg-transition-fast: 100ms cubic-bezier(0.4, 0, 0.2, 1);
-            --tg-transition-medium: 200ms cubic-bezier(0.4, 0, 0.2, 1);
-            --tg-transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
-            
-            /* Spacing */
-            --tg-spacing-xs: 4px;
-            --tg-spacing-sm: 8px;
-            --tg-spacing-md: 12px;
-            --tg-spacing-lg: 16px;
-            --tg-spacing-xl: 24px;
-        }
-
-        /* Dark Theme */
-        body.dark-theme {
-            --tg-bg-color: #212121;
-            --tg-secondary-bg: #1e1e1e;
-            --tg-tertiary-bg: #181818;
-            --tg-text-primary: #ffffff;
-            --tg-text-secondary: #aaaaaa;
-            --tg-text-tertiary: #707579;
-            --tg-border-color: #2f2f2f;
-            --tg-hover-color: rgba(255, 255, 255, 0.06);
-            --tg-active-color: rgba(255, 255, 255, 0.1);
-            --tg-selection-bg: rgba(51, 144, 236, 0.25);
-            --tg-shadow-small: 0 1px 2px rgba(0, 0, 0, 0.3);
-            --tg-shadow-medium: 0 2px 8px rgba(0, 0, 0, 0.4);
-            --tg-shadow-large: 0 4px 16px rgba(0, 0, 0, 0.5);
-        }
-
-        /* ===== LOADING SCREEN ===== */
-        .loading-screen {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: var(--tg-bg-color);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 9999;
-            transition: opacity var(--tg-transition-medium);
-        }
-
-        .loading-screen.hidden {
-            opacity: 0;
-            pointer-events: none;
-        }
-
-        .telegram-logo {
-            width: 64px;
-            height: 64px;
-            margin-bottom: 24px;
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.7; transform: scale(0.95); }
-        }
-
-        .loading-text {
-            font-size: 18px;
-            font-weight: 600;
-            color: var(--tg-text-primary);
-            margin-bottom: 8px;
-        }
-
-        .loading-subtext {
-            font-size: 14px;
-            color: var(--tg-text-secondary);
-            margin-bottom: 24px;
-        }
-
-        .loading-spinner {
-            width: 24px;
-            height: 24px;
-            border: 3px solid var(--tg-border-color);
-            border-top-color: var(--tg-blue);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        /* ===== MAIN APP CONTAINER ===== */
-        #app {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            background: var(--tg-bg-color);
-            padding-top: env(safe-area-inset-top);
-            padding-bottom: env(safe-area-inset-bottom);
-            transition: transform var(--tg-transition-medium);
-        }
-
-        /* ===== HEADER ===== */
-        .header {
-            height: var(--tg-header-height);
-            background: var(--tg-bg-color);
-            border-bottom: 1px solid var(--tg-border-color);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0 16px;
-            flex-shrink: 0;
-            position: relative;
-            z-index: 100;
-        }
-
-        .header-left {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            flex: 1;
-        }
-
-        .btn-menu {
-            width: 40px;
-            height: 40px;
-            border: none;
-            background: transparent;
-            border-radius: var(--tg-border-radius-circle);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            color: var(--tg-text-primary);
-            transition: background-color var(--tg-transition-fast);
-        }
-
-        .btn-menu:hover {
-            background-color: var(--tg-hover-color);
-        }
-
-        .chat-info {
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-        }
-
-        .chat-title {
-            font-size: var(--tg-font-size-lg);
-            font-weight: var(--tg-font-weight-semibold);
-            color: var(--tg-text-primary);
-            line-height: 1.2;
-        }
-
-        .chat-status {
-            font-size: var(--tg-font-size-sm);
-            color: var(--tg-text-secondary);
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            line-height: 1.2;
-        }
-
-        .online-dot {
-            color: var(--tg-green);
-            font-size: 8px;
-        }
-
-        .header-right {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .header-btn {
-            width: 40px;
-            height: 40px;
-            border: none;
-            background: transparent;
-            border-radius: var(--tg-border-radius-circle);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            color: var(--tg-text-primary);
-            transition: background-color var(--tg-transition-fast);
-        }
-
-        /* ===== MESSAGES CONTAINER ===== */
-        .messages-container {
-            flex: 1;
-            overflow-y: auto;
-            position: relative;
-            -webkit-overflow-scrolling: touch;
-            scroll-behavior: smooth;
-            padding: var(--tg-spacing-md) var(--tg-spacing-sm);
-            background: var(--tg-bg-color);
-        }
-
-        /* ===== ФАЙЛОВЫЙ МЕНЕДЖЕР - СТИЛИ ДЛЯ ТАБЛИЦЫ ===== */
-        .files-container {
-            flex: 1;
-            overflow-y: auto;
-            padding: var(--tg-spacing-lg);
-            background: var(--tg-bg-color);
-        }
-
-        .files-header {
-            margin-bottom: var(--tg-spacing-lg);
-            padding-bottom: var(--tg-spacing-md);
-            border-bottom: 1px solid var(--tg-border-color);
-        }
-
-        .files-title {
-            font-size: 20px;
-            font-weight: 600;
-            color: var(--tg-text-primary);
-            margin-bottom: var(--tg-spacing-xs);
-            display: flex;
-            align-items: center;
-            gap: var(--tg-spacing-sm);
-        }
-
-        .files-subtitle {
-            font-size: 14px;
-            color: var(--tg-text-secondary);
-        }
-
-        .files-search-bar {
-            display: flex;
-            gap: var(--tg-spacing-sm);
-            margin-bottom: var(--tg-spacing-lg);
-            background: var(--tg-secondary-bg);
-            border-radius: var(--tg-border-radius);
-            padding: var(--tg-spacing-sm) var(--tg-spacing-md);
-        }
-
-        .files-search-input {
-            flex: 1;
-            background: transparent;
-            border: none;
-            color: var(--tg-text-primary);
-            font-size: 16px;
-            outline: none;
-        }
-
-        .files-search-input::placeholder {
-            color: var(--tg-text-tertiary);
-        }
-
-        .files-table-container {
-            background: var(--tg-secondary-bg);
-            border-radius: var(--tg-border-radius);
-            overflow: hidden;
-            border: 1px solid var(--tg-border-color);
-            margin-bottom: var(--tg-spacing-lg);
-        }
-
-        .files-table {
-            width: 100%;
-            border-collapse: collapse;
-            min-width: 800px;
-        }
-
-        .files-table th {
-            padding: var(--tg-spacing-md) var(--tg-spacing-lg);
-            text-align: left;
-            font-weight: 600;
-            color: var(--tg-text-secondary);
-            background: var(--tg-tertiary-bg);
-            border-bottom: 1px solid var(--tg-border-color);
-            font-size: 14px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            position: sticky;
-            top: 0;
-        }
-
-        .files-table tbody tr {
-            border-bottom: 1px solid var(--tg-border-color);
-            transition: all 0.2s ease;
-        }
-
-        .files-table tbody tr:hover {
-            background: var(--tg-hover-color);
-        }
-
-        .files-table td {
-            padding: var(--tg-spacing-md) var(--tg-spacing-lg);
-            font-size: 14px;
-            color: var(--tg-text-primary);
-        }
-
-        .file-cell {
-            display: flex;
-            align-items: center;
-            gap: var(--tg-spacing-md);
-        }
-
-        .file-icon {
-            width: 36px;
-            height: 36px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 14px;
-            flex-shrink: 0;
-        }
-
-        .file-icon.document {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }
-
-        .file-icon.exe {
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-        }
-
-        .file-icon.link {
-            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-        }
-
-        .file-icon.print {
-            background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
-        }
-
-        .file-info {
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-        }
-
-        .file-name {
-            font-weight: 500;
-            color: var(--tg-text-primary);
-        }
-
-        .file-desc {
-            font-size: 12px;
-            color: var(--tg-text-secondary);
-        }
-
-        .status-cell {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 500;
-        }
-
-        .status-cell.active {
-            background: rgba(52, 199, 89, 0.15);
-            color: #155724;
-        }
-
-        body.dark-theme .status-cell.active {
-            background: rgba(52, 199, 89, 0.3);
-            color: #34c759;
-        }
-
-        .status-cell.inactive {
-            background: rgba(255, 59, 48, 0.15);
-            color: #721c24;
-        }
-
-        body.dark-theme .status-cell.inactive {
-            background: rgba(255, 59, 48, 0.3);
-            color: #ff3b30;
-        }
-
-        .date-cell {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            color: var(--tg-text-secondary);
-        }
-
-        .date-cell i {
-            opacity: 0.5;
-        }
-
-        .size-cell {
-            font-family: 'Courier New', monospace;
-            font-weight: 600;
-            color: var(--tg-text-primary);
-            background: var(--tg-tertiary-bg);
-            padding: 4px 8px;
-            border-radius: 4px;
-            display: inline-block;
-        }
-
-        .files-actions {
-            display: flex;
-            gap: var(--tg-spacing-sm);
-            padding: var(--tg-spacing-md) 0;
-            border-top: 1px solid var(--tg-border-color);
-        }
-
-        .files-action-btn {
-            padding: 10px 20px;
-            border: none;
-            border-radius: var(--tg-border-radius);
-            cursor: pointer;
-            font-weight: 500;
-            font-size: 14px;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .files-action-btn.primary {
-            background: var(--tg-blue);
-            color: white;
-        }
-
-        .files-action-btn.primary:hover {
-            background: var(--tg-blue-hover);
-        }
-
-        .files-action-btn.secondary {
-            background: var(--tg-secondary-bg);
-            color: var(--tg-text-primary);
-        }
-
-        .files-action-btn.secondary:hover {
-            background: var(--tg-tertiary-bg);
-        }
-
-        /* ===== INPUT AREA ===== */
-        .input-area {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: var(--tg-bg-color);
-            border-top: 1px solid var(--tg-border-color);
-            padding: var(--tg-spacing-sm) var(--tg-spacing-lg);
-            padding-bottom: max(var(--tg-spacing-sm), env(safe-area-inset-bottom));
-            z-index: 100;
-        }
-
-        .input-main {
-            display: flex;
-            align-items: flex-end;
-            gap: 8px;
-        }
-
-        .btn-attach {
-            width: 40px;
-            height: 40px;
-            border: none;
-            background: transparent;
-            border-radius: var(--tg-border-radius-circle);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            color: var(--tg-blue);
-            font-size: 24px;
-            flex-shrink: 0;
-            transition: background-color var(--tg-transition-fast);
-        }
-
-        .input-wrapper {
-            flex: 1;
-            background: var(--tg-secondary-bg);
-            border-radius: 21px;
-            padding: 8px 12px;
-            display: flex;
-            align-items: center;
-            min-height: 36px;
-            max-height: 200px;
-            border: 1px solid transparent;
-            transition: all var(--tg-transition-fast);
-        }
-
-        #message-input {
-            flex: 1;
-            border: none;
-            background: transparent;
-            outline: none;
-            font-size: 16px;
-            color: var(--tg-text-primary);
-            resize: none;
-            font-family: inherit;
-            line-height: 1.4;
-            max-height: 120px;
-            min-height: 24px;
-            padding: 0;
-            margin: 0;
-        }
-
-        #message-input::placeholder {
-            color: var(--tg-text-tertiary);
-        }
-
-        .input-buttons {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            margin-left: 8px;
-        }
-
-        .btn-emoji,
-        .btn-voice {
-            width: 32px;
-            height: 32px;
-            border: none;
-            background: transparent;
-            border-radius: var(--tg-border-radius-circle);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            color: var(--tg-text-secondary);
-            font-size: 20px;
-            transition: background-color var(--tg-transition-fast);
-        }
-
-        .btn-send {
-            width: 36px;
-            height: 36px;
-            border: none;
-            background: var(--tg-blue);
-            border-radius: var(--tg-border-radius-circle);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            color: white;
-            font-size: 18px;
-            flex-shrink: 0;
-            transition: all var(--tg-transition-fast);
-            margin-left: var(--tg-spacing-xs);
-        }
-
-        .btn-send:disabled {
-            background: var(--tg-text-tertiary);
-            cursor: not-allowed;
-            opacity: 0.4;
-        }
-
-        /* ===== SIDEBAR ===== */
-        .sidebar {
-            position: fixed;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: var(--tg-bg-color);
-            z-index: 1001;
-            transition: transform var(--tg-transition-medium) cubic-bezier(0.4, 0, 0.2, 1);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            box-shadow: var(--tg-shadow-large);
-        }
-
-        .sidebar.active {
-            transform: translateX(100%);
-        }
-
-        .sidebar-header {
-            padding: 16px;
-            background: var(--tg-blue);
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            flex-shrink: 0;
-        }
-
-        .user-profile {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            flex: 1;
-        }
-
-        .user-avatar {
-            width: 60px;
-            height: 60px;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.2);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            font-weight: 600;
-            color: white;
-            flex-shrink: 0;
-        }
-
-        .user-info {
-            flex: 1;
-            min-width: 0;
-        }
-
-        .user-name {
-            font-size: 17px;
-            font-weight: 600;
-            color: white;
-            margin-bottom: 4px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .user-status {
-            font-size: 14px;
-            color: rgba(255, 255, 255, 0.8);
-        }
-
-        .btn-close-sidebar {
-            width: 40px;
-            height: 40px;
-            border: none;
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            color: white;
-            flex-shrink: 0;
-            transition: background-color var(--tg-transition-fast);
-        }
-
-        .sidebar-content {
-            flex: 1;
-            overflow-y: auto;
-            padding: 16px 0;
-        }
-
-        .sidebar-section {
-            margin-bottom: 24px;
-        }
-
-        .section-title {
-            font-size: 14px;
-            color: var(--tg-text-tertiary);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            padding: 0 16px 8px;
-        }
-
-        .settings-list {
-            padding: 0 16px;
-        }
-
-        .setting-item {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px;
-            border-radius: var(--tg-border-radius);
-            cursor: pointer;
-            transition: background-color var(--tg-transition-fast);
-            margin-bottom: 4px;
-        }
-
-        .setting-item:hover {
-            background-color: var(--tg-hover-color);
-        }
-
-        .setting-icon {
-            width: 32px;
-            height: 32px;
-            border-radius: 8px;
-            background: var(--tg-tertiary-bg);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--tg-text-secondary);
-            font-size: 16px;
-            flex-shrink: 0;
-        }
-
-        .setting-item span {
-            flex: 1;
-            font-size: 16px;
-            color: var(--tg-text-primary);
-        }
-
-        .setting-toggle {
-            position: relative;
-            width: 52px;
-            height: 32px;
-        }
-
-        .setting-toggle input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-
-        .toggle-slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: var(--tg-text-tertiary);
-            border-radius: 16px;
-            transition: background-color var(--tg-transition-fast);
-        }
-
-        .toggle-slider:before {
-            position: absolute;
-            content: "";
-            height: 24px;
-            width: 24px;
-            left: 4px;
-            bottom: 4px;
-            background: white;
-            border-radius: 50%;
-            transition: transform var(--tg-transition-fast);
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-        }
-
-        input:checked + .toggle-slider {
-            background: var(--tg-blue);
-        }
-
-        input:checked + .toggle-slider:before {
-            transform: translateX(20px);
-        }
-
-        .sidebar-footer {
-            padding: 16px;
-            border-top: 1px solid var(--tg-border-color);
-            text-align: center;
-        }
-
-        .app-version {
-            font-size: 12px;
-            color: var(--tg-text-tertiary);
-        }
-
-        /* ===== OVERLAY ===== */
-        .overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.4);
-            z-index: 1000;
-            opacity: 0;
-            visibility: hidden;
-            transition: opacity var(--tg-transition-medium), visibility var(--tg-transition-medium);
-        }
-
-        .overlay.active {
-            opacity: 1;
-            visibility: visible;
-        }
-
-        /* ===== МОДАЛЬНЫЕ ОКНА ===== */
-        .modal {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.5);
-            z-index: 2000;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            padding: 16px;
-        }
-
-        .modal.active {
-            display: flex;
-        }
-
-        .modal-content {
-            background: var(--tg-bg-color);
-            border-radius: var(--tg-border-radius-large);
-            width: 100%;
-            max-width: 400px;
-            max-height: 80vh;
-            display: flex;
-            flex-direction: column;
-            box-shadow: var(--tg-shadow-large);
-        }
-
-        .modal-header {
-            padding: 16px;
-            border-bottom: 1px solid var(--tg-border-color);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .modal-title {
-            font-size: 17px;
-            font-weight: 600;
-            color: var(--tg-text-primary);
-        }
-
-        .btn-close-modal {
-            width: 32px;
-            height: 32px;
-            border: none;
-            background: transparent;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            color: var(--tg-text-secondary);
-        }
-
-        .modal-body {
-            flex: 1;
-            overflow-y: auto;
-            padding: 16px;
-        }
-
-        .modal-footer {
-            padding: 16px;
-            border-top: 1px solid var(--tg-border-color);
-            display: flex;
-            gap: 12px;
-        }
-
-        .btn-modal-secondary,
-        .btn-modal-primary {
-            flex: 1;
-            padding: 12px;
-            border: none;
-            border-radius: var(--tg-border-radius);
-            font-size: 16px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all var(--tg-transition-fast);
-        }
-
-        .btn-modal-secondary {
-            background: var(--tg-tertiary-bg);
-            color: var(--tg-text-primary);
-        }
-
-        .btn-modal-primary {
-            background: var(--tg-blue);
-            color: white;
-        }
-
-        /* ===== RESPONSIVE ===== */
-        @media (min-width: 768px) {
-            .sidebar {
-                width: var(--tg-sidebar-width);
-                left: calc(-1 * var(--tg-sidebar-width));
-            }
-            
-            .sidebar.active {
-                transform: translateX(var(--tg-sidebar-width));
-            }
-        }
-
-        /* Mobile Landscape */
-        @media (orientation: landscape) and (max-height: 600px) {
-            .header {
-                height: 48px;
-            }
-            
-            .input-area {
-                padding: 4px 16px;
-            }
-        }
-
-        /* Small Mobile */
-        @media (max-width: 360px) {
-            :root {
-                --tg-header-height: 48px;
-            }
-            
-            .header {
-                padding: 0 12px;
-            }
-            
-            .btn-menu,
-            .header-btn {
-                width: 36px;
-                height: 36px;
-            }
-        }
-
-        /* Safe Area Support */
-        @supports (padding-top: env(safe-area-inset-top)) {
-            #app {
-                padding-top: env(safe-area-inset-top);
-                padding-bottom: env(safe-area-inset-bottom);
-            }
-            
-            .input-area {
-                padding-bottom: calc(8px + env(safe-area-inset-bottom));
-            }
-        }
-
-        /* ===== СТИЛИ ДЛЯ КНОПОК СИСТЕМЫ ФАЙЛОВ ===== */
-        .system-buttons {
-            display: flex;
-            gap: 12px;
-            padding: 20px 32px;
-            background: var(--tg-secondary-bg);
-            border-bottom: 1px solid var(--tg-border-color);
-        }
-
-        .system-btn {
-            padding: 10px 20px;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 500;
-            font-size: 14px;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .system-btn.primary {
-            background: var(--tg-blue);
-            color: white;
-        }
-
-        .system-btn.primary:hover {
-            background: var(--tg-blue-hover);
-            transform: translateY(-1px);
-        }
-
-        .system-btn.secondary {
-            background: var(--tg-tertiary-bg);
-            color: var(--tg-text-primary);
-        }
-
-        .system-btn.secondary:hover {
-            background: var(--tg-hover-color);
-        }
-    </style>
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Telegram Mini App - Full Featured</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <!-- Экран загрузки -->
@@ -1060,8 +35,8 @@
                 </svg>
             </div>
         </div>
-        <div class="loading-text">Telegram File Manager</div>
-        <div class="loading-subtext" id="loading-subtext">Загрузка файлов...</div>
+        <div class="loading-text">Telegram Chat</div>
+        <div class="loading-subtext" id="loading-subtext">Загрузка...</div>
         <div class="loading-spinner"></div>
     </div>
 
@@ -1074,10 +49,10 @@
                     <i class="fas fa-bars"></i>
                 </button>
                 <div class="chat-info">
-                    <div class="chat-title" id="chat-title">Файловый менеджер</div>
+                    <div class="chat-title" id="chat-title">Основной чат</div>
                     <div class="chat-status">
                         <i class="fas fa-circle online-dot"></i>
-                        <span id="online-count">5</span> файлов
+                        <span id="online-count">0</span> онлайн
                     </div>
                 </div>
             </div>
@@ -1091,256 +66,203 @@
             </div>
         </div>
 
-        <!-- Контейнер для файлов -->
-        <div class="files-container">
-            <div class="files-header">
-                <div class="files-title">
-                    <i class="fas fa-folder-open"></i>
-                    Управление документами
-                </div>
-                <div class="files-subtitle">Система управления файлами и документами</div>
-            </div>
-
-            <!-- Панель поиска -->
-            <div class="files-search-bar">
-                <input type="text" class="files-search-input" placeholder="Поиск файлов..." id="files-search">
-                <button class="header-btn">
-                    <i class="fas fa-search"></i>
-                </button>
-            </div>
-
-            <!-- Кнопки действий -->
-            <div class="system-buttons">
-                <button class="system-btn primary" id="btn-new-file">
-                    <i class="fas fa-plus"></i>
-                    Новый файл
-                </button>
-                <button class="system-btn secondary" id="btn-upload">
-                    <i class="fas fa-upload"></i>
-                    Загрузить
-                </button>
-                <button class="system-btn secondary" id="btn-refresh">
-                    <i class="fas fa-sync-alt"></i>
-                    Обновить
-                </button>
-            </div>
-
-            <!-- Таблица файлов -->
-            <div class="files-table-container">
-                <table class="files-table">
-                    <thead>
-                        <tr>
-                            <th>
-                                <i class="fas fa-file"></i>
-                                Файл
-                            </th>
-                            <th>
-                                <i class="fas fa-check-circle"></i>
-                                Основная
-                            </th>
-                            <th>
-                                <i class="fas fa-calendar-alt"></i>
-                                Дело разъяснения
-                            </th>
-                            <th>
-                                <i class="fas fa-tag"></i>
-                                ГРБ*
-                            </th>
-                            <th>
-                                <i class="fas fa-hashtag"></i>
-                                Укратка*
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <!-- Документ 1 -->
-                        <tr>
-                            <td>
-                                <div class="file-cell">
-                                    <div class="file-icon document">
-                                        <i class="fas fa-file-alt"></i>
-                                    </div>
-                                    <div class="file-info">
-                                        <div class="file-name">ФГБ_Цикл_23.324.11</div>
-                                        <div class="file-desc">Документ цикла</div>
-                                    </div>
-                                </div>
-                            </td>
-                            <td>
-                                <span class="status-cell inactive">
-                                    0
-                                </span>
-                            </td>
-                            <td>
-                                <div class="date-cell">
-                                    <i class="far fa-calendar-alt"></i>
-                                    02.07.2021 12:46
-                                </div>
-                            </td>
-                            <td>
-                                <span class="file-desc">Платье с офисом*</span>
-                            </td>
-                            <td>
-                                <span class="size-cell">—</span>
-                            </td>
-                        </tr>
-
-                        <!-- Документ 2 -->
-                        <tr>
-                            <td>
-                                <div class="file-cell">
-                                    <div class="file-icon document">
-                                        <i class="fas fa-file-alt"></i>
-                                    </div>
-                                    <div class="file-info">
-                                        <div class="file-name">ФГБ_ВГБ_2034.03.227</div>
-                                        <div class="file-desc">Документ ВГБ</div>
-                                    </div>
-                                </div>
-                            </td>
-                            <td>
-                                <span class="status-cell inactive">
-                                    0
-                                </span>
-                            </td>
-                            <td>
-                                <div class="date-cell">
-                                    <i class="far fa-calendar-alt"></i>
-                                    02.07.2021 12:46
-                                </div>
-                            </td>
-                            <td>
-                                <span class="file-desc">Платье с офисом*</span>
-                            </td>
-                            <td>
-                                <span class="size-cell">—</span>
-                            </td>
-                        </tr>
-
-                        <!-- EXE файл -->
-                        <tr>
-                            <td>
-                                <div class="file-cell">
-                                    <div class="file-icon exe">
-                                        <i class="fas fa-cogs"></i>
-                                    </div>
-                                    <div class="file-info">
-                                        <div class="file-name">Asicon.exe</div>
-                                        <div class="file-desc">Приложение</div>
-                                    </div>
-                                </div>
-                            </td>
-                            <td>
-                                <span class="status-cell inactive">
-                                    0
-                                </span>
-                            </td>
-                            <td>
-                                <div class="date-cell">
-                                    <i class="far fa-calendar-alt"></i>
-                                    23.01.2021 12:25
-                                </div>
-                            </td>
-                            <td>
-                                <span class="file-desc">Приложение:</span>
-                            </td>
-                            <td>
-                                <span class="size-cell">83 08</span>
-                            </td>
-                        </tr>
-
-                        <!-- Пакетный файл -->
-                        <tr>
-                            <td>
-                                <div class="file-cell">
-                                    <div class="file-icon link">
-                                        <i class="fas fa-link"></i>
-                                    </div>
-                                    <div class="file-info">
-                                        <div class="file-name">ImpaLink</div>
-                                        <div class="file-desc">Ссылка на файл</div>
-                                    </div>
-                                </div>
-                            </td>
-                            <td>
-                                <span class="status-cell inactive">
-                                    0
-                                </span>
-                            </td>
-                            <td>
-                                <div class="date-cell">
-                                    <i class="far fa-calendar-alt"></i>
-                                    21.07.2021 12:24
-                                </div>
-                            </td>
-                            <td>
-                                <span class="file-desc">Пакетный файл...</span>
-                            </td>
-                            <td>
-                                <span class="size-cell">2 16</span>
-                            </td>
-                        </tr>
-
-                        <!-- Печать документа -->
-                        <tr>
-                            <td>
-                                <div class="file-cell">
-                                    <div class="file-icon print">
-                                        <i class="fas fa-print"></i>
-                                    </div>
-                                    <div class="file-info">
-                                        <div class="file-name">ImpaMScPrint</div>
-                                        <div class="file-desc">Печать документа</div>
-                                    </div>
-                                </div>
-                            </td>
-                            <td>
-                                <span class="status-cell inactive">
-                                    0
-                                </span>
-                            </td>
-                            <td>
-                                <div class="date-cell">
-                                    <i class="far fa-calendar-alt"></i>
-                                    21.07.2021 20:10
-                                </div>
-                            </td>
-                            <td>
-                                <span class="file-desc">Пакетный докум.</span>
-                            </td>
-                            <td>
-                                <span class="size-cell">1 15</span>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- Кнопки действий внизу -->
-            <div class="files-actions">
-                <button class="files-action-btn secondary" id="btn-cancel">
+        <!-- Search Bar -->
+        <div class="search-bar" id="search-bar" style="display: none;">
+            <div class="search-input-wrapper">
+                <i class="fas fa-search search-icon"></i>
+                <input type="text" id="search-input" placeholder="Поиск в чате..." autocomplete="off">
+                <button class="btn-clear-search" id="btn-clear-search">
                     <i class="fas fa-times"></i>
-                    Отмена
-                </button>
-                <button class="files-action-btn primary" id="btn-send-files">
-                    <i class="fas fa-paper-plane"></i>
-                    Отправить
                 </button>
             </div>
+            <button class="btn-close-search" id="btn-close-search">Отмена</button>
+        </div>
+
+        <!-- Messages Container -->
+        <div class="messages-container" id="messages-container">
+            <!-- Unread Messages Badge -->
+            <div class="unread-badge" id="unread-badge" style="display: none;">
+                <button class="btn-unread" id="btn-unread">
+                    <i class="fas fa-check-double"></i>
+                    <span id="unread-count">0</span> непрочитанных
+                </button>
+            </div>
+            <div class="messages-wrapper" id="messages-wrapper">
+                <!-- Messages are loaded here -->
+            </div>
+            <div class="empty-chat" id="empty-chat">
+                <div class="empty-chat-icon">
+                    <i class="fas fa-comments"></i>
+                </div>
+                <div class="empty-chat-title">Чат пустой</div>
+                <div class="empty-chat-subtitle">Начните общение первым!</div>
+            </div>
+        </div>
+
+        <!-- Message Actions Menu -->
+        <div class="message-actions-menu" id="message-actions-menu" style="display: none;">
+            <div class="action-item" data-action="reply">
+                <i class="fas fa-reply"></i>
+                <span>Ответить</span>
+            </div>
+            <div class="action-item" data-action="edit">
+                <i class="fas fa-edit"></i>
+                <span>Редактировать</span>
+            </div>
+            <div class="action-item" data-action="forward">
+                <i class="fas fa-share"></i>
+                <span>Переслать</span>
+            </div>
+            <div class="action-item" data-action="pin">
+                <i class="fas fa-thumbtack"></i>
+                <span>Закрепить</span>
+            </div>
+            <div class="action-item" data-action="unpin" style="display: none;">
+                <i class="fas fa-thumbtack"></i>
+                <span>Открепить</span>
+            </div>
+            <div class="action-item" data-action="copy">
+                <i class="fas fa-copy"></i>
+                <span>Копировать</span>
+            </div>
+            <div class="action-item" data-action="select">
+                <i class="fas fa-check-square"></i>
+                <span>Выделить</span>
+            </div>
+            <div class="action-item danger" data-action="delete">
+                <i class="fas fa-trash"></i>
+                <span>Удалить</span>
+            </div>
+        </div>
+
+        <!-- Forward Messages Menu -->
+        <div class="forward-menu" id="forward-menu">
+            <div class="forward-header">
+                <div class="forward-title">Переслать сообщения</div>
+                <button class="btn-close-forward" id="btn-close-forward">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="channels-list" id="channels-list">
+                <!-- Channels will be loaded here -->
+            </div>
+        </div>
+
+        <!-- Reaction Picker -->
+        <div class="reaction-picker" id="reaction-picker">
+            <div class="reaction-options">
+                <button class="reaction-option" data-reaction="👍">👍</button>
+                <button class="reaction-option" data-reaction="❤️">❤️</button>
+                <button class="reaction-option" data-reaction="😂">😂</button>
+                <button class="reaction-option" data-reaction="😮">😮</button>
+                <button class="reaction-option" data-reaction="😢">😢</button>
+                <button class="reaction-option" data-reaction="👏">👏</button>
+                <button class="reaction-option" data-reaction="🔥">🔥</button>
+                <button class="reaction-option" data-reaction="🎉">🎉</button>
+            </div>
+        </div>
+
+        <!-- Быстрое меню реакций (при наведении на сообщение) -->
+        <div class="quick-reactions-menu" id="quick-reactions-menu" style="display: none;">
+            <div class="quick-reaction" data-emoji="👍" onclick="addQuickReaction('👍')">👍</div>
+            <div class="quick-reaction" data-emoji="❤️" onclick="addQuickReaction('❤️')">❤️</div>
+            <div class="quick-reaction" data-emoji="😂" onclick="addQuickReaction('😂')">😂</div>
+            <div class="quick-reaction" data-emoji="😮" onclick="addQuickReaction('😮')">😮</div>
+            <div class="quick-reaction" data-emoji="😢" onclick="addQuickReaction('😢')">😢</div>
+            <div class="quick-reaction" data-emoji="👏" onclick="addQuickReaction('👏')">👏</div>
+            <div class="quick-reaction" data-emoji="🔥" onclick="addQuickReaction('🔥')">🔥</div>
+            <div class="quick-reaction" data-emoji="🎉" onclick="addQuickReaction('🎉')">🎉</div>
         </div>
 
         <!-- Input Area -->
         <div class="input-area" id="input-area">
+            <!-- Reply Preview -->
+            <div class="reply-preview" id="reply-preview" style="display: none;">
+                <div class="reply-info">
+                    <div class="reply-sender" id="reply-sender"></div>
+                    <div class="reply-text" id="reply-text"></div>
+                </div>
+                <button class="btn-cancel-reply" id="btn-cancel-reply">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <!-- Voice Message Recording -->
+            <div class="voice-recorder" id="voice-recorder" style="display: none;">
+                <div class="voice-recorder-header">
+                    <div class="recording-indicator">
+                        <div class="recording-dot"></div>
+                        <span>Запись...</span>
+                    </div>
+                    <div class="recording-timer" id="recording-timer">0:00</div>
+                </div>
+                <div class="voice-waveform" id="voice-waveform">
+                    <!-- Waveform will be generated here -->
+                </div>
+                <div class="voice-recorder-actions">
+                    <button class="btn-cancel-recording" id="btn-cancel-recording">
+                        <i class="fas fa-times"></i>
+                    </button>
+                    <button class="btn-send-voice" id="btn-send-voice">
+                        <i class="fas fa-microphone"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Main Input -->
             <div class="input-main">
                 <button class="btn-attach" id="btn-attach">
                     <i class="fas fa-plus-circle"></i>
                 </button>
 
+                <!-- Attach Menu -->
+                <div class="attach-menu" id="attach-menu">
+                    <div class="attach-item" data-type="photo">
+                        <div class="attach-icon">
+                            <i class="fas fa-image"></i>
+                        </div>
+                        <span>Фото/Видео</span>
+                    </div>
+                    <div class="attach-item" data-type="file">
+                        <div class="attach-icon">
+                            <i class="fas fa-file"></i>
+                        </div>
+                        <span>Файл</span>
+                    </div>
+                    <div class="attach-item" data-type="voice">
+                        <div class="attach-icon">
+                            <i class="fas fa-microphone"></i>
+                        </div>
+                        <span>Голосовое</span>
+                    </div>
+                    <div class="attach-item" data-type="poll">
+                        <div class="attach-icon">
+                            <i class="fas fa-chart-bar"></i>
+                        </div>
+                        <span>Опрос</span>
+                    </div>
+                    <div class="attach-item" data-type="sticker">
+                        <div class="attach-icon">
+                            <i class="fas fa-smile"></i>
+                        </div>
+                        <span>Стикер</span>
+                    </div>
+                    <div class="attach-item" data-type="gif">
+                        <div class="attach-icon">
+                            <i class="fas fa-film"></i>
+                        </div>
+                        <span>GIF</span>
+                    </div>
+                </div>
+
                 <div class="input-wrapper">
-                    <textarea id="message-input" placeholder="Введите комментарий к файлам..." rows="1"></textarea>
+                    <textarea id="message-input" placeholder="Сообщение" rows="1"></textarea>
                     <div class="input-buttons">
                         <button class="btn-emoji" id="btn-emoji">
                             <i class="far fa-smile"></i>
+                        </button>
+                        <button class="btn-voice" id="btn-voice">
+                            <i class="fas fa-microphone"></i>
                         </button>
                     </div>
                 </div>
@@ -1348,6 +270,44 @@
                 <button class="btn-send" id="btn-send" disabled>
                     <i class="fas fa-paper-plane"></i>
                 </button>
+                
+                <!-- Кнопка скролла вниз -->
+                <button class="btn-scroll-down" id="btn-scroll-down" style="display: none;" title="Вниз">
+                    <i class="fas fa-chevron-down"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Emoji Picker -->
+        <div class="emoji-picker" id="emoji-picker">
+            <div class="emoji-categories">
+                <button class="emoji-category active" data-category="smileys">
+                    <i class="far fa-smile"></i>
+                </button>
+                <button class="emoji-category" data-category="people">
+                    <i class="fas fa-user"></i>
+                </button>
+                <button class="emoji-category" data-category="animals">
+                    <i class="fas fa-dog"></i>
+                </button>
+                <button class="emoji-category" data-category="food">
+                    <i class="fas fa-apple-alt"></i>
+                </button>
+                <button class="emoji-category" data-category="travel">
+                    <i class="fas fa-car"></i>
+                </button>
+                <button class="emoji-category" data-category="objects">
+                    <i class="fas fa-lightbulb"></i>
+                </button>
+                <button class="emoji-category" data-category="symbols">
+                    <i class="fas fa-heart"></i>
+                </button>
+                <button class="emoji-category" data-category="flags">
+                    <i class="fas fa-flag"></i>
+                </button>
+            </div>
+            <div class="emoji-grid" id="emoji-grid">
+                <!-- Emojis will be loaded here -->
             </div>
         </div>
 
@@ -1359,8 +319,8 @@
                         <span id="user-avatar-text">U</span>
                     </div>
                     <div class="user-info">
-                        <div class="user-name" id="user-name">Администратор</div>
-                        <div class="user-status" id="user-status">Управление файлами</div>
+                        <div class="user-name" id="user-name">Пользователь</div>
+                        <div class="user-status" id="user-status">онлайн</div>
                     </div>
                 </div>
                 <button class="btn-close-sidebar" id="btn-close-sidebar">
@@ -1369,6 +329,60 @@
             </div>
 
             <div class="sidebar-content">
+                <!-- Channels List -->
+                <div class="sidebar-section">
+                    <div class="section-title">Каналы</div>
+                    <div class="channels-sidebar-list" id="channels-sidebar-list">
+                        <div class="channel-item active" data-channel="main">
+                            <div class="channel-icon">
+                                <i class="fas fa-hashtag"></i>
+                            </div>
+                            <div class="channel-name">Основной</div>
+                            <div class="unread-badge" style="display: none;">0</div>
+                        </div>
+                    </div>
+                    <button class="btn-add-channel" id="btn-add-channel">
+                        <i class="fas fa-plus"></i>
+                        <span>Создать канал</span>
+                    </button>
+                </div>
+
+                <!-- Sections/Topics List -->
+                <div class="sidebar-section" id="sections-section">
+                    <div class="section-title">
+                        <span>Разделы</span>
+                        <button class="btn-add-section" id="btn-add-section" title="Создать раздел" style="display: none;">
+                            <i class="fas fa-plus"></i>
+                        </button>
+                    </div>
+                    <div class="sections-list" id="sections-list">
+                        <!-- Sections will be loaded here -->
+                    </div>
+                </div>
+
+                <!-- Admin Panel -->
+                <div class="sidebar-section admin-section" id="admin-section" style="display: none;">
+                    <div class="section-title">Управление</div>
+                    <div class="admin-menu">
+                        <div class="admin-item" data-action="users">
+                            <i class="fas fa-users"></i>
+                            <span>Пользователи</span>
+                        </div>
+                        <div class="admin-item" data-action="roles">
+                            <i class="fas fa-user-shield"></i>
+                            <span>Роли</span>
+                        </div>
+                        <div class="admin-item" data-action="settings">
+                            <i class="fas fa-cog"></i>
+                            <span>Настройки</span>
+                        </div>
+                        <div class="admin-item" data-action="stats">
+                            <i class="fas fa-chart-line"></i>
+                            <span>Статистика</span>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Settings -->
                 <div class="sidebar-section">
                     <div class="section-title">Настройки</div>
@@ -1383,7 +397,7 @@
                                 <span class="toggle-slider"></span>
                             </div>
                         </div>
-                        <div class="setting-item" id="mirror-constructor-btn">
+                        <div class="setting-item" id="mirror-constructor-btn" onclick="showMirrorConstructor()">
                             <div class="setting-icon">
                                 <i class="fas fa-code"></i>
                             </div>
@@ -1415,7 +429,7 @@
             </div>
 
             <div class="sidebar-footer">
-                <div class="app-version">File Manager v2.0</div>
+                <div class="app-version">Telegram Mini App v2.0</div>
             </div>
         </div>
 
@@ -1423,38 +437,245 @@
         <div class="overlay" id="overlay"></div>
 
         <!-- Modal Windows -->
-        <div class="modal" id="create-file-modal">
+        <div class="modal" id="create-channel-modal">
             <div class="modal-content">
                 <div class="modal-header">
-                    <div class="modal-title">Создать новый файл</div>
-                    <button class="btn-close-modal" data-modal="create-file-modal">
+                    <div class="modal-title">Создать канал</div>
+                    <button class="btn-close-modal" data-modal="create-channel-modal">
                         <i class="fas fa-times"></i>
                     </button>
                 </div>
                 <div class="modal-body">
                     <div class="form-group">
-                        <label for="file-name">Название файла</label>
-                        <input type="text" id="file-name" placeholder="Введите название">
+                        <label for="channel-name">Название канала</label>
+                        <input type="text" id="channel-name" placeholder="Введите название">
                     </div>
                     <div class="form-group">
-                        <label for="file-type">Тип файла</label>
-                        <select id="file-type">
-                            <option value="document">Документ</option>
-                            <option value="executable">Приложение</option>
-                            <option value="link">Ссылка</option>
-                            <option value="print">Печать</option>
+                        <label for="channel-description">Описание (необязательно)</label>
+                        <textarea id="channel-description" placeholder="Опишите канал" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="channel-type">Тип канала</label>
+                        <select id="channel-type">
+                            <option value="public">Публичный</option>
+                            <option value="private">Приватный</option>
                         </select>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button class="btn-modal-secondary" data-modal="create-file-modal">Отмена</button>
-                    <button class="btn-modal-primary" id="btn-create-file">Создать</button>
+                    <button class="btn-modal-secondary" data-modal="create-channel-modal">Отмена</button>
+                    <button class="btn-modal-primary" id="btn-create-channel">Создать</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal" id="manage-roles-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div class="modal-title">Управление ролями</div>
+                    <button class="btn-close-modal" data-modal="manage-roles-modal">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="roles-list" id="roles-list">
+                        <!-- Roles will be loaded here -->
+                    </div>
+                    <button class="btn-add-role" id="btn-add-role">
+                        <i class="fas fa-plus"></i>
+                        Добавить роль
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Users List Modal (only for admins) -->
+        <div class="modal" id="users-list-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div class="modal-title">Участники группы</div>
+                    <button class="btn-close-modal" data-modal="users-list-modal">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="users-search">
+                        <input type="text" id="users-search-input" placeholder="Поиск участников..." class="search-input">
+                    </div>
+                    <div class="users-list" id="users-list">
+                        <!-- Users will be loaded here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- User Actions Modal -->
+        <div class="modal" id="user-actions-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div class="modal-title">Действия с пользователем</div>
+                    <button class="btn-close-modal" data-modal="user-actions-modal">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="user-info-preview" id="user-info-preview">
+                        <!-- User info will be loaded here -->
+                    </div>
+                    <div class="user-actions-list">
+                        <div class="action-group">
+                            <div class="action-group-title">Роль</div>
+                            <select id="user-role-select" class="form-select">
+                                <option value="user">Участник</option>
+                                <option value="moderator">Модератор</option>
+                                <option value="admin">Администратор</option>
+                                <option value="main_admin">Главный админ</option>
+                            </select>
+                        </div>
+                        <div class="action-group">
+                            <div class="action-group-title">Действия</div>
+                            <button class="btn-action" id="btn-mute-user" data-action="mute">
+                                <i class="fas fa-volume-mute"></i>
+                                <span>Заглушить</span>
+                            </button>
+                            <button class="btn-action" id="btn-unmute-user" data-action="unmute" style="display: none;">
+                                <i class="fas fa-volume-up"></i>
+                                <span>Разглушить</span>
+                            </button>
+                            <button class="btn-action danger" id="btn-ban-user" data-action="ban">
+                                <i class="fas fa-ban"></i>
+                                <span>Забанить</span>
+                            </button>
+                            <button class="btn-action danger" id="btn-unban-user" data-action="unban" style="display: none;">
+                                <i class="fas fa-check-circle"></i>
+                                <span>Разбанить</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-modal-secondary" data-modal="user-actions-modal">Отмена</button>
+                    <button class="btn-modal-primary" id="btn-save-user-actions">Сохранить</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal" id="image-preview-modal">
+            <div class="modal-content image-preview">
+                <img id="preview-image" src="" alt="">
+                <button class="btn-close-preview" id="btn-close-preview">
+                    <i class="fas fa-times"></i>
+                </button>
+                <div class="image-actions">
+                    <button class="btn-image-action" id="btn-download-image">
+                        <i class="fas fa-download"></i>
+                    </button>
+                    <button class="btn-image-action" id="btn-share-image">
+                        <i class="fas fa-share"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal" id="video-player-modal">
+            <div class="modal-content video-player">
+                <video id="preview-video" controls>
+                    <source src="" type="video/mp4">
+                    Ваш браузер не поддерживает видео.
+                </video>
+                <button class="btn-close-preview" id="btn-close-video">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Sticker Picker Modal -->
+        <div class="modal" id="sticker-picker-modal">
+            <div class="modal-content sticker-picker">
+                <div class="modal-header">
+                    <div class="modal-title">Выберите стикер</div>
+                    <button class="btn-close-modal" data-modal="sticker-picker-modal">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="sticker-search">
+                        <input type="text" id="sticker-search-input" placeholder="Поиск стикеров..." class="search-input">
+                    </div>
+                    <div class="sticker-sets" id="sticker-sets">
+                        <div class="loading-stickers">Загрузка стикеров...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- GIF Picker Modal -->
+        <div class="modal" id="gif-picker-modal">
+            <div class="modal-content gif-picker">
+                <div class="modal-header">
+                    <div class="modal-title">Выберите GIF</div>
+                    <button class="btn-close-modal" data-modal="gif-picker-modal">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="gif-search">
+                        <input type="text" id="gif-search-input" placeholder="Поиск GIF..." class="search-input">
+                        <button class="btn-search-gif" id="btn-search-gif">
+                            <i class="fas fa-search"></i>
+                        </button>
+                    </div>
+                    <div class="gif-grid" id="gif-grid">
+                        <div class="loading-gifs">Загрузка GIF...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mirror Constructor Modal -->
+        <div class="modal" id="mirror-constructor-modal">
+            <div class="modal-content mirror-constructor">
+                <div class="modal-header">
+                    <div class="modal-title">Создать зеркало</div>
+                    <button class="btn-close-modal" data-modal="mirror-constructor-modal">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="mirror-name">Название зеркала</label>
+                        <input type="text" id="mirror-name" placeholder="Мое зеркало" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label for="mirror-token">Токен бота Telegram</label>
+                        <input type="text" id="mirror-token" placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz" class="form-input">
+                        <small class="form-hint">Токен можно получить у @BotFather в Telegram</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="mirror-domain">Домен (необязательно)</label>
+                        <input type="text" id="mirror-domain" placeholder="https://your-domain.com" class="form-input">
+                        <small class="form-hint">Если не указан, будет использован текущий домен</small>
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="mirror-public">
+                            <span>Публичное зеркало (доступно всем)</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-modal-secondary" data-modal="mirror-constructor-modal">Отмена</button>
+                    <button class="btn-modal-primary" id="btn-create-mirror">Создать зеркало</button>
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- Audio Player -->
+    <audio id="audio-player" style="display: none;"></audio>
+
     <!-- Scripts -->
+    <script src="script.js"></script>
     <script>
         // Инициализация при загрузке
         document.addEventListener('DOMContentLoaded', function() {
@@ -1475,206 +696,11 @@
             
             // Запускаем приложение
             setTimeout(() => {
-                initApp();
+                if (typeof initApp === 'function') {
+                    initApp();
+                }
             }, 500);
         });
-
-        function initApp() {
-            const loadingScreen = document.getElementById('loading-screen');
-            const app = document.getElementById('app');
-            const sidebar = document.getElementById('sidebar');
-            const overlay = document.getElementById('overlay');
-            const btnMenu = document.getElementById('btn-menu');
-            const btnCloseSidebar = document.getElementById('btn-close-sidebar');
-            const themeSwitch = document.getElementById('theme-switch');
-            const messageInput = document.getElementById('message-input');
-            const btnSend = document.getElementById('btn-send');
-            const filesSearch = document.getElementById('files-search');
-            const tableRows = document.querySelectorAll('.files-table tbody tr');
-            const btnCancel = document.getElementById('btn-cancel');
-            const btnSendFiles = document.getElementById('btn-send-files');
-            const btnNewFile = document.getElementById('btn-new-file');
-            const btnUpload = document.getElementById('btn-upload');
-            const btnRefresh = document.getElementById('btn-refresh');
-
-            // Скрываем экран загрузки
-            setTimeout(() => {
-                loadingScreen.classList.add('hidden');
-                setTimeout(() => {
-                    loadingScreen.style.display = 'none';
-                    app.style.display = 'flex';
-                }, 300);
-            }, 1000);
-
-            // Управление сайдбаром
-            btnMenu.addEventListener('click', () => {
-                sidebar.classList.add('active');
-                overlay.classList.add('active');
-            });
-
-            btnCloseSidebar.addEventListener('click', () => {
-                sidebar.classList.remove('active');
-                overlay.classList.remove('active');
-            });
-
-            overlay.addEventListener('click', () => {
-                sidebar.classList.remove('active');
-                overlay.classList.remove('active');
-            });
-
-            // Переключение темы
-            themeSwitch.addEventListener('change', function() {
-                document.body.classList.toggle('dark-theme', this.checked);
-                localStorage.setItem('theme', this.checked ? 'dark' : 'light');
-            });
-
-            // Загружаем сохраненную тему
-            const savedTheme = localStorage.getItem('theme');
-            if (savedTheme === 'dark') {
-                document.body.classList.add('dark-theme');
-                themeSwitch.checked = true;
-            }
-
-            // Поиск файлов
-            filesSearch.addEventListener('input', function() {
-                const searchTerm = this.value.toLowerCase();
-                tableRows.forEach(row => {
-                    const fileName = row.querySelector('.file-name').textContent.toLowerCase();
-                    const fileDesc = row.querySelector('.file-desc').textContent.toLowerCase();
-                    
-                    if (fileName.includes(searchTerm) || fileDesc.includes(searchTerm)) {
-                        row.style.display = '';
-                    } else {
-                        row.style.display = 'none';
-                    }
-                });
-            });
-
-            // Выделение строк таблицы
-            tableRows.forEach(row => {
-                row.addEventListener('click', function() {
-                    tableRows.forEach(r => r.classList.remove('selected'));
-                    this.classList.add('selected');
-                });
-            });
-
-            // Обработка кнопок
-            btnCancel.addEventListener('click', function() {
-                alert('Действие отменено');
-            });
-
-            btnSendFiles.addEventListener('click', function() {
-                const selectedRows = document.querySelectorAll('.files-table tbody tr.selected');
-                if (selectedRows.length === 0) {
-                    alert('Выберите файлы для отправки');
-                    return;
-                }
-                alert(`Отправлено ${selectedRows.length} файлов`);
-            });
-
-            btnNewFile.addEventListener('click', function() {
-                const modal = document.getElementById('create-file-modal');
-                modal.classList.add('active');
-                overlay.classList.add('active');
-            });
-
-            btnUpload.addEventListener('click', function() {
-                alert('Функция загрузки файлов');
-            });
-
-            btnRefresh.addEventListener('click', function() {
-                this.classList.add('rotating');
-                setTimeout(() => {
-                    this.classList.remove('rotating');
-                    alert('Список файлов обновлен');
-                }, 500);
-            });
-
-            // Закрытие модальных окон
-            document.querySelectorAll('.btn-close-modal, .btn-modal-secondary').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    const modalId = this.getAttribute('data-modal');
-                    if (modalId) {
-                        const modal = document.getElementById(modalId);
-                        modal.classList.remove('active');
-                        overlay.classList.remove('active');
-                    }
-                });
-            });
-
-            // Создание файла
-            const btnCreateFile = document.getElementById('btn-create-file');
-            if (btnCreateFile) {
-                btnCreateFile.addEventListener('click', function() {
-                    const fileName = document.getElementById('file-name').value;
-                    const fileType = document.getElementById('file-type').value;
-                    
-                    if (!fileName.trim()) {
-                        alert('Введите название файла');
-                        return;
-                    }
-                    
-                    alert(`Создан файл: ${fileName} (тип: ${fileType})`);
-                    const modal = document.getElementById('create-file-modal');
-                    modal.classList.remove('active');
-                    overlay.classList.remove('active');
-                    
-                    // Очистка формы
-                    document.getElementById('file-name').value = '';
-                    document.getElementById('file-type').value = 'document';
-                });
-            }
-
-            // Валидация поля ввода сообщения
-            messageInput.addEventListener('input', function() {
-                this.style.height = 'auto';
-                this.style.height = (this.scrollHeight) + 'px';
-                btnSend.disabled = !this.value.trim();
-            });
-
-            btnSend.addEventListener('click', function() {
-                if (!messageInput.value.trim()) return;
-                alert(`Комментарий отправлен: ${messageInput.value}`);
-                messageInput.value = '';
-                messageInput.style.height = 'auto';
-                btnSend.disabled = true;
-            });
-
-            // Отправка по Enter (без Shift)
-            messageInput.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    if (this.value.trim()) {
-                        btnSend.click();
-                    }
-                }
-            });
-
-            // Анимация иконок файлов
-            const fileIcons = document.querySelectorAll('.file-icon');
-            fileIcons.forEach(icon => {
-                icon.addEventListener('mouseenter', function() {
-                    this.style.transform = 'scale(1.1) rotate(5deg)';
-                });
-                icon.addEventListener('mouseleave', function() {
-                    this.style.transform = 'scale(1) rotate(0deg)';
-                });
-            });
-
-            // Добавляем класс для анимации вращения
-            const style = document.createElement('style');
-            style.textContent = `
-                .rotating {
-                    animation: rotate 0.5s ease;
-                }
-                
-                @keyframes rotate {
-                    from { transform: rotate(0deg); }
-                    to { transform: rotate(360deg); }
-                }
-            `;
-            document.head.appendChild(style);
-        }
     </script>
 </body>
 </html>
