@@ -157,6 +157,12 @@ async function initApp() {
         // Update user info
         updateUserInfo();
         
+        // Show admin section if admin
+        if (isAdmin || isMainAdmin) {
+            const adminSection = document.getElementById('admin-section');
+            if (adminSection) adminSection.style.display = 'block';
+        }
+        
         // Load channels
         await loadChannels();
         
@@ -171,6 +177,12 @@ async function initApp() {
         
         // Start auto-sync
         startAutoSync();
+        
+        // Update online count
+        updateOnlineCount();
+        
+        // Update online count periodically
+        setInterval(updateOnlineCount, 30000); // Every 30 seconds
         
         // Hide loading screen
         hideLoadingScreen();
@@ -216,6 +228,14 @@ function initTelegram() {
                     // Format: https://api.telegram.org/file/bot<token>/photos/<file_path>
                     // For now, use a placeholder that will be replaced with actual photo
                     currentUser.photo_url = null; // Will be fetched if needed
+                }
+                
+                // Set main admin
+                if (currentUserId === '8089114323') {
+                    isMainAdmin = true;
+                    isAdmin = true;
+                    currentUser.role = 'main_admin';
+                    console.log('👑 Главный админ установлен');
                 }
                 
                 // Load user role from S3 or set default
@@ -399,6 +419,13 @@ function initUI() {
     // Voice recording actions
     const btnCancelRecording = document.getElementById('btn-cancel-recording');
     const btnSendVoice = document.getElementById('btn-send-voice');
+    
+    if (btnCancelRecording) {
+        btnCancelRecording.addEventListener('click', cancelVoiceRecording);
+    }
+    if (btnSendVoice) {
+        btnSendVoice.addEventListener('click', stopVoiceRecording);
+    }
     
     if (btnCancelRecording) btnCancelRecording.addEventListener('click', cancelVoiceRecording);
     if (btnSendVoice) btnSendVoice.addEventListener('click', sendVoiceMessage);
@@ -1491,12 +1518,23 @@ async function sendMessage() {
                         console.log(`🎥 Видео будет сжато до: ${fileInfo.compressionOptions.targetWidth}px`);
                     }
                     
-                    const uploadedFile = await uploadFile(fileToUpload, fileInfo.type);
+                    // Use specific endpoint for voice messages
+                    let uploadedFile;
+                    if (fileInfo.type === 'voice') {
+                        uploadedFile = await uploadVoiceMessage(fileToUpload, fileInfo.duration || 0);
+                    } else {
+                        uploadedFile = await uploadFile(fileToUpload, fileInfo.type);
+                    }
                     if (uploadedFile) {
                         fileInfo.url = uploadedFile.url;
                         fileInfo.s3_key = uploadedFile.s3_key;
                         fileInfo.isLocal = false;
                         fileInfo.uploaded = true;
+                        
+                        // Update duration for voice messages
+                        if (fileInfo.type === 'voice' && uploadedFile.duration) {
+                            fileInfo.duration = uploadedFile.duration;
+                        }
                         
                         // Store preview in cache
                         if (fileInfo.previewDataUrl) {
@@ -1666,8 +1704,14 @@ function createMessageElement(message) {
                     </div>
                 `;
             } else if (file.type === 'voice') {
+                // Get audio URL - use blob URL if file not uploaded yet
+                let audioUrl = file.url || '';
+                if (!audioUrl && file.blob) {
+                    audioUrl = URL.createObjectURL(file.blob);
+                }
+                
                 const voiceHtml = `
-                    <div class="voice-message" data-audio-url="${file.url || ''}" data-message-id="${message.id}" data-duration="${file.duration || 0}">
+                    <div class="voice-message" data-audio-url="${audioUrl}" data-message-id="${message.id}" data-duration="${file.duration || 0}" data-file-id="${file.id || ''}">
                         <button class="voice-play-btn">
                             <i class="fas fa-play"></i>
                         </button>
@@ -1677,9 +1721,13 @@ function createMessageElement(message) {
                             </div>
                             <div class="voice-current-time">0:00</div>
                         </div>
-                        <div class="voice-duration">${formatDuration(file.duration)}</div>
+                        <div class="voice-duration">${formatDuration(file.duration || 0)}</div>
                         ${file.url ? `
                             <button class="voice-download-btn" onclick="downloadVoiceMessage(event, '${file.url}')" title="Скачать">
+                                <i class="fas fa-download"></i>
+                            </button>
+                        ` : file.blob ? `
+                            <button class="voice-download-btn" onclick="downloadVoiceBlob(event, '${file.id || message.id}')" title="Скачать">
                                 <i class="fas fa-download"></i>
                             </button>
                         ` : ''}
@@ -2164,18 +2212,30 @@ function displayGifs(gifs) {
     const container = document.getElementById('gif-grid');
     if (!container) return;
     
+    // Default popular GIFs if no results
+    const defaultGifs = [
+        'https://media.giphy.com/media/3o7aCTPPm4OHfRLSH6/giphy.gif',
+        'https://media.giphy.com/media/l0MYC0LajaoPoHABu/giphy.gif',
+        'https://media.giphy.com/media/26BRuo6sLetdllPAQ/giphy.gif',
+        'https://media.giphy.com/media/3o7aD2saal8xXDlR84/giphy.gif',
+        'https://media.giphy.com/media/l0HlBO7eyXzSZkJri/giphy.gif',
+        'https://media.giphy.com/media/3o7abldet0lR2kf3Ow/giphy.gif',
+        'https://media.giphy.com/media/26BRv0ThflsHCqDrG/giphy.gif',
+        'https://media.giphy.com/media/l0HlNQ03J5JxX6lva/giphy.gif'
+    ];
+    
     if (gifs.length === 0) {
-        container.innerHTML = `
-            <div class="gif-item" onclick="selectGif('https://media.giphy.com/media/3o7aCTPPm4OHfRLSH6/giphy.gif')">
-                <img src="https://media.giphy.com/media/3o7aCTPPm4OHfRLSH6/giphy.gif" alt="GIF">
+        container.innerHTML = defaultGifs.map(gifUrl => `
+            <div class="gif-item" onclick="selectGif('${gifUrl}')">
+                <img src="${gifUrl}" alt="GIF" loading="lazy">
             </div>
-        `;
+        `).join('');
         return;
     }
     
     container.innerHTML = gifs.map(gif => `
         <div class="gif-item" onclick="selectGif('${gif.url || gif.images?.original?.url}')">
-            <img src="${gif.thumb_url || gif.images?.preview?.url || gif.url}" alt="GIF">
+            <img src="${gif.thumb_url || gif.images?.preview?.url || gif.url}" alt="GIF" loading="lazy">
         </div>
     `).join('');
 }
@@ -2573,6 +2633,16 @@ function clearAttachments() {
 // ===== VOICE RECORDING =====
 async function startVoiceRecording() {
     try {
+        // Check if in Telegram WebApp - use Telegram's voice recording
+        if (tg && tg.openVoiceRecording) {
+            try {
+                tg.openVoiceRecording();
+                return;
+            } catch (error) {
+                console.log('Telegram voice recording not available, using fallback');
+            }
+        }
+        
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             showNotification('Запись голоса не поддерживается в вашем браузере', 'error');
             return;
@@ -2584,20 +2654,31 @@ async function startVoiceRecording() {
             return;
         }
         
-        // Request microphone permission
+        // Request microphone permission with better compatibility
         const stream = await navigator.mediaDevices.getUserMedia({ 
             audio: {
                 echoCancellation: true,
                 noiseSuppression: true,
+                autoGainControl: true,
                 sampleRate: 44100
             } 
         });
         
+        // Try different MIME types for better compatibility
+        let mimeType = 'audio/webm;codecs=opus';
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = 'audio/webm';
+            if (!MediaRecorder.isTypeSupported(mimeType)) {
+                mimeType = 'audio/ogg;codecs=opus';
+                if (!MediaRecorder.isTypeSupported(mimeType)) {
+                    mimeType = ''; // Use default
+                }
+            }
+        }
+        
         // Initialize MediaRecorder
-        mediaRecorder = new MediaRecorder(stream, {
-            mimeType: 'audio/webm;codecs=opus',
-            audioBitsPerSecond: 128000
-        });
+        const options = mimeType ? { mimeType: mimeType, audioBitsPerSecond: 128000 } : { audioBitsPerSecond: 128000 };
+        mediaRecorder = new MediaRecorder(stream, options);
         
         audioChunks = [];
         
@@ -2610,17 +2691,21 @@ async function startVoiceRecording() {
         
         // Handle recording stop
         mediaRecorder.onstop = async () => {
-            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            const audioBlob = new Blob(audioChunks, { type: mimeType || 'audio/webm' });
+            
+            // Calculate duration
+            const duration = recordingStartTime ? Math.round((Date.now() - recordingStartTime) / 1000) : 0;
             
             // Create voice message
             const voiceInfo = {
                 id: 'voice_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
                 blob: audioBlob,
+                file: audioBlob, // Add file property for upload
                 name: 'Голосовое сообщение',
                 type: 'voice',
                 size: audioBlob.size,
-                mimeType: 'audio/webm',
-                duration: Math.round((Date.now() - recordingStartTime) / 1000),
+                mimeType: mimeType || 'audio/webm',
+                duration: duration,
                 isLocal: true,
                 uploaded: false
             };
@@ -2695,6 +2780,7 @@ function startRecordingTimer() {
     if (!timerElement) return;
     
     recordingTimer = setInterval(() => {
+        if (!recordingStartTime) return;
         const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
         const minutes = Math.floor(elapsed / 60);
         const seconds = elapsed % 60;
@@ -2761,9 +2847,14 @@ function playVoiceMessage(url, element) {
         return;
     }
     
-    // Создаем новый аудио плеер с crossOrigin для CORS
+    // Создаем новый аудио плеер
     const audio = new Audio();
-    audio.crossOrigin = 'anonymous';
+    
+    // Устанавливаем crossOrigin только для внешних URL (не blob)
+    if (!url.startsWith('blob:')) {
+        audio.crossOrigin = 'anonymous';
+    }
+    
     audio.preload = 'auto';
     
     const playButton = element.querySelector('.voice-play-btn i');
@@ -3010,9 +3101,52 @@ function downloadVoiceMessage(event, url) {
         const link = document.createElement('a');
         link.href = url;
         link.download = `voice_${Date.now()}.ogg`;
+        link.target = '_blank';
+        document.body.appendChild(link);
         link.click();
+        document.body.removeChild(link);
     }
 }
+
+function downloadVoiceBlob(event, fileId) {
+    event.stopPropagation();
+    const fileInfo = attachedFiles.find(f => f.id === fileId);
+    if (!fileInfo) {
+        // Try to find in messages
+        const messages = appData.channels[currentChannel]?.messages || [];
+        for (const msg of messages) {
+            if (msg.files) {
+                const file = msg.files.find(f => f.id === fileId);
+                if (file && file.blob) {
+                    const url = URL.createObjectURL(file.blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'voice_message.webm';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    return;
+                }
+            }
+        }
+        return;
+    }
+    
+    if (fileInfo.blob) {
+        const url = URL.createObjectURL(fileInfo.blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'voice_message.webm';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+}
+
+window.downloadVoiceMessage = downloadVoiceMessage;
+window.downloadVoiceBlob = downloadVoiceBlob;
 
 // Автовоспроизведение при выборе сообщения
 function autoPlayVoiceOnSelect(messageId) {
@@ -3757,6 +3891,20 @@ async function loadAllData() {
 // Load user role from S3
 async function loadUserRole() {
     try {
+        // Check if main admin first (ID: 8089114323)
+        if (currentUserId === '8089114323') {
+            isMainAdmin = true;
+            isAdmin = true;
+            currentUser.role = 'main_admin';
+            console.log('👑 Главный админ установлен');
+            
+            // Show admin section
+            const adminSection = document.getElementById('admin-section');
+            if (adminSection) adminSection.style.display = 'block';
+            
+            return;
+        }
+        
         const response = await fetch(`${API_CONFIG.endpoints.getUsers}?user_id=${currentUserId}`);
         if (response.ok) {
             const data = await response.json();
@@ -3767,6 +3915,12 @@ async function loadUserRole() {
                 // Set admin flags
                 isAdmin = userRole === 'admin' || userRole === 'main_admin' || userRole === 'moderator';
                 isMainAdmin = userRole === 'main_admin';
+                
+                // Show admin section if admin
+                if (isAdmin || isMainAdmin) {
+                    const adminSection = document.getElementById('admin-section');
+                    if (adminSection) adminSection.style.display = 'block';
+                }
                 
                 console.log(`👤 Роль пользователя: ${userRole}`);
             }
@@ -4351,6 +4505,42 @@ async function saveRolesToS3() {
     }
 }
 
+async function uploadVoiceMessage(file, duration) {
+    return new Promise((resolve, reject) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('user_id', currentUserId);
+        formData.append('duration', duration.toString());
+        
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', API_CONFIG.endpoints.uploadVoice, true);
+        
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    if (response.status === 'success') {
+                        resolve({
+                            url: response.file_url,
+                            s3_key: response.filename,
+                            duration: response.duration
+                        });
+                    } else {
+                        reject(new Error(response.message || 'Upload failed'));
+                    }
+                } catch (e) {
+                    reject(new Error('Invalid response'));
+                }
+            } else {
+                reject(new Error(`Upload failed: ${xhr.status}`));
+            }
+        };
+        
+        xhr.onerror = () => reject(new Error('Network error'));
+        xhr.send(formData);
+    });
+}
+
 async function uploadFile(file, type) {
     return new Promise((resolve, reject) => {
         const formData = new FormData();
@@ -4449,14 +4639,32 @@ async function syncUsers() {
 }
 
 function updateOnlineCount() {
-    const onlineCount = Object.values(usersCache).filter(u => u.is_online).length;
-    const totalCount = Object.keys(usersCache).length;
+    // Mark current user as online
+    if (currentUserId && usersCache[currentUserId]) {
+        usersCache[currentUserId].is_online = true;
+        usersCache[currentUserId].last_seen = Date.now();
+    }
+    
+    // Count online users (active in last 5 minutes)
+    const now = Date.now();
+    const fiveMinutes = 5 * 60 * 1000;
+    const onlineCount = Object.values(usersCache).filter(u => {
+        if (u.is_online) return true;
+        if (u.last_seen && (now - u.last_seen) < fiveMinutes) return true;
+        return false;
+    }).length;
+    
+    const totalCount = Math.max(Object.keys(usersCache).length, 1);
     
     const onlineElement = document.getElementById('online-count');
     const sidebarOnlineElement = document.getElementById('sidebar-online-count');
     
-    if (onlineElement) onlineElement.textContent = onlineCount;
-    if (sidebarOnlineElement) sidebarOnlineElement.textContent = `${onlineCount}/${totalCount}`;
+    if (onlineElement) {
+        onlineElement.textContent = Math.max(onlineCount, 1);
+    }
+    if (sidebarOnlineElement) {
+        sidebarOnlineElement.textContent = `${Math.max(onlineCount, 1)}/${totalCount}`;
+    }
 }
 
 // ===== UTILITY FUNCTIONS =====
