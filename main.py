@@ -7,6 +7,7 @@ from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from aiogram.utils import executor
 import core.database as db
+from botocore.client import Config
 
 # Сначала создаем Flask app для gunicorn
 from flask import Flask, jsonify, request, send_from_directory
@@ -32,28 +33,31 @@ flask_logger = logging.getLogger('flask_app')
 
 # ===== КОНФИГУРАЦИЯ SELECTEL S3 =====
 S3_CONFIG = {
-    'endpoint': 'https://s3.ru-3.storage.selcloud.ru',
-    'region': 'ru-3',
-    'bucket': 'telegram-chat-files',
-    'access_key': '25d16365251e45ec9b678de28dafd86b',
-    'secret_key': 'cc56887e78d14bdbae867638726a816b'
+    'endpoint': os.getenv('S3_ENDPOINT', 'https://s3.ru-3.storage.selcloud.ru'),
+    'region': os.getenv('S3_REGION', 'ru-3'),
+    'bucket': os.getenv('S3_BUCKET', 'telegram-chat-files'),
+    'access_key': os.getenv('S3_ACCESS_KEY'),
+    'secret_key': os.getenv('S3_SECRET_KEY')
 }
 
-# Инициализация S3 клиента - УПРОЩЕННАЯ версия для Selectel
+# Инициализация S3 клиента
+s3_client = None
 try:
-    s3_client = boto3.client(
-        's3',
-        endpoint_url=S3_CONFIG['endpoint'],
-        aws_access_key_id=S3_CONFIG['access_key'],
-        aws_secret_access_key=S3_CONFIG['secret_key'],
-        config=boto3.session.Config(
-            signature_version='s3',
-            s3={'addressing_style': 'path'}
+    # Проверяем наличие обязательных ключей
+    if not S3_CONFIG['access_key'] or not S3_CONFIG['secret_key']:
+        flask_logger.warning("⚠️ S3 ключи не найдены в переменных окружения")
+        flask_logger.warning("⚠️ Загрузка файлов в S3 будет недоступна")
+    else:
+        s3_client = boto3.client(
+            's3',
+            endpoint_url=S3_CONFIG['endpoint'],
+            aws_access_key_id=S3_CONFIG['access_key'],
+            aws_secret_access_key=S3_CONFIG['secret_key'],
+            config=Config(signature_version='s3v4', s3={'addressing_style': 'path'})
         )
-    )
-    flask_logger.info("✅ S3 клиент инициализирован")
+        flask_logger.info("✅ S3 клиент инициализирован")
 except Exception as e:
-    flask_logger.error(f"❌ Ошибка инициализации S3 клиента: {e}")
+    flask_logger.error(f"❌ Ошибка инициализации S3 клиента: {e}", exc_info=True)
     s3_client = None
 
 # Путь к веб-приложению
@@ -79,40 +83,69 @@ def allowed_file(filename, file_type):
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS.get(file_type, set())
 
 def generate_s3_url(filepath):
-    """Генерация URL для файла в S3"""
+    """Генерация публичного URL для файла в S3"""
     return f"{S3_CONFIG['endpoint']}/{S3_CONFIG['bucket']}/{filepath}"
 
-def upload_to_s3(file, filepath, content_type='application/octet-stream'):
-    """Загрузка файла в Selectel S3"""
+def test_s3_connection():
+    """Проверка подключения к S3"""
     try:
         if not s3_client:
-            raise Exception("S3 клиент не инициализирован")
+            return False, "S3 клиент не инициализирован (отсутствуют ключи доступа)"
+        
+        # Просто проверяем наличие файлов в бакете
+        s3_client.list_objects_v2(Bucket=S3_CONFIG['bucket'], MaxKeys=1)
+        return True, "✅ Подключение к S3 успешно"
+    except Exception as e:
+        return False, f"❌ Ошибка подключения к S3: {e}"
+
+def upload_to_s3(file, filepath, content_type='application/octet-stream'):
+    """Загрузка файла в S3"""
+    try:
+        if not s3_client:
+            raise Exception("S3 клиент не инициализирован. Проверьте наличие S3_ACCESS_KEY и S3_SECRET_KEY в переменных окружения")
         
         flask_logger.info(f"📤 Загрузка файла в S3: {filepath}")
         
-        # Проверяем, что файл в памяти
         if hasattr(file, 'read'):
             file_data = file.read()
         else:
             file_data = file
         
-        # Загружаем файл в S3 - УПРОЩЕННЫЙ метод
         s3_client.put_object(
             Bucket=S3_CONFIG['bucket'],
             Key=filepath,
             Body=file_data,
             ContentType=content_type
         )
-        
-        # Генерируем URL
         file_url = generate_s3_url(filepath)
-        
-        flask_logger.info(f"✅ Файл загружен в S3: {file_url}")
+        flask_logger.info(f"✅ Файл загружен: {file_url}")
         return file_url
-        
     except Exception as e:
         flask_logger.error(f"❌ Ошибка загрузки в S3: {e}", exc_info=True)
-        raise
+        # Попытка повторного подключения
+        try:
+            flask_logger.info("🔄 Попытка повторного подключения к S3...")
+            # Переинициализируем клиент
+            global s3_client
+            s3_client = boto3.client(
+                's3',
+                endpoint_url=S3_CONFIG['endpoint'],
+                aws_access_key_id=S3_CONFIG['access_key'],
+                aws_secret_access_key=S3_CONFIG['secret_key'],
+                config=Config(signature_version='s3v4', s3={'addressing_style': 'path'})
+            )
+            s3_client.put_object(
+                Bucket=S3_CONFIG['bucket'],
+                Key=filepath,
+                Body=file_data,
+                ContentType=content_type
+            )
+            file_url = generate_s3_url(filepath)
+            flask_logger.info(f"✅ Файл загружен после повторного подключения: {file_url}")
+            return file_url
+        except Exception as e2:
+            flask_logger.error(f"❌ Повторная попытка загрузки не удалась: {e2}", exc_info=True)
+            raise
 
 def delete_from_s3(filepath):
     """Удаление файла из S3"""
@@ -156,19 +189,6 @@ def list_s3_files(prefix=''):
         flask_logger.error(f"❌ Ошибка получения списка файлов из S3: {e}")
         return []
 
-def test_s3_connection():
-    """Тест подключения к S3"""
-    try:
-        if not s3_client:
-            return False, "S3 клиент не инициализирован"
-        
-        # Простая проверка - попытка получить информацию о бакете
-        s3_client.head_bucket(Bucket=S3_CONFIG['bucket'])
-        return True, "✅ Подключение к S3 успешно"
-        
-    except Exception as e:
-        return False, f"❌ Ошибка подключения к S3: {str(e)}"
-
 @flask_app.before_request
 def log_request_info():
     """Логирование всех входящих запросов"""
@@ -195,6 +215,7 @@ def health():
     return jsonify({
         "status": "healthy", 
         "timestamp": datetime.now().isoformat(),
+        "s3_configured": bool(S3_CONFIG['access_key'] and S3_CONFIG['secret_key']),
         "s3_connected": s3_connected,
         "s3_message": s3_message,
         "services": {
@@ -228,7 +249,8 @@ def init_database():
         return jsonify({
             "status": "success", 
             "message": "Database initialized successfully",
-            "s3_connection": {
+            "s3_configuration": {
+                "has_keys": bool(S3_CONFIG['access_key'] and S3_CONFIG['secret_key']),
                 "connected": s3_connected,
                 "message": s3_message
             }
@@ -273,6 +295,7 @@ def debug_info():
             "s3_config": {
                 "bucket": S3_CONFIG['bucket'],
                 "endpoint": S3_CONFIG['endpoint'],
+                "has_keys": bool(S3_CONFIG['access_key'] and S3_CONFIG['secret_key']),
                 "connected": s3_connected,
                 "message": s3_message
             },
@@ -479,6 +502,13 @@ def upload_file():
         if file_size > MAX_FILE_SIZE:
             return jsonify({'status': 'error', 'message': 'File too large'}), 400
         
+        # Проверяем доступность S3
+        if not s3_client:
+            return jsonify({
+                'status': 'error', 
+                'message': 'S3 storage is not available. Check S3_ACCESS_KEY and S3_SECRET_KEY environment variables'
+            }), 503
+        
         # Генерируем уникальное имя файла
         filename = secure_filename(file.filename)
         ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else 'bin'
@@ -589,16 +619,19 @@ def get_stats_api():
         users = db.get_users()
         messages = db.get_messages(limit=10000)
         
-        # Статистика S3
-        s3_stats = {
-            'photos': len(list_s3_files('uploads/photos/')),
-            'documents': len(list_s3_files('uploads/documents/')),
-            'voice': len(list_s3_files('uploads/voice/'))
-        }
+        # Статистика S3 (только если S3 доступен)
+        s3_stats = {}
+        if s3_client:
+            s3_stats = {
+                'photos': len(list_s3_files('uploads/photos/')),
+                'documents': len(list_s3_files('uploads/documents/')),
+                'voice': len(list_s3_files('uploads/voice/'))
+            }
         
         stats_data = {
             'total_users': len(users),
             'total_messages': len(messages),
+            's3_available': bool(s3_client),
             's3_files': s3_stats
         }
         
@@ -613,22 +646,13 @@ def check_s3():
     try:
         connected, message = test_s3_connection()
         
-        if connected:
-            # Попробуем получить список файлов
-            files = list_s3_files()
-            return jsonify({
-                'status': 'success',
-                'connected': True,
-                'message': message,
-                'files_count': len(files),
-                'bucket': S3_CONFIG['bucket']
-            })
-        else:
-            return jsonify({
-                'status': 'error',
-                'connected': False,
-                'message': message
-            })
+        return jsonify({
+            'status': 'success',
+            'configured': bool(S3_CONFIG['access_key'] and S3_CONFIG['secret_key']),
+            'connected': connected,
+            'message': message,
+            'bucket': S3_CONFIG['bucket'] if connected else None
+        })
         
     except Exception as e:
         return jsonify({
@@ -640,6 +664,12 @@ def check_s3():
 def create_test_file():
     """Создать тестовый файл в S3"""
     try:
+        if not s3_client:
+            return jsonify({
+                'status': 'error',
+                'message': 'S3 клиент не инициализирован'
+            }), 503
+            
         data = request.json
         filename = data.get('filename', 'test.txt')
         content = data.get('content', 'Test content')
@@ -725,6 +755,10 @@ async def cmd_start(message: types.Message):
             )
         )
         
+        # Проверяем S3
+        s3_connected, s3_message = test_s3_connection()
+        s3_status = "✅ S3 хранилище доступно" if s3_connected else "⚠️ S3 хранилище временно недоступно"
+        
         welcome_text = f"""
 👋 Привет, {message.from_user.first_name}!
 
@@ -738,7 +772,8 @@ async def cmd_start(message: types.Message):
 • Профили пользователей
 • Статистика активности
 
-🌐 **Используется Selectel S3 для хранения файлов**
+🌐 **Хранилище файлов:**
+{s3_status}
 """
         
         await message.answer(welcome_text, reply_markup=keyboard, parse_mode='Markdown')
@@ -770,7 +805,8 @@ async def cmd_debug(message: types.Message):
 
 **Хранилище:**
 • База данных: ✅ SQLite
-• Облачное хранилище (S3): {s3_message}
+• S3 облачное хранилище: {s3_message}
+• S3 бакет: {S3_CONFIG['bucket'] if s3_connected else 'недоступен'}
 
 **API Endpoints:**
 • Сообщения: `/api/messages`
@@ -811,12 +847,17 @@ async def cmd_stats(message: types.Message):
         users = db.get_users()
         messages = db.get_messages(limit=1000)
         
+        # Проверяем S3
+        s3_connected, s3_message = test_s3_connection()
+        s3_info = f"✅ Доступно ({S3_CONFIG['bucket']})" if s3_connected else "⚠️ Недоступно"
+        
         stats_text = f"""
 📊 **Статистика чата:**
 
 👥 **Пользователи:** {len(users)}
 💬 **Сообщения:** {len(messages)}
 📅 **Сегодня:** {len([m for m in messages if m.timestamp and m.timestamp.date() == datetime.utcnow().date()])}
+☁️ **S3 хранилище:** {s3_info}
 
 🌐 **Веб-приложение:**
 https://botzakaz-production-ba19.up.railway.app
@@ -893,7 +934,10 @@ async def on_startup(dp):
         logger.info(f"✅ {s3_message}")
         logger.info(f"☁️  Бакет: {S3_CONFIG['bucket']}")
     else:
-        logger.warning(f"⚠️ {s3_message}")
+        if S3_CONFIG['access_key'] and S3_CONFIG['secret_key']:
+            logger.warning(f"⚠️ {s3_message}")
+        else:
+            logger.warning("⚠️ S3 ключи не настроены. Функционал загрузки файлов будет недоступен")
     
     logger.info("📱 Используйте команду /start для начала работы")
     logger.info(f"🌐 Веб-приложение: https://botzakaz-production-ba19.up.railway.app")
@@ -916,6 +960,13 @@ def start_bot():
     print(f"\n🔑 Токен бота: ✅ Найден")
     print(f"☁️  S3 бакет: {S3_CONFIG['bucket']}")
     print(f"🌐 Домен: https://botzakaz-production-ba19.up.railway.app")
+    
+    # Проверяем S3 конфигурацию
+    if S3_CONFIG['access_key'] and S3_CONFIG['secret_key']:
+        print(f"🔑 S3 ключи: ✅ Настроены")
+    else:
+        print(f"🔑 S3 ключи: ❌ Отсутствуют (загрузка файлов недоступна)")
+    
     print("\n🤖 Запуск бота...")
     print("="*60)
     
