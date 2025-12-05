@@ -2276,3 +2276,236 @@ select:focus-visible {
         height: auto;
     }
 }
+
+/* ===== УЛУЧШЕННЫЙ ПЛЕЕР ГОЛОСОВЫХ СООБЩЕНИЙ ===== */
+.voice-waveform-container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.voice-current-time {
+    font-size: 12px;
+    color: var(--tg-text-secondary);
+    min-width: 35px;
+    text-align: right;
+}
+
+.voice-download-btn {
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    color: var(--tg-text-secondary);
+    border-radius: var(--tg-border-radius-circle);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all var(--tg-transition-fast);
+    opacity: 0.6;
+}
+
+.voice-download-btn:hover {
+    background: var(--tg-hover-color);
+    color: var(--tg-blue);
+    opacity: 1;
+}
+
+.voice-waveform {
+    cursor: pointer;
+}
+
+.voice-progress::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 8px;
+    background: var(--tg-blue);
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px var(--tg-tertiary-bg);
+}
+
+/* ===== КОНТЕКСТНОЕ МЕНЮ СООБЩЕНИЯ ===== */
+.message-actions-menu {
+    position: fixed;
+    background: var(--tg-bg-color);
+    border: 1px solid var(--tg-border-color);
+    border-radius: var(--tg-border-radius);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    min-width: 180px;
+    padding: 4px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.action-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    cursor: pointer;
+    border-radius: var(--tg-border-radius-small);
+    transition: all var(--tg-transition-fast);
+    color: var(--tg-text-color);
+    font-size: 15px;
+}
+
+.action-item:hover {
+    background: var(--tg-hover-color);
+}
+
+.action-item.danger {
+    color: var(--tg-red);
+}
+
+.action-item.danger:hover {
+    background: rgba(255, 59, 48, 0.1);
+}
+
+.action-item i {
+    width: 20px;
+    text-align: center;
+    font-size: 16px;
+}
+
+/* ===== КНОПКА РЕАКЦИЙ ПРИ НАВЕДЕНИИ ===== */
+.message {
+    position: relative;
+}
+
+.message-reaction-btn {
+    position: absolute;
+    right: -40px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: var(--tg-bg-color);
+    color: var(--tg-text-secondary);
+    border-radius: var(--tg-border-radius-circle);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition: all var(--tg-transition-fast);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    z-index: 10;
+}
+
+.message-reaction-btn:hover {
+    background: var(--tg-blue);
+    color: white;
+    transform: translateY(-50%) scale(1.1);
+}
+
+.message.outgoing .message-reaction-btn {
+    left: -40px;
+    right: auto;
+}
+
+/* ===== БЫСТРОЕ МЕНЮ РЕАКЦИЙ ===== */
+.quick-reactions-menu {
+    position: fixed;
+    background: var(--tg-bg-color);
+    border: 1px solid var(--tg-border-color);
+    border-radius: var(--tg-border-radius-large);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    z-index: 10001;
+    display: flex;
+    gap: 4px;
+    padding: 6px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.quick-reaction {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    cursor: pointer;
+    border-radius: var(--tg-border-radius);
+    transition: all var(--tg-transition-fast);
+    background: transparent;
+}
+
+.quick-reaction:hover {
+    background: var(--tg-hover-color);
+    transform: scale(1.2);
+}
+
+.quick-reaction:active {
+    transform: scale(0.9);
+}
+
+/* ===== КНОПКА СКРОЛЛА ВНИЗ ===== */
+.input-area {
+    position: relative;
+}
+
+.btn-scroll-down {
+    position: fixed;
+    right: 16px;
+    bottom: 80px;
+    width: 44px;
+    height: 44px;
+    border: none;
+    background: var(--tg-blue);
+    color: white;
+    border-radius: var(--tg-border-radius-circle);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 99;
+    opacity: 0;
+    transition: all var(--tg-transition-medium);
+}
+
+.btn-scroll-down:hover {
+    background: var(--tg-blue-hover);
+    transform: scale(1.1);
+}
+
+.btn-scroll-down:active {
+    transform: scale(0.95);
+}
+
+.btn-scroll-down i {
+    font-size: 18px;
+}
+
+/* Темная тема для кнопки скролла */
+body.dark-theme .btn-scroll-down {
+    background: var(--tg-blue);
+    box-shadow: 0 4px 12px rgba(51, 144, 236, 0.4);
+}
+
+/* ===== ВЫДЕЛЕННЫЕ СООБЩЕНИЯ ===== */
+.message.selected {
+    background: rgba(51, 144, 236, 0.1);
+    border-radius: var(--tg-border-radius);
+    padding: 4px;
+    margin: -4px;
+}
+
+.message.selected .message-content {
+    border-left: 3px solid var(--tg-blue);
+    padding-left: 8px;
+}
