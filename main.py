@@ -648,6 +648,44 @@ def serve_static(filename):
     return "File not found", 404
 
 # Прокси для аудио файлов из S3 с поддержкой Range запросов
+@flask_app.route('/api/s3/download/<path:filepath>', methods=['GET', 'HEAD', 'OPTIONS'])
+def download_file_from_s3(filepath):
+    """Скачать файл из S3 через прокси"""
+    if request.method == 'OPTIONS':
+        return '', 200
+    
+    try:
+        if not s3_client:
+            return jsonify({'status': 'error', 'message': 'S3 client not initialized'}), 500
+        
+        # Получаем файл из S3
+        try:
+            obj = s3_client.get_object(Bucket=S3_BUCKET, Key=filepath)
+            file_data = obj['Body'].read()
+            content_type = obj.get('ContentType', 'application/octet-stream')
+            
+            # Определяем имя файла
+            filename = filepath.split('/')[-1]
+            
+            # Создаем ответ
+            from flask import Response
+            response = Response(file_data, mimetype=content_type)
+            response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+            response.headers['Content-Length'] = str(len(file_data))
+            response.headers['Access-Control-Allow-Origin'] = '*'
+            
+            return response
+            
+        except s3_client.exceptions.NoSuchKey:
+            return jsonify({'status': 'error', 'message': 'File not found'}), 404
+        except Exception as s3_error:
+            flask_logger.error(f"❌ Ошибка получения файла из S3: {s3_error}")
+            return jsonify({'status': 'error', 'message': str(s3_error)}), 500
+        
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка скачивания файла: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 @flask_app.route('/api/s3/audio/<path:filepath>', methods=['GET', 'HEAD', 'OPTIONS'])
 def proxy_audio_from_s3(filepath):
     """Прокси для аудио файлов из S3 с поддержкой Range запросов"""
@@ -661,8 +699,11 @@ def proxy_audio_from_s3(filepath):
         # Получаем Range заголовок для перемотки
         range_header = request.headers.get('Range')
         
-        # Получаем объект из S3
-        s3_key = f"uploads/voice/{filepath}"
+        # Получаем объект из S3 - filepath может быть полным путем или только частью
+        if filepath.startswith('uploads/'):
+            s3_key = filepath
+        else:
+            s3_key = f"uploads/voice/{filepath}"
         
         if range_header:
             # Поддержка Range запросов для перемотки
