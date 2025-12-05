@@ -1,5 +1,5 @@
 // Telegram Mini App - Complete Full Featured Chat
-// ИСПРАВЛЕННАЯ ВЕРСИЯ: только темная тема, все кнопки работают
+// ИСПРАВЛЕННАЯ ВЕРСИЯ: решена проблема с исчезающими сообщениями
 
 // ===== GLOBAL VARIABLES =====
 let tg = null;
@@ -34,8 +34,6 @@ let sections = {};
 let pinnedMessagesList = [];
 let mutedUsers = new Set();
 let bannedUsers = new Set();
-let selectedMessages = new Set();
-let activeVoicePlayers = {};
 
 // Data structure
 let appData = {
@@ -87,7 +85,7 @@ const API_CONFIG = {
         uploadVoice: '/api/s3/upload-voice',
         uploadVideo: '/api/s3/upload-video',
         saveMessage: '/api/s3/save-message',
-        saveMessageAtomic: '/api/s3/save-message-atomic',
+        saveMessageAtomic: '/api/s3/save-message-atomic', // НОВЫЙ ENDPOINT
         getMessages: '/api/s3/get-messages',
         getUsers: '/api/s3/get-users',
         updateUser: '/api/s3/update-user',
@@ -136,8 +134,8 @@ async function initApp() {
         
         updateLoadingText('Настройка интерфейса...');
         
-        // Initialize theme - ВСЕГДА ТЕМНАЯ
-        applyTheme('dark');
+        // Initialize theme
+        initTheme();
         
         // Initialize UI
         initUI();
@@ -211,9 +209,11 @@ function initTelegram() {
             // Enable closing confirmation
             tg.enableClosingConfirmation();
             
-            // Set dark theme colors
-            tg.setBackgroundColor('#1c1c1e');
-            tg.setHeaderColor('#1c1c1e');
+            // Set background color
+            tg.setBackgroundColor('#3390ec');
+            
+            // Set header color
+            tg.setHeaderColor('#3390ec');
             
             // Get user data
             if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
@@ -283,8 +283,7 @@ function handleViewportChange(event) {
 
 function handleThemeChange() {
     console.log('Theme changed');
-    // Always dark theme
-    applyTheme('dark');
+    initTheme();
 }
 
 function handleMainButtonClick() {
@@ -298,19 +297,40 @@ function adjustViewport() {
 
 // ===== THEME MANAGEMENT =====
 function initTheme() {
-    // ВСЕГДА ТЕМНАЯ ТЕМА
-    applyTheme('dark');
+    const savedTheme = localStorage.getItem('telegram_chat_theme') || 'auto';
+    applyTheme(savedTheme);
+    
+    const themeSwitch = document.getElementById('theme-switch');
+    if (themeSwitch) {
+        themeSwitch.checked = savedTheme === 'dark';
+    }
+}
+
+function toggleTheme() {
+    const themeSwitch = document.getElementById('theme-switch');
+    if (!themeSwitch) return;
+    
+    const isDark = themeSwitch.checked;
+    applyTheme(isDark ? 'dark' : 'light');
+    localStorage.setItem('telegram_chat_theme', isDark ? 'dark' : 'light');
 }
 
 function applyTheme(theme) {
-    // Принудительно темная тема
-    document.body.classList.add('dark-theme');
-    document.body.classList.remove('light-theme');
+    const isDark = theme === 'dark' || 
+                   (theme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    
+    if (isDark) {
+        document.body.classList.add('dark-theme');
+        document.body.classList.remove('light-theme');
+    } else {
+        document.body.classList.add('light-theme');
+        document.body.classList.remove('dark-theme');
+    }
     
     // Update Telegram WebApp theme
     if (tg) {
-        tg.setHeaderColor('#1c1c1e');
-        tg.setBackgroundColor('#1c1c1e');
+        tg.setHeaderColor(isDark ? '#1c1c1e' : '#3390ec');
+        tg.setBackgroundColor(isDark ? '#0f0f0f' : '#ffffff');
     }
 }
 
@@ -397,8 +417,15 @@ function initUI() {
     const btnCancelRecording = document.getElementById('btn-cancel-recording');
     const btnSendVoice = document.getElementById('btn-send-voice');
     
-    if (btnCancelRecording) btnCancelRecording.addEventListener('click', cancelVoiceRecording);
-    if (btnSendVoice) btnSendVoice.addEventListener('click', sendVoiceMessage);
+    if (btnCancelRecording) {
+        btnCancelRecording.addEventListener('click', cancelVoiceRecording);
+    }
+    if (btnCancelRecording) {
+        btnCancelRecording.addEventListener('click', cancelVoiceRecording);
+    }
+    if (btnSendVoice) {
+        btnSendVoice.addEventListener('click', sendVoiceMessage);
+    }
     
     // Create channel
     const btnAddChannel = document.getElementById('btn-add-channel');
@@ -475,12 +502,6 @@ function initUI() {
         btnCreateMirror.addEventListener('click', createMirror);
     }
     
-    // Mirror constructor modal button
-    const mirrorConstructorBtn = document.getElementById('mirror-constructor-btn');
-    if (mirrorConstructorBtn) {
-        mirrorConstructorBtn.addEventListener('click', showMirrorConstructor);
-    }
-    
     // GIF search button
     const btnSearchGif = document.getElementById('btn-search-gif');
     const gifSearchInput = document.getElementById('gif-search-input');
@@ -514,14 +535,17 @@ function initUI() {
         }
     });
     
-    // Settings toggles - УБРАНЫ (оставляем только кнопку зеркала)
+    // Settings toggles
     const themeSwitch = document.getElementById('theme-switch');
     const notificationsSwitch = document.getElementById('notifications-switch');
     const soundsSwitch = document.getElementById('sounds-switch');
     
     if (themeSwitch) {
-        themeSwitch.checked = true; // Всегда темная
-        themeSwitch.disabled = true; // Делаем неактивной
+        themeSwitch.addEventListener('change', toggleTheme);
+        // Load saved theme
+        const savedTheme = localStorage.getItem('telegram_chat_theme') || 'light';
+        themeSwitch.checked = savedTheme === 'dark';
+        applyTheme(savedTheme);
     }
     
     if (notificationsSwitch) {
@@ -580,36 +604,13 @@ function initUI() {
     
     // Initialize message actions
     initMessageActions();
-    
-    // Добавляем глобальные обработчики клавиш
-    initKeyboardShortcuts();
 }
 
-function initKeyboardShortcuts() {
-    document.addEventListener('keydown', function(e) {
-        // ESC - закрыть все меню
-        if (e.key === 'Escape') {
-            closeAllMenus();
-        }
-        
-        // Ctrl+F - поиск
-        if (e.ctrlKey && e.key === 'f') {
-            e.preventDefault();
-            toggleSearch();
-        }
-        
-        // Ctrl+Enter - отправить сообщение
-        if (e.ctrlKey && e.key === 'Enter') {
-            e.preventDefault();
-            sendMessage();
-        }
-        
-        // Ctrl+K - создать канал
-        if (e.ctrlKey && e.key === 'k') {
-            e.preventDefault();
-            showCreateChannelModal();
-        }
-    });
+function updateAdminVisibility() {
+    const adminSection = document.getElementById('admin-section');
+    if (adminSection) {
+        adminSection.style.display = isAdmin ? 'block' : 'none';
+    }
 }
 
 function toggleNotifications() {
@@ -638,80 +639,6 @@ function toggleSounds() {
     }
     
     showNotification(enabled ? 'Звуки включены' : 'Звуки выключены', 'info');
-}
-
-// ===== MIRROR CONSTRUCTOR =====
-function showMirrorConstructor() {
-    showModal('mirror-constructor-modal');
-}
-
-async function createMirror() {
-    const name = document.getElementById('mirror-name')?.value.trim();
-    const token = document.getElementById('mirror-token')?.value.trim();
-    const domain = document.getElementById('mirror-domain')?.value.trim() || window.location.origin;
-    const isPublic = document.getElementById('mirror-public')?.checked || false;
-    
-    if (!name || !token) {
-        showNotification('Введите название и токен бота', 'error');
-        return;
-    }
-    
-    // Простая валидация токена
-    if (!token.match(/^\d+:[A-Za-z0-9_-]+$/)) {
-        showNotification('Неверный формат токена. Пример: 1234567890:ABCdefGHIjklMNOpqrsTUVwxyz', 'error');
-        return;
-    }
-    
-    try {
-        showUploadProgress(true, 'Создание зеркала...');
-        
-        const response = await fetch('/api/mirrors/create', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: name,
-                token: token,
-                domain: domain,
-                public: isPublic,
-                created_by: currentUserId
-            })
-        });
-        
-        showUploadProgress(false);
-        
-        if (response.ok) {
-            const data = await response.json();
-            if (data.status === 'success') {
-                showNotification('✅ Зеркало создано!', 'success');
-                
-                // Закрыть модальное окно
-                closeModal('mirror-constructor-modal');
-                
-                // Очистить форму
-                document.getElementById('mirror-name').value = '';
-                document.getElementById('mirror-token').value = '';
-                document.getElementById('mirror-domain').value = '';
-                document.getElementById('mirror-public').checked = false;
-                
-                // Показать URL зеркала
-                if (data.mirror_url) {
-                    setTimeout(() => {
-                        showNotification(`🌐 Зеркало доступно по адресу: ${data.mirror_url}`, 'info');
-                    }, 1000);
-                }
-            } else {
-                showNotification(data.message || 'Ошибка создания зеркала', 'error');
-            }
-        } else {
-            const errorText = await response.text();
-            showNotification(`Ошибка сервера: ${response.status}`, 'error');
-            console.error('Ошибка создания зеркала:', errorText);
-        }
-    } catch (error) {
-        showUploadProgress(false);
-        console.error('❌ Ошибка создания зеркала:', error);
-        showNotification('❌ Не удалось создать зеркало', 'error');
-    }
 }
 
 // ===== SIDEBAR FUNCTIONS =====
@@ -809,10 +736,12 @@ function initMessageActions() {
             const messageId = messageElement.dataset.messageId;
             
             if (e.target.closest('.message-reactions')) {
+                // Reaction click handled separately
                 return;
             }
             
             if (e.target.closest('.message-media img')) {
+                // Image click for preview
                 const img = e.target.closest('.message-media img');
                 if (img) {
                     const fullImageUrl = img.dataset.fullSrc || img.src;
@@ -822,6 +751,7 @@ function initMessageActions() {
             }
             
             if (e.target.closest('.video-play-button')) {
+                // Video play button
                 const videoThumbnail = e.target.closest('.video-thumbnail');
                 if (videoThumbnail) {
                     const videoUrl = videoThumbnail.dataset.videoUrl;
@@ -833,6 +763,7 @@ function initMessageActions() {
             }
             
             if (e.target.closest('.voice-play-btn')) {
+                // Voice message play
                 e.stopPropagation();
                 const voiceMessage = e.target.closest('.voice-message');
                 if (voiceMessage) {
@@ -844,11 +775,71 @@ function initMessageActions() {
                 return;
             }
             
+            // Перемотка голосового сообщения
+            if (e.target.closest('.voice-waveform') || e.target.closest('.voice-waveform-container')) {
+                e.stopPropagation();
+                const voiceMessage = e.target.closest('.voice-message');
+                if (voiceMessage) {
+                    seekVoiceMessage(voiceMessage, e);
+                }
+                return;
+            }
+            
+            if (e.target.closest('.download-btn')) {
+                // Download file
+                const fileElement = e.target.closest('.message-file');
+                if (fileElement) {
+                    const fileUrl = fileElement.dataset.fileUrl;
+                    const fileName = fileElement.dataset.fileName;
+                    if (fileUrl) {
+                        downloadFile(fileUrl, fileName);
+                    }
+                }
+                return;
+            }
+            
             // Long press for actions menu (simulated with right click on desktop)
             if (e.type === 'contextmenu' || (e.type === 'click' && e.ctrlKey)) {
                 e.preventDefault();
                 showMessageActionsMenu(messageId, e.clientX, e.clientY);
             }
+        }
+    });
+    
+    // Touch events for mobile
+    let touchStartTime = 0;
+    let touchStartX = 0;
+    let touchStartY = 0;
+    
+    document.addEventListener('touchstart', function(e) {
+        const messageElement = e.target.closest('.message');
+        if (messageElement) {
+            touchStartTime = Date.now();
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+        }
+    }, { passive: true });
+    
+    document.addEventListener('touchend', function(e) {
+        const messageElement = e.target.closest('.message');
+        if (messageElement && touchStartTime > 0) {
+            const touchTime = Date.now() - touchStartTime;
+            const touchEndX = e.changedTouches[0].clientX;
+            const touchEndY = e.changedTouches[0].clientY;
+            const distance = Math.sqrt(
+                Math.pow(touchEndX - touchStartX, 2) + 
+                Math.pow(touchEndY - touchStartY, 2)
+            );
+            
+            // Long press (500ms+) with minimal movement
+            if (touchTime > 500 && distance < 10) {
+                e.preventDefault();
+                const messageId = messageElement.dataset.messageId;
+                const rect = messageElement.getBoundingClientRect();
+                showMessageActionsMenu(messageId, rect.left + rect.width / 2, rect.top);
+            }
+            
+            touchStartTime = 0;
         }
     });
 }
@@ -963,6 +954,45 @@ function handleMessageAction(action, messageId) {
             deleteMessageConfirm(msgId);
             break;
     }
+}
+
+// Выделение сообщения
+let selectedMessages = new Set();
+function selectMessage(messageId) {
+    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (!messageElement) return;
+    
+    if (selectedMessages.has(messageId)) {
+        selectedMessages.delete(messageId);
+        messageElement.classList.remove('selected');
+    } else {
+        selectedMessages.add(messageId);
+        messageElement.classList.add('selected');
+        
+        // Автовоспроизведение голосового сообщения при выборе
+        const voiceMessage = messageElement.querySelector('.voice-message');
+        if (voiceMessage && voiceMessage.dataset.audioUrl) {
+            playVoiceMessage(voiceMessage.dataset.audioUrl, voiceMessage);
+        }
+    }
+    
+    updateSelectionUI();
+}
+
+function updateSelectionUI() {
+    // Можно добавить UI для множественного выбора
+    if (selectedMessages.size > 0) {
+        console.log(`Выбрано сообщений: ${selectedMessages.size}`);
+    }
+}
+
+function clearSelection() {
+    selectedMessages.forEach(msgId => {
+        const element = document.querySelector(`[data-message-id="${msgId}"]`);
+        if (element) element.classList.remove('selected');
+    });
+    selectedMessages.clear();
+    updateSelectionUI();
 }
 
 function setReplyMessage(messageId) {
@@ -1083,180 +1113,48 @@ function deleteMessageConfirm(messageId) {
     }
 }
 
-function selectMessage(messageId) {
-    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
-    if (!messageElement) return;
-    
-    if (selectedMessages.has(messageId)) {
-        selectedMessages.delete(messageId);
-        messageElement.classList.remove('selected');
-    } else {
-        selectedMessages.add(messageId);
-        messageElement.classList.add('selected');
-        
-        // Автовоспроизведение голосового сообщения при выборе
-        const voiceMessage = messageElement.querySelector('.voice-message');
-        if (voiceMessage && voiceMessage.dataset.audioUrl) {
-            playVoiceMessage(voiceMessage.dataset.audioUrl, voiceMessage);
-        }
-    }
-    
-    updateSelectionUI();
-}
-
-function updateSelectionUI() {
-    const selectionBar = document.getElementById('selection-bar');
-    if (!selectionBar) {
-        createSelectionBar();
-    } else {
-        selectionBar.style.display = selectedMessages.size > 0 ? 'flex' : 'none';
-        
-        const countElement = selectionBar.querySelector('.selected-count');
-        if (countElement) {
-            countElement.textContent = selectedMessages.size;
-        }
-    }
-}
-
-function createSelectionBar() {
-    const selectionBar = document.createElement('div');
-    selectionBar.id = 'selection-bar';
-    selectionBar.className = 'selection-bar';
-    selectionBar.innerHTML = `
-        <div class="selection-info">
-            <span class="selected-count">${selectedMessages.size}</span> выбрано
-        </div>
-        <div class="selection-actions">
-            <button class="btn-selection-action" onclick="forwardSelectedMessages()">
-                <i class="fas fa-share"></i>
-                Переслать
-            </button>
-            <button class="btn-selection-action" onclick="deleteSelectedMessages()">
-                <i class="fas fa-trash"></i>
-                Удалить
-            </button>
-            <button class="btn-selection-action" onclick="clearSelection()">
-                <i class="fas fa-times"></i>
-                Отмена
-            </button>
-        </div>
-    `;
-    
-    const messagesContainer = document.querySelector('.messages-container');
-    if (messagesContainer) {
-        messagesContainer.appendChild(selectionBar);
-        selectionBar.style.display = 'flex';
-    }
-}
-
-function clearSelection() {
-    selectedMessages.forEach(msgId => {
-        const element = document.querySelector(`[data-message-id="${msgId}"]`);
-        if (element) element.classList.remove('selected');
-    });
-    selectedMessages.clear();
-    
-    const selectionBar = document.getElementById('selection-bar');
-    if (selectionBar) selectionBar.style.display = 'none';
-}
-
-function forwardSelectedMessages() {
-    if (selectedMessages.size === 0) return;
-    
-    showForwardMenu(Array.from(selectedMessages)[0]);
-}
-
-function deleteSelectedMessages() {
-    if (selectedMessages.size === 0) return;
-    
-    if (confirm(`Удалить ${selectedMessages.size} сообщений?`)) {
-        selectedMessages.forEach(msgId => {
-            deleteMessage(msgId);
-        });
-        clearSelection();
-    }
-}
-
 // ===== REACTIONS =====
-function addReaction(messageId, emoji) {
-    const message = findMessageById(messageId);
-    if (!message) return;
+function showReactionPicker(messageId, x, y) {
+    currentMessageId = messageId;
+    const picker = document.getElementById('reaction-picker');
+    if (!picker) return;
     
-    if (!message.reactions) message.reactions = {};
-    if (!message.reactions[emoji]) message.reactions[emoji] = [];
+    // Position picker
+    const viewportWidth = window.innerWidth;
+    const pickerWidth = 360;
     
-    const userIndex = message.reactions[emoji].indexOf(currentUserId);
+    let posX = x - pickerWidth / 2;
+    if (posX < 10) posX = 10;
+    if (posX + pickerWidth > viewportWidth - 10) posX = viewportWidth - pickerWidth - 10;
     
-    if (userIndex > -1) {
-        // Remove reaction
-        message.reactions[emoji].splice(userIndex, 1);
-        if (message.reactions[emoji].length === 0) {
-            delete message.reactions[emoji];
-        }
-    } else {
-        // Add reaction
-        message.reactions[emoji].push(currentUserId);
-    }
+    picker.style.left = `${posX}px`;
+    picker.style.top = `${y - 60}px`;
+    picker.style.display = 'block';
     
-    // Update in S3
-    updateMessageInS3(message);
+    // Add reaction handlers
+    const reactionOptions = picker.querySelectorAll('.reaction-option');
+    reactionOptions.forEach(option => {
+        option.onclick = function(e) {
+            e.stopPropagation();
+            const reaction = this.dataset.reaction;
+            addReaction(messageId, reaction);
+            closeReactionPicker();
+        };
+    });
     
-    // Update UI
-    updateMessageReactions(message.id);
-    
-    // Play sound if enabled
-    if (localStorage.getItem('soundsEnabled') !== 'false') {
-        playSound('reaction');
-    }
+    // Close on click outside
+    setTimeout(() => {
+        document.addEventListener('click', closeReactionPicker);
+    }, 10);
 }
 
-function updateMessageReactions(messageId) {
-    const message = findMessageById(messageId);
-    if (!message) return;
-    
-    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
-    if (!messageElement) return;
-    
-    const reactionsContainer = messageElement.querySelector('.message-reactions');
-    if (!reactionsContainer) {
-        // Create reactions container if it doesn't exist
-        const messageContent = messageElement.querySelector('.message-content');
-        if (messageContent) {
-            const newReactionsContainer = document.createElement('div');
-            newReactionsContainer.className = 'message-reactions';
-            messageContent.appendChild(newReactionsContainer);
-            updateReactionsHTML(newReactionsContainer, message);
-        }
-    } else {
-        updateReactionsHTML(reactionsContainer, message);
-    }
+function closeReactionPicker() {
+    const picker = document.getElementById('reaction-picker');
+    if (picker) picker.style.display = 'none';
+    document.removeEventListener('click', closeReactionPicker);
 }
 
-function updateReactionsHTML(container, message) {
-    if (!message.reactions || Object.keys(message.reactions).length === 0) {
-        container.innerHTML = '';
-        return;
-    }
-    
-    const reactionsHTML = Object.entries(message.reactions)
-        .map(([emoji, users]) => {
-            const count = users.length;
-            const hasReacted = users.includes(currentUserId);
-            return `
-                <div class="reaction ${hasReacted ? 'user-reacted' : ''}" 
-                     data-emoji="${emoji}"
-                     onclick="addReaction('${message.id}', '${emoji}')">
-                    <span class="reaction-emoji">${emoji}</span>
-                    <span class="reaction-count">${count}</span>
-                </div>
-            `;
-        })
-        .join('');
-    
-    container.innerHTML = reactionsHTML;
-}
-
-// ===== ОТПРАВКА СООБЩЕНИЙ =====
+// ===== КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: ОТПРАВКА СООБЩЕНИЙ =====
 async function sendMessage() {
     // Check if user is banned or muted
     if (bannedUsers.has(currentUserId)) {
@@ -1283,8 +1181,10 @@ async function sendMessage() {
         return;
     }
     
+    // === ИСПРАВЛЕНИЕ: Генерируем ОДИН ID для всего жизненного цикла ===
     const messageId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
     
+    // === ИСПРАВЛЕНИЕ: Создаем объект сообщения с ВСЕМИ данными ===
     const message = {
         id: messageId,
         user_id: currentUserId,
@@ -1302,13 +1202,14 @@ async function sendMessage() {
         status: 'sending'
     };
     
-    // Загружаем файлы
+    // === ИСПРАВЛЕНИЕ: Загружаем файлы ПЕРЕД добавлением в UI ===
     let uploadedFiles = [];
     
     if (attachedFiles.length > 0) {
         try {
             showUploadProgress(true, 'Загрузка файлов...');
             
+            // Загружаем файлы последовательно
             for (let i = 0; i < attachedFiles.length; i++) {
                 const fileInfo = attachedFiles[i];
                 
@@ -1316,6 +1217,7 @@ async function sendMessage() {
                     try {
                         let fileToUpload = fileInfo.file;
                         
+                        // Определяем тип загрузки
                         let uploadEndpoint = API_CONFIG.endpoints.uploadFile;
                         let formData = new FormData();
                         
@@ -1330,6 +1232,7 @@ async function sendMessage() {
                         formData.append('user_id', currentUserId);
                         formData.append('type', fileInfo.type);
                         
+                        // Загружаем файл
                         const response = await fetch(uploadEndpoint, {
                             method: 'POST',
                             body: formData
@@ -1363,8 +1266,10 @@ async function sendMessage() {
                         
                     } catch (fileError) {
                         console.error('❌ Ошибка загрузки файла:', fileError);
+                        // Продолжаем с другими файлами
                     }
                 } else if (fileInfo.url) {
+                    // Файл уже загружен
                     uploadedFiles.push(fileInfo);
                 }
             }
@@ -1379,9 +1284,11 @@ async function sendMessage() {
         }
     }
     
+    // === ИСПРАВЛЕНИЕ: Обновляем сообщение с загруженными файлами ===
     message.files = uploadedFiles;
     message.status = 'sent';
     
+    // === ИСПРАВЛЕНИЕ: Добавляем в локальный кэш ===
     if (!appData.channels[currentChannel]) {
         appData.channels[currentChannel] = {
             id: currentChannel,
@@ -1394,15 +1301,19 @@ async function sendMessage() {
     
     appData.channels[currentChannel].messages.push(message);
     
+    // === ИСПРАВЛЕНИЕ: Обновляем UI немедленно ===
     appendMessage(message);
     
+    // === ИСПРАВЛЕНИЕ: Очищаем поля ===
     input.value = '';
     input.style.height = 'auto';
     clearAttachments();
     cancelReply();
     
+    // === ИСПРАВЛЕНИЕ: Сохраняем в S3 (атомарно) ===
     try {
-        const response = await fetch(API_CONFIG.endpoints.saveMessageAtomic || API_CONFIG.endpoints.saveMessage, {
+        // Используем новый атомарный endpoint
+        const response = await fetch(API_CONFIG.endpoints.saveMessageAtomic, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(message)
@@ -1411,6 +1322,7 @@ async function sendMessage() {
         if (response.ok) {
             const result = await response.json();
             if (result.status === 'success') {
+                // Обновляем статус сообщения
                 updateMessageStatus(messageId, 'delivered');
                 showNotification('Сообщение отправлено', 'success');
             } else {
@@ -1424,15 +1336,124 @@ async function sendMessage() {
         console.error('❌ Ошибка сохранения сообщения:', saveError);
         updateMessageStatus(messageId, 'error');
         showNotification('Сообщение сохранено локально', 'warning');
+        
+        // Пробуем старый метод как запасной вариант
+        try {
+            const fallbackResponse = await fetch(API_CONFIG.endpoints.saveMessage, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(message)
+            });
+            
+            if (fallbackResponse.ok) {
+                updateMessageStatus(messageId, 'delivered');
+            }
+        } catch (fallbackError) {
+            console.error('❌ Ошибка запасного сохранения:', fallbackError);
+        }
     }
     
+    // Прокрутка вниз и звук
     scrollToBottom();
     playSound('send');
     
     console.log('📤 Сообщение отправлено:', message);
 }
 
-// ===== СОЗДАНИЕ ЭЛЕМЕНТА СООБЩЕНИЯ =====
+// Альтернативный метод: отправка с файлами в одной операции
+async function sendMessageWithFiles() {
+    const input = document.getElementById('message-input');
+    const text = input.value.trim();
+    
+    if (text === '' && attachedFiles.length === 0) return;
+    
+    const messageId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    
+    // Создаем FormData для отправки файлов и данных сообщения
+    const formData = new FormData();
+    
+    // Добавляем файлы
+    attachedFiles.forEach((fileInfo, index) => {
+        if (fileInfo.file) {
+            formData.append(`file_${index}`, fileInfo.file);
+            formData.append(`file_${index}_type`, fileInfo.type);
+        }
+    });
+    
+    // Добавляем данные сообщения
+    const messageData = {
+        id: messageId,
+        user_id: currentUserId,
+        user: currentUser,
+        content: text,
+        timestamp: Date.now(),
+        channel: currentChannel,
+        section: currentSection,
+        reply_to: replyMessageId,
+        edited: false,
+        deleted: false
+    };
+    
+    formData.append('message_data', JSON.stringify(messageData));
+    formData.append('user_id', currentUserId);
+    
+    // Создаем временное сообщение для UI
+    const tempMessage = {
+        ...messageData,
+        files: attachedFiles.map(f => ({
+            name: f.name,
+            type: f.type,
+            size: f.size,
+            isLocal: true
+        })),
+        is_local: true,
+        status: 'sending'
+    };
+    
+    // Добавляем в UI
+    if (!appData.channels[currentChannel]) {
+        appData.channels[currentChannel] = {
+            id: currentChannel,
+            name: currentChannel,
+            type: 'public',
+            messages: [],
+            pinned: []
+        };
+    }
+    
+    appData.channels[currentChannel].messages.push(tempMessage);
+    appendMessage(tempMessage);
+    
+    // Очищаем поля
+    input.value = '';
+    input.style.height = 'auto';
+    clearAttachments();
+    cancelReply();
+    
+    // Отправляем на сервер
+    try {
+        const response = await fetch('/api/s3/save-message-with-files', {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            updateMessageStatus(messageId, 'delivered');
+    showNotification('Сообщение отправлено', 'success');
+        } else {
+            throw new Error('Ошибка сохранения');
+        }
+    } catch (error) {
+        console.error('❌ Ошибка отправки:', error);
+            updateMessageStatus(messageId, 'error');
+        showNotification('Ошибка отправки', 'error');
+        }
+    
+    scrollToBottom();
+    playSound('send');
+}
+
 function createMessageElement(message) {
     const isOutgoing = message.user_id == currentUserId;
     const user = usersCache[message.user_id] || message.user || {};
@@ -1444,14 +1465,11 @@ function createMessageElement(message) {
         minute: '2-digit' 
     });
     
-    // Get user avatar
+    // Get user avatar (photo_url from Telegram or fallback to initial)
     const userAvatar = getUserAvatar(user, userColor, userName);
     
     // Check if deleted
     if (message.deleted) {
-        const messageElement = document.createElement('div');
-        messageElement.className = `message ${isOutgoing ? 'outgoing' : 'incoming'}`;
-        messageElement.dataset.messageId = message.id;
         messageElement.innerHTML = `
             <div class="message-avatar">
                 ${userAvatar}
@@ -1494,13 +1512,16 @@ function createMessageElement(message) {
         }
     }
     
-    // Files
+    // Files with lazy loading and previews
     if (message.files && message.files.length > 0) {
         filesHTML = message.files.map(file => {
+            // Handle GIFs (marked as photo but with isGif flag)
             if (file.type === 'photo' || file.type === 'gif' || file.isGif) {
+                // Use preview if available
                 const previewUrl = file.previewDataUrl || file.dataUrl || file.url;
                 const fullUrl = file.url || file.dataUrl;
                 
+                // Convert S3 URL to proxy URL if needed
                 let displayUrl = previewUrl;
                 let fullDisplayUrl = fullUrl;
                 
@@ -1520,7 +1541,8 @@ function createMessageElement(message) {
                              class="message-image lazy-image ${file.isGif ? 'gif-image' : ''}"
                              ${fullDisplayUrl && fullDisplayUrl !== displayUrl ? `data-full-src="${fullDisplayUrl}"` : ''}
                              loading="lazy"
-                             onclick="showImagePreview('${fullDisplayUrl || displayUrl}')">
+                             onclick="showImagePreview('${fullDisplayUrl || displayUrl}')"
+                             onerror="this.onerror=null; this.src='data:image/svg+xml,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'400\\' height=\\'300\\'><rect width=\\'400\\' height=\\'300\\' fill=\\'%23f0f0f0\\'/><text x=\\'200\\' y=\\'150\\' text-anchor=\\'middle\\' fill=\\'%23999\\'>Ошибка загрузки</text></svg>'">
                         ${file.compressed ? '<div class="compression-badge" title="Изображение сжато"><i class="fas fa-compress-alt"></i></div>' : ''}
                         ${file.isGif ? '<div class="gif-badge" title="GIF"><i class="fas fa-film"></i></div>' : ''}
                     </div>
@@ -1545,20 +1567,21 @@ function createMessageElement(message) {
                     </div>
                 `;
             } else if (file.type === 'voice') {
+                // Get audio URL - use blob URL if file not uploaded yet
                 let audioUrl = file.url || '';
                 if (!audioUrl && file.blob) {
                     audioUrl = URL.createObjectURL(file.blob);
                 }
                 
-                return `
-                    <div class="voice-message" data-audio-url="${audioUrl}" data-message-id="${message.id}" data-duration="${file.duration || 0}">
+                const voiceHtml = `
+                    <div class="voice-message" data-audio-url="${audioUrl}" data-message-id="${message.id}" data-duration="${file.duration || 0}" data-file-id="${file.id || ''}">
                         <button class="voice-play-btn">
                             <i class="fas fa-play"></i>
                         </button>
                         <div class="voice-waveform-container">
-                            <div class="voice-waveform">
-                                <div class="voice-progress" style="width: 0%"></div>
-                            </div>
+                        <div class="voice-waveform">
+                            <div class="voice-progress" style="width: 0%"></div>
+                        </div>
                             <div class="voice-current-time">0:00</div>
                         </div>
                         <div class="voice-duration">${formatDuration(file.duration || 0)}</div>
@@ -1573,6 +1596,20 @@ function createMessageElement(message) {
                         ` : ''}
                     </div>
                 `;
+                
+                // Инициализируем перемотку после добавления в DOM
+                requestAnimationFrame(() => {
+                    const messageElement = document.querySelector(`[data-message-id="${message.id}"]`);
+                    if (messageElement) {
+                        const voiceElement = messageElement.querySelector('.voice-message');
+                        if (voiceElement && !voiceElement.dataset.seekInitialized) {
+                            voiceElement.dataset.seekInitialized = 'true';
+                            initVoiceSeek(voiceElement);
+                        }
+                    }
+                });
+                
+                return voiceHtml;
             } else {
                 return `
                     <a href="${file.url || '#'}" class="message-file" 
@@ -1612,7 +1649,7 @@ function createMessageElement(message) {
                 return `
                     <div class="reaction ${hasReacted ? 'user-reacted' : ''}" 
                          data-emoji="${emoji}"
-                         onclick="addReaction('${message.id}', '${emoji}')">
+                         onclick="toggleReaction('${message.id}', '${emoji}')">
                         <span class="reaction-emoji">${emoji}</span>
                         <span class="reaction-count">${count}</span>
                     </div>
@@ -1623,7 +1660,7 @@ function createMessageElement(message) {
         reactionsHTML = `<div class="message-reactions">${reactions}</div>`;
     }
     
-    // Status
+    // Status (for outgoing messages)
     let statusHTML = '';
     if (isOutgoing) {
         let statusIcon = 'fa-check';
@@ -1654,6 +1691,7 @@ function createMessageElement(message) {
     messageElement.className = `message ${isOutgoing ? 'outgoing' : 'incoming'}`;
     messageElement.dataset.messageId = message.id;
     
+    // Assemble message
     messageElement.innerHTML = `
         ${!isOutgoing ? `
             <div class="message-avatar">
@@ -1687,7 +1725,115 @@ function createMessageElement(message) {
         }
     });
     
+    // Add reaction click handler
+    const reactionArea = messageElement.querySelector('.message-reactions');
+    if (reactionArea) {
+        reactionArea.addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (e.target.closest('.reaction')) {
+                const reaction = e.target.closest('.reaction').dataset.emoji;
+                toggleReaction(message.id, reaction);
+            }
+        });
+    }
+    
+    // Добавляем кнопку реакций при наведении
+    addReactionButtonToMessage(messageElement, message.id);
+    
     return messageElement;
+}
+
+// Добавление кнопки реакций (показывается при клике на сообщение)
+function addReactionButtonToMessage(messageElement, messageId) {
+    // Проверяем, не добавлена ли уже кнопка
+    if (messageElement.querySelector('.message-reaction-btn')) return;
+    
+    const reactionBtn = document.createElement('button');
+    reactionBtn.className = 'message-reaction-btn';
+    reactionBtn.innerHTML = '<i class="far fa-smile"></i>';
+    reactionBtn.title = 'Добавить реакцию';
+    reactionBtn.style.display = 'none';
+    reactionBtn.onclick = (e) => {
+        e.stopPropagation();
+        showQuickReactionsMenu(messageId, reactionBtn);
+    };
+    
+    messageElement.appendChild(reactionBtn);
+    
+    // Показываем кнопку при клике на сообщение (не на реакциях или других элементах)
+    let clickTimeout = null;
+    messageElement.addEventListener('click', function(e) {
+        // Игнорируем клики на реакциях, кнопках, ссылках
+        if (e.target.closest('.reaction') || 
+            e.target.closest('button') || 
+            e.target.closest('a') ||
+            e.target.closest('.voice-message') ||
+            e.target.closest('.message-media')) {
+            return;
+        }
+        
+        // Показываем кнопку реакций
+        const rect = messageElement.getBoundingClientRect();
+        reactionBtn.style.left = `${rect.right + 8}px`;
+        reactionBtn.style.top = `${rect.top + rect.height / 2 - 16}px`;
+        reactionBtn.style.display = 'flex';
+        reactionBtn.style.opacity = '1';
+        
+        // Скрываем через 3 секунды или при клике вне сообщения
+        clearTimeout(clickTimeout);
+        clickTimeout = setTimeout(() => {
+            reactionBtn.style.opacity = '0';
+            setTimeout(() => {
+                reactionBtn.style.display = 'none';
+            }, 200);
+        }, 3000);
+    });
+    
+    // Скрываем при клике вне сообщения
+    document.addEventListener('click', function hideReactionBtn(e) {
+        if (!messageElement.contains(e.target) && !reactionBtn.contains(e.target)) {
+            reactionBtn.style.opacity = '0';
+            setTimeout(() => {
+                reactionBtn.style.display = 'none';
+            }, 200);
+        }
+    });
+}
+
+// Показать меню быстрых реакций
+function showQuickReactionsMenu(messageId, button) {
+    const menu = document.getElementById('quick-reactions-menu');
+    if (!menu) return;
+    
+    const rect = button.getBoundingClientRect();
+    menu.style.left = `${rect.left - 150}px`;
+    menu.style.top = `${rect.top - 50}px`;
+    menu.style.display = 'flex';
+    menu.dataset.messageId = messageId;
+    
+    // Закрыть при клике вне меню
+    setTimeout(() => {
+        const closeMenu = (e) => {
+            if (!menu.contains(e.target) && !button.contains(e.target)) {
+                menu.style.display = 'none';
+                document.removeEventListener('click', closeMenu);
+            }
+        };
+        document.addEventListener('click', closeMenu);
+    }, 10);
+}
+
+// Добавить быструю реакцию
+function addQuickReaction(emoji) {
+    const menu = document.getElementById('quick-reactions-menu');
+    if (!menu) return;
+    
+    const messageId = menu.dataset.messageId;
+    if (messageId) {
+        toggleReaction(messageId, emoji);
+    }
+    
+    menu.style.display = 'none';
 }
 
 function appendMessage(message) {
@@ -1700,22 +1846,958 @@ function appendMessage(message) {
     const messageElement = createMessageElement(message);
     container.appendChild(messageElement);
     
+    // Scroll to bottom if user is near bottom
     scrollToBottomIfNeeded();
 }
 
-// ===== ГОЛОСОВЫЕ СООБЩЕНИЯ =====
+function updateMessageElement(message) {
+    const messageElement = document.querySelector(`[data-message-id="${message.id}"]`);
+    if (messageElement) {
+        const newElement = createMessageElement(message);
+        messageElement.replaceWith(newElement);
+    }
+}
+
+function updateMessageStatus(messageId, status) {
+    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (!messageElement) return;
+    
+    const statusIcon = messageElement.querySelector('.message-status i');
+    if (statusIcon) {
+        switch(status) {
+            case 'sending':
+                statusIcon.className = 'fas fa-clock';
+                break;
+            case 'sent':
+                statusIcon.className = 'fas fa-check';
+                break;
+            case 'delivered':
+                statusIcon.className = 'fas fa-check-double';
+                break;
+            case 'read':
+                statusIcon.className = 'fas fa-check-double text-primary';
+                break;
+            case 'error':
+                statusIcon.className = 'fas fa-exclamation-circle text-error';
+                break;
+        }
+    }
+}
+
+// ===== FILE ATTACHMENTS WITH COMPRESSION =====
+function toggleAttachMenu() {
+    const menu = document.getElementById('attach-menu');
+    if (!menu) return;
+    
+    if (menu.style.display === 'none' || !menu.style.display) {
+        menu.style.display = 'flex';
+        
+        // Add click handlers
+        const attachItems = menu.querySelectorAll('.attach-item');
+        attachItems.forEach(item => {
+            item.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const type = this.dataset.type;
+                handleAttachment(type);
+                menu.style.display = 'none';
+            });
+        });
+        
+        // Close on outside click
+        setTimeout(() => {
+            document.addEventListener('click', function closeMenu(e) {
+                if (!menu.contains(e.target) && e.target.id !== 'btn-attach') {
+                    menu.style.display = 'none';
+                    document.removeEventListener('click', closeMenu);
+                }
+            });
+        }, 10);
+    } else {
+        menu.style.display = 'none';
+    }
+}
+
+function handleAttachment(type) {
+    switch(type) {
+        case 'photo':
+            attachPhoto();
+            break;
+        case 'file':
+            attachFile();
+            break;
+        case 'voice':
+            startVoiceRecording();
+            break;
+        case 'poll':
+            createPoll();
+            break;
+        case 'sticker':
+            showStickerPicker();
+            break;
+        case 'gif':
+            showGifPicker();
+            break;
+        case 'avatar':
+            createAvatar();
+            break;
+    }
+}
+
+function createAvatar() {
+    // Create canvas for avatar
+    const canvas = document.createElement('canvas');
+    canvas.width = 200;
+    canvas.height = 200;
+    const ctx = canvas.getContext('2d');
+    
+    // Get user color
+    const userColor = stringToColor(currentUserId);
+    const userName = currentUser.first_name || 'User';
+    const initial = userName.charAt(0).toUpperCase();
+    
+    // Draw circle background
+    ctx.fillStyle = userColor;
+    ctx.beginPath();
+    ctx.arc(100, 100, 100, 0, 2 * Math.PI);
+    ctx.fill();
+    
+    // Draw initial
+    ctx.fillStyle = 'white';
+    ctx.font = 'bold 80px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(initial, 100, 100);
+    
+    // Convert to blob
+    canvas.toBlob((blob) => {
+        if (!blob) {
+            showNotification('Ошибка создания аватара', 'error');
+            return;
+        }
+        
+        // Create file info
+        const fileInfo = {
+            id: 'avatar_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+            type: 'photo',
+            file: new File([blob], `avatar_${currentUserId}.png`, { type: 'image/png' }),
+            name: `avatar_${currentUserId}.png`,
+            size: blob.size,
+            isLocal: true,
+            blob: blob,
+            previewDataUrl: canvas.toDataURL('image/png'),
+            dataUrl: canvas.toDataURL('image/png')
+        };
+        
+        attachedFiles.push(fileInfo);
+        showFilePreview(fileInfo);
+        
+        // Close attach menu
+        const menu = document.getElementById('attach-menu');
+        if (menu) menu.style.display = 'none';
+        
+        // Enable send button
+        const sendBtn = document.getElementById('btn-send');
+        if (sendBtn) sendBtn.disabled = false;
+        
+        showNotification('Аватар создан', 'success');
+    }, 'image/png', 1.0);
+}
+
+// ===== STICKERS & GIFS =====
+async function showStickerPicker() {
+    const modal = document.getElementById('sticker-picker-modal');
+    if (!modal) return;
+    
+    showModal('sticker-picker-modal');
+    
+    // Load stickers from Telegram Bot API
+    await loadTelegramStickers();
+}
+
+async function loadTelegramStickers() {
+    const stickerSets = document.getElementById('sticker-sets');
+    if (!stickerSets) return;
+    
+    stickerSets.innerHTML = '<div class="loading-stickers">Загрузка стикеров...</div>';
+    
+    try {
+        // Try to get stickers via Telegram WebApp API
+        if (tg && tg.initDataUnsafe) {
+            // Use Telegram Bot API to get sticker sets
+            const response = await fetch('/api/telegram/get-sticker-sets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_id: currentUserId
+                })
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.status === 'success' && data.sticker_sets) {
+                    displayStickerSets(data.sticker_sets);
+                    return;
+                }
+            }
+        }
+        
+        // Fallback: show popular sticker sets
+        displayStickerSets([]);
+    } catch (error) {
+        console.error('Ошибка загрузки стикеров:', error);
+        stickerSets.innerHTML = '<div class="error-message">Не удалось загрузить стикеры</div>';
+    }
+}
+
+function displayStickerSets(stickerSets) {
+    const container = document.getElementById('sticker-sets');
+    if (!container) return;
+    
+    if (stickerSets.length === 0) {
+        // Show default sticker sets
+        container.innerHTML = `
+            <div class="sticker-set">
+                <div class="sticker-set-title">Популярные стикеры</div>
+                <div class="sticker-grid">
+                    <div class="sticker-item" onclick="selectSticker('https://telegram.org/img/t_logo.png')">
+                        <img src="https://telegram.org/img/t_logo.png" alt="Telegram">
+                    </div>
+                </div>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = stickerSets.map(set => `
+        <div class="sticker-set">
+            <div class="sticker-set-title">${set.title || set.name}</div>
+            <div class="sticker-grid">
+                ${set.stickers.map(sticker => `
+                    <div class="sticker-item" onclick="selectSticker('${sticker.file_url || sticker.url}')">
+                        <img src="${sticker.thumb_url || sticker.file_url || sticker.url}" alt="Sticker">
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `).join('');
+}
+
+function selectSticker(stickerUrl) {
+    // Add sticker as attachment
+    const stickerInfo = {
+        id: 'sticker_' + Date.now(),
+        type: 'sticker',
+        url: stickerUrl,
+        name: 'Стикер',
+        isLocal: false,
+        uploaded: true
+    };
+    
+    attachedFiles.push(stickerInfo);
+    showFilePreview(stickerInfo);
+    
+    // Close modal
+    closeModal('sticker-picker-modal');
+    
+    // Enable send button
+    document.getElementById('btn-send').disabled = false;
+}
+
+async function showGifPicker() {
+    const modal = document.getElementById('gif-picker-modal');
+    if (!modal) return;
+    
+    showModal('gif-picker-modal');
+    
+    // Load popular GIFs
+    await loadGifs();
+}
+
+async function loadGifs(query = '') {
+    const gifGrid = document.getElementById('gif-grid');
+    if (!gifGrid) return;
+    
+    gifGrid.innerHTML = '<div class="loading-gifs">Загрузка GIF...</div>';
+    
+    try {
+        // Use Giphy API or similar service
+        const url = query 
+            ? `/api/gifs/search?q=${encodeURIComponent(query)}`
+            : '/api/gifs/trending';
+        
+        const response = await fetch(url);
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success' && data.gifs) {
+                displayGifs(data.gifs);
+                return;
+            }
+        }
+        
+        // Fallback: show placeholder GIFs
+        displayGifs([]);
+    } catch (error) {
+        console.error('Ошибка загрузки GIF:', error);
+        gifGrid.innerHTML = '<div class="error-message">Не удалось загрузить GIF</div>';
+    }
+}
+
+function displayGifs(gifs) {
+    const container = document.getElementById('gif-grid');
+    if (!container) return;
+    
+    // Default popular GIFs if no results
+    const defaultGifs = [
+        'https://media.giphy.com/media/3o7aCTPPm4OHfRLSH6/giphy.gif',
+        'https://media.giphy.com/media/l0MYC0LajaoPoHABu/giphy.gif',
+        'https://media.giphy.com/media/26BRuo6sLetdllPAQ/giphy.gif',
+        'https://media.giphy.com/media/3o7aD2saal8xXDlR84/giphy.gif',
+        'https://media.giphy.com/media/l0HlBO7eyXzSZkJri/giphy.gif',
+        'https://media.giphy.com/media/3o7abldet0lR2kf3Ow/giphy.gif',
+        'https://media.giphy.com/media/26BRv0ThflsHCqDrG/giphy.gif',
+        'https://media.giphy.com/media/l0HlNQ03J5JxX6lva/giphy.gif'
+    ];
+    
+    if (gifs.length === 0) {
+        container.innerHTML = defaultGifs.map(gifUrl => `
+            <div class="gif-item" onclick="selectGif('${gifUrl}')">
+                <img src="${gifUrl}" alt="GIF" loading="lazy">
+            </div>
+        `).join('');
+        return;
+    }
+    
+    container.innerHTML = gifs.map(gif => `
+        <div class="gif-item" onclick="selectGif('${gif.url || gif.images?.original?.url}')">
+            <img src="${gif.thumb_url || gif.images?.preview?.url || gif.url}" alt="GIF" loading="lazy">
+        </div>
+    `).join('');
+}
+
+function selectGif(gifUrl) {
+    // Add GIF as attachment - treat as photo to ensure it's saved
+    const gifInfo = {
+        id: 'gif_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+        type: 'photo',
+        url: gifUrl,
+        name: 'GIF',
+        size: 0,
+        isLocal: false,
+        uploaded: true,
+        isGif: true
+    };
+    
+    attachedFiles.push(gifInfo);
+    showFilePreview(gifInfo);
+    
+    // Close modal
+    closeModal('gif-picker-modal');
+    
+    // Enable send button
+    document.getElementById('btn-send').disabled = false;
+}
+
+// Make functions global
+window.selectSticker = selectSticker;
+window.selectGif = selectGif;
+
+// ===== MIRROR CONSTRUCTOR =====
+function showMirrorConstructor() {
+    const modal = document.getElementById('mirror-constructor-modal');
+    const overlay = document.getElementById('overlay');
+    
+    if (modal) {
+        modal.style.display = 'flex';
+        if (overlay) overlay.style.display = 'block';
+        
+        // Close on overlay click
+        const closeOnOverlay = (e) => {
+            if (e.target === overlay || e.target === modal) {
+                closeMirrorConstructor();
+                overlay.removeEventListener('click', closeOnOverlay);
+            }
+        };
+        overlay.addEventListener('click', closeOnOverlay);
+        
+        // Close on ESC key
+        const closeOnEsc = (e) => {
+            if (e.key === 'Escape') {
+                closeMirrorConstructor();
+                document.removeEventListener('keydown', closeOnEsc);
+            }
+        };
+        document.addEventListener('keydown', closeOnEsc);
+    }
+}
+
+function closeMirrorConstructor() {
+    const modal = document.getElementById('mirror-constructor-modal');
+    const overlay = document.getElementById('overlay');
+    
+    if (modal) modal.style.display = 'none';
+    if (overlay) overlay.style.display = 'none';
+}
+
+async function createMirror() {
+    const name = document.getElementById('mirror-name')?.value.trim();
+    const token = document.getElementById('mirror-token')?.value.trim();
+    const domain = document.getElementById('mirror-domain')?.value.trim() || window.location.origin;
+    const isPublic = document.getElementById('mirror-public')?.checked || false;
+    
+    if (!name || !token) {
+        showNotification('Заполните все обязательные поля', 'error');
+        return;
+    }
+    
+    // Validate token format (basic check)
+    if (!token.match(/^\d+:[A-Za-z0-9_-]+$/)) {
+        showNotification('Неверный формат токена', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/mirrors/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: name,
+                token: token,
+                domain: domain,
+                public: isPublic,
+                created_by: currentUserId
+            })
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success') {
+                showNotification('Зеркало успешно создано!', 'success');
+                
+                // Close modal
+                const modal = document.getElementById('mirror-constructor-modal');
+                if (modal) modal.style.display = 'none';
+                
+                // Reset form
+                document.getElementById('mirror-name').value = '';
+                document.getElementById('mirror-token').value = '';
+                document.getElementById('mirror-domain').value = '';
+                document.getElementById('mirror-public').checked = false;
+                
+                // Show mirror URL
+                if (data.mirror_url) {
+                    showNotification(`Зеркало доступно по адресу: ${data.mirror_url}`, 'info');
+                }
+            } else {
+                showNotification(data.message || 'Ошибка создания зеркала', 'error');
+            }
+        } else {
+            showNotification('Ошибка создания зеркала', 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка создания зеркала:', error);
+        showNotification('Ошибка создания зеркала', 'error');
+    }
+}
+
+function attachPhoto() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.capture = 'environment';
+    input.multiple = true;
+    
+    input.onchange = async (e) => {
+        const files = Array.from(e.target.files);
+        for (const file of files) {
+            await processAttachment(file);
+        }
+    };
+    
+    input.click();
+}
+
+function attachFile() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    
+    input.onchange = async (e) => {
+        const files = Array.from(e.target.files);
+        for (const file of files) {
+            await processAttachment(file);
+        }
+    };
+    
+    input.click();
+}
+
+async function processAttachment(file) {
+    try {
+        // Check file size
+        let maxSize = API_CONFIG.maxFileSize;
+        if (file.type.startsWith('video/')) {
+            maxSize = API_CONFIG.maxVideoSize;
+        }
+        
+        if (file.size > maxSize) {
+            showNotification(`Файл слишком большой. Максимум: ${formatFileSize(maxSize)}`, 'error');
+            return;
+        }
+        
+        // Determine type
+        let type = 'file';
+        if (file.type.startsWith('image/')) {
+            type = 'photo';
+        } else if (file.type.startsWith('video/')) {
+            type = 'video';
+        } else if (file.type.startsWith('audio/')) {
+            type = 'audio';
+        }
+        
+        let fileInfo = {
+            id: 'file_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+            file: file,
+            name: file.name,
+            type: type,
+            size: file.size,
+            mimeType: file.type,
+            isLocal: true,
+            uploaded: false
+        };
+        
+        // Apply compression and create previews
+        if (type === 'photo') {
+            // Show compression in progress
+            showUploadProgress(true, 'Сжатие изображения...');
+            
+            // Compress image (uses default: quality 0.7, maxWidth 1600)
+            const compressed = await compressImage(file);
+            fileInfo.compressedBlob = compressed.blob;
+            fileInfo.compressed = true;
+            fileInfo.originalSize = compressed.originalSize;
+            fileInfo.size = compressed.size;
+            
+            // Create preview
+            const preview = await createImagePreview(file, 400, 0.6);
+            fileInfo.previewDataUrl = preview.dataUrl;
+            fileInfo.dataUrl = compressed.dataUrl;
+            
+            // Hide progress
+            showUploadProgress(false);
+            
+            console.log(`🖼️ Изображение сжато: ${formatFileSize(fileInfo.originalSize)} → ${formatFileSize(fileInfo.size)} (${Math.round((1 - fileInfo.size / fileInfo.originalSize) * 100)}% меньше)`);
+            
+        } else if (type === 'video') {
+            // Show compression in progress
+            showUploadProgress(true, 'Обработка видео...');
+            
+            // Get video metadata and compress if possible
+            const compressionOptions = await compressVideo(file);
+            fileInfo.compressionOptions = compressionOptions;
+            fileInfo.duration = compressionOptions.duration;
+            
+            // Use compressed blob if available
+            if (compressionOptions.compressed && compressionOptions.compressedBlob) {
+                fileInfo.compressedBlob = compressionOptions.compressedBlob;
+                fileInfo.compressed = true;
+                fileInfo.originalSize = compressionOptions.originalSize;
+                fileInfo.size = compressionOptions.size;
+                console.log(`🎥 Видео сжато: ${formatFileSize(fileInfo.originalSize)} → ${formatFileSize(fileInfo.size)} (${Math.round((1 - fileInfo.size / fileInfo.originalSize) * 100)}% меньше)`);
+            }
+            
+            // Create video preview
+            const preview = await createVideoPreview(file, 400);
+            fileInfo.previewDataUrl = preview.dataUrl;
+            fileInfo.thumbnail = preview.dataUrl;
+            fileInfo.duration = preview.duration;
+            
+            // Create data URL for preview
+            fileInfo.dataUrl = URL.createObjectURL(file);
+            
+            // Hide progress
+            showUploadProgress(false);
+            
+            if (compressionOptions.compressed) {
+                console.log(`🎥 Видео сжато до: ${compressionOptions.targetWidth}x${compressionOptions.targetHeight}`);
+            } else {
+                console.log(`🎥 Видео будет сжато до: ${compressionOptions.targetWidth}x${compressionOptions.targetHeight} (требуется серверная обработка)`);
+            }
+            
+        } else {
+            // For other files, just create data URL
+            fileInfo.dataUrl = await fileToDataURL(file);
+        }
+        
+        // Add to attachments
+        attachedFiles.push(fileInfo);
+        
+        // Show preview
+        showFilePreview(fileInfo);
+        
+        // Enable send button
+        document.getElementById('btn-send').disabled = false;
+        
+        showNotification('Файл прикреплен', 'success');
+        
+    } catch (error) {
+        console.error('Ошибка обработки файла:', error);
+        showNotification('Ошибка прикрепления файла', 'error');
+        showUploadProgress(false);
+    }
+}
+
+function fileToDataURL(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+function showFilePreview(fileInfo) {
+    const container = document.getElementById('file-preview-container');
+    if (!container) {
+        // Create container if it doesn't exist
+        const previewDiv = document.createElement('div');
+        previewDiv.className = 'file-preview';
+        previewDiv.id = 'file-preview';
+        previewDiv.innerHTML = `
+            <div id="file-preview-container"></div>
+            <div class="file-preview-actions">
+                <button class="btn-admin-action danger" id="btn-cancel-files">Отмена</button>
+                <button class="btn-admin-action primary" id="btn-send-files">Отправить</button>
+            </div>
+        `;
+        
+        const inputArea = document.querySelector('.input-area');
+        if (inputArea) {
+            inputArea.insertBefore(previewDiv, inputArea.firstChild);
+        }
+        
+        // Add event listeners
+        const btnCancelFiles = document.getElementById('btn-cancel-files');
+        const btnSendFiles = document.getElementById('btn-send-files');
+        
+        if (btnCancelFiles) btnCancelFiles.addEventListener('click', clearAttachments);
+        if (btnSendFiles) btnSendFiles.addEventListener('click', sendMessage);
+    }
+    
+    const previewContainer = document.getElementById('file-preview-container');
+    if (!previewContainer) return;
+    
+    const preview = document.createElement('div');
+    preview.className = 'file-preview-item';
+    preview.dataset.fileId = fileInfo.id;
+    
+    let previewContent = '';
+    let compressionBadge = '';
+    
+    if (fileInfo.type === 'photo') {
+        if (fileInfo.compressed) {
+            compressionBadge = `<div class="compression-badge-preview" title="Изображение будет сжато"><i class="fas fa-compress-alt"></i> ${Math.round((1 - fileInfo.size / fileInfo.originalSize) * 100)}%</div>`;
+        }
+        previewContent = `
+            <img src="${fileInfo.previewDataUrl || fileInfo.dataUrl}" 
+                 alt="${escapeHtml(fileInfo.name)}" 
+                 class="file-preview-image"
+                 loading="lazy">
+            ${compressionBadge}
+        `;
+    } else if (fileInfo.type === 'video') {
+        if (fileInfo.compressionOptions) {
+            compressionBadge = `<div class="compression-badge-preview" title="Видео будет сжато"><i class="fas fa-compress-alt"></i> ${fileInfo.compressionOptions.targetWidth}px</div>`;
+        }
+        previewContent = `
+            <div class="file-preview-video">
+                <video src="${fileInfo.dataUrl}" 
+                       controls 
+                       poster="${fileInfo.previewDataUrl || ''}"
+                       preload="metadata"></video>
+                ${compressionBadge}
+            </div>
+        `;
+    } else {
+        previewContent = `
+            <div class="file-preview-document">
+                <i class="fas fa-file"></i>
+                <span>${escapeHtml(fileInfo.name)}</span>
+            </div>
+        `;
+    }
+    
+    const sizeInfo = fileInfo.compressed ? 
+        `<span class="file-size-compressed">${formatFileSize(fileInfo.originalSize)} → ${formatFileSize(fileInfo.size)}</span>` :
+        `<span class="file-size">${formatFileSize(fileInfo.size)}</span>`;
+    
+    preview.innerHTML = `
+        <div class="file-preview-header">
+            <i class="fas fa-${fileInfo.type === 'photo' ? 'image' : 'file'}"></i>
+            <span class="file-name">${escapeHtml(fileInfo.name)}</span>
+            <button class="btn-remove-file" onclick="removeAttachment('${fileInfo.id}')">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="file-preview-content">
+            ${previewContent}
+        </div>
+        <div class="file-preview-footer">
+            ${sizeInfo}
+        </div>
+    `;
+    
+    previewContainer.appendChild(preview);
+    
+    // Show preview container
+    document.getElementById('file-preview').style.display = 'block';
+}
+
+function removeAttachment(fileId) {
+    const fileInfo = attachedFiles.find(file => file.id === fileId);
+    if (fileInfo) {
+        // Clean up object URLs
+        if (fileInfo.dataUrl && fileInfo.dataUrl.startsWith('blob:')) {
+            URL.revokeObjectURL(fileInfo.dataUrl);
+        }
+    }
+    
+    attachedFiles = attachedFiles.filter(file => file.id !== fileId);
+    
+    // Remove preview
+    const preview = document.querySelector(`[data-file-id="${fileId}"]`);
+    if (preview) preview.remove();
+    
+    // Hide preview container if no files
+    if (attachedFiles.length === 0) {
+        const previewContainer = document.getElementById('file-preview');
+        if (previewContainer) previewContainer.style.display = 'none';
+    }
+}
+
+function clearAttachments() {
+    attachedFiles.forEach(file => {
+        if (file.dataUrl && file.dataUrl.startsWith('blob:')) {
+            URL.revokeObjectURL(file.dataUrl);
+        }
+    });
+    
+    attachedFiles = [];
+    
+    const previewContainer = document.getElementById('file-preview');
+    if (previewContainer) {
+        previewContainer.style.display = 'none';
+        const container = document.getElementById('file-preview-container');
+        if (container) container.innerHTML = '';
+    }
+    
+    document.getElementById('btn-send').disabled = 
+        document.getElementById('message-input').value.trim() === '';
+}
+
+// ===== VOICE RECORDING =====
+async function startVoiceRecording() {
+    try {
+        // Check if in Telegram WebApp - use Telegram's voice recording
+        if (tg && tg.openVoiceRecording) {
+            try {
+                tg.openVoiceRecording();
+                return;
+            } catch (error) {
+                console.log('Telegram voice recording not available, using fallback');
+            }
+        }
+        
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            showNotification('Запись голоса не поддерживается в вашем браузере', 'error');
+            return;
+        }
+        
+        // Stop any ongoing recording
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
+            mediaRecorder.stop();
+            return;
+        }
+        
+        // Request microphone permission with better compatibility
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+                sampleRate: 44100
+            } 
+        });
+        
+        // Try different MIME types for better compatibility
+        let mimeType = 'audio/webm;codecs=opus';
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = 'audio/webm';
+            if (!MediaRecorder.isTypeSupported(mimeType)) {
+                mimeType = 'audio/ogg;codecs=opus';
+                if (!MediaRecorder.isTypeSupported(mimeType)) {
+                    mimeType = ''; // Use default
+                }
+            }
+        }
+        
+        // Initialize MediaRecorder
+        const options = mimeType ? { mimeType: mimeType, audioBitsPerSecond: 128000 } : { audioBitsPerSecond: 128000 };
+        mediaRecorder = new MediaRecorder(stream, options);
+        
+        audioChunks = [];
+        
+        // Handle data available
+        mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+                audioChunks.push(event.data);
+            }
+        };
+        
+        // Handle recording stop
+        mediaRecorder.onstop = async () => {
+            const audioBlob = new Blob(audioChunks, { type: mimeType || 'audio/webm' });
+            
+            // Calculate duration
+            const duration = recordingStartTime ? Math.round((Date.now() - recordingStartTime) / 1000) : 0;
+            
+            // Create voice message
+            const voiceInfo = {
+                id: 'voice_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+                blob: audioBlob,
+                file: audioBlob, // Add file property for upload
+                name: 'Голосовое сообщение',
+                type: 'voice',
+                size: audioBlob.size,
+                mimeType: mimeType || 'audio/webm',
+                duration: duration,
+                isLocal: true,
+                uploaded: false
+            };
+            
+            // Add to attachments
+            attachedFiles.push(voiceInfo);
+            
+            // Show preview
+            showFilePreview(voiceInfo);
+            
+            // Enable send button
+            document.getElementById('btn-send').disabled = false;
+            
+            // Stop tracks
+            stream.getTracks().forEach(track => track.stop());
+            
+            // Hide recorder UI
+            hideVoiceRecorder();
+            
+            // Reset timer
+            clearInterval(recordingTimer);
+            recordingTimer = null;
+            
+            showNotification('Голосовое сообщение записано', 'success');
+        };
+        
+        // Start recording
+        mediaRecorder.start(100); // Collect data every 100ms
+        recordingStartTime = Date.now();
+        
+        // Show recorder UI
+        showVoiceRecorder();
+        
+        // Start timer
+        startRecordingTimer();
+        
+        // Auto-stop after 1 minute
+        setTimeout(() => {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+            }
+        }, 60000);
+        
+    } catch (error) {
+        console.error('Ошибка записи голоса:', error);
+        showNotification('Ошибка доступа к микрофону', 'error');
+    }
+}
+
+function showVoiceRecorder() {
+    const voiceRecorder = document.getElementById('voice-recorder');
+    const inputArea = document.getElementById('input-area');
+    
+    if (voiceRecorder && inputArea) {
+        voiceRecorder.style.display = 'block';
+        inputArea.style.paddingBottom = '200px';
+    }
+}
+
+function hideVoiceRecorder() {
+    const voiceRecorder = document.getElementById('voice-recorder');
+    const inputArea = document.getElementById('input-area');
+    
+    if (voiceRecorder && inputArea) {
+        voiceRecorder.style.display = 'none';
+        inputArea.style.paddingBottom = '';
+    }
+}
+
+function startRecordingTimer() {
+    const timerElement = document.getElementById('recording-timer');
+    if (!timerElement) return;
+    
+    recordingTimer = setInterval(() => {
+        if (!recordingStartTime) return;
+        const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+        const minutes = Math.floor(elapsed / 60);
+        const seconds = elapsed % 60;
+        timerElement.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    }, 1000);
+}
+
+function stopVoiceRecording() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+    }
+}
+
+function cancelVoiceRecording() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+        mediaRecorder = null;
+        audioChunks = [];
+        
+        // Hide recorder
+        hideVoiceRecorder();
+        
+        // Reset timer
+        clearInterval(recordingTimer);
+        recordingTimer = null;
+        
+        showNotification('Запись отменена', 'info');
+    }
+}
+
+async function sendVoiceMessage() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+    }
+}
+
+// Глобальный объект для хранения активных аудио плееров
+let activeVoicePlayers = {};
+
 function playVoiceMessage(url, element) {
     const messageId = element.dataset.messageId;
     
+    // Если уже есть активный плеер для этого сообщения, используем его
     if (activeVoicePlayers[messageId]) {
         const audio = activeVoicePlayers[messageId].audio;
-        const playButton = element.querySelector('.voice-play-btn i');
-        const progressBar = element.querySelector('.voice-progress');
+    const playButton = element.querySelector('.voice-play-btn i');
+    const progressBar = element.querySelector('.voice-progress');
         const currentTimeEl = element.querySelector('.voice-current-time');
     
         if (audio.paused) {
             audio.play();
-            playButton.className = 'fas fa-pause';
+    playButton.className = 'fas fa-pause';
         } else {
             audio.pause();
             playButton.className = 'fas fa-play';
@@ -1723,14 +2805,17 @@ function playVoiceMessage(url, element) {
         return;
     }
     
+    // Проверяем URL
     if (!url || url === '') {
         console.error('❌ URL голосового сообщения пустой');
         showNotification('Ошибка: URL голосового сообщения не найден', 'error');
         return;
     }
     
+    // Создаем новый аудио плеер
     const audio = new Audio();
     
+    // Устанавливаем crossOrigin только для внешних URL (не blob)
     if (!url.startsWith('blob:')) {
         audio.crossOrigin = 'anonymous';
     }
@@ -1742,6 +2827,7 @@ function playVoiceMessage(url, element) {
     const currentTimeEl = element.querySelector('.voice-current-time');
     const duration = parseFloat(element.dataset.duration) || 0;
     
+    // Обработка ошибок загрузки
     audio.addEventListener('error', (e) => {
         console.error('❌ Ошибка загрузки аудио:', e, url);
         const error = audio.error;
@@ -1768,26 +2854,68 @@ function playVoiceMessage(url, element) {
         if (playButton) playButton.className = 'fas fa-play';
     });
     
+    // Обработка загрузки метаданных
+    audio.addEventListener('loadedmetadata', () => {
+        console.log('✅ Метаданные аудио загружены:', audio.duration);
+    });
+    
+    // Обработка начала загрузки
+    audio.addEventListener('loadstart', () => {
+        console.log('🔄 Начало загрузки аудио:', url);
+        if (playButton) playButton.className = 'fas fa-spinner fa-spin';
+    });
+    
+    // Обработка готовности к воспроизведению
+    audio.addEventListener('canplay', () => {
+        console.log('✅ Аудио готово к воспроизведению');
+        if (playButton) playButton.className = 'fas fa-pause';
+    });
+    
+    // Устанавливаем URL после настройки обработчиков
     let audioUrl = url;
     
+    // Convert S3 URL to proxy URL if needed
     if (audioUrl.includes('/telegram-chat-files/')) {
         const filepath = audioUrl.split('/telegram-chat-files/')[1];
         audioUrl = `/api/s3/audio/${filepath}`;
         audio.crossOrigin = null;
+        console.log('🎵 Воспроизведение через прокси:', audioUrl);
     } else if (audioUrl.includes('telegram-chat-files')) {
         const filepath = audioUrl.split('telegram-chat-files/')[1];
         audioUrl = `/api/s3/audio/${filepath}`;
         audio.crossOrigin = null;
+        console.log('🎵 Воспроизведение через прокси:', audioUrl);
     } else if (audioUrl.startsWith('blob:')) {
         audio.crossOrigin = null;
+        console.log('🎵 Воспроизведение blob:', audioUrl);
     } else if (audioUrl.startsWith('/api/')) {
         audio.crossOrigin = null;
+        console.log('🎵 Воспроизведение через прокси:', audioUrl);
     } else if (!audioUrl.startsWith('http')) {
         audioUrl = audioUrl.startsWith('/') ? window.location.origin + audioUrl : window.location.origin + '/' + audioUrl;
+        console.log('🎵 Воспроизведение локального файла:', audioUrl);
+    } else {
+        console.log('🎵 Воспроизведение внешнего URL:', audioUrl);
     }
     
     audio.src = audioUrl;
     
+    // Проверка доступности файла
+    fetch(audioUrl, { method: 'HEAD' })
+        .then(response => {
+            if (!response.ok) {
+                console.error('❌ Файл недоступен:', response.status, audioUrl);
+                showNotification('Файл недоступен для воспроизведения', 'error');
+                if (playButton) playButton.className = 'fas fa-play';
+            } else {
+                console.log('✅ Файл доступен, Content-Type:', response.headers.get('Content-Type'));
+            }
+        })
+        .catch(err => {
+            console.error('❌ Ошибка проверки файла:', err);
+        });
+    
+    // Останавливаем все другие плееры
     Object.values(activeVoicePlayers).forEach(player => {
         if (player.audio && !player.audio.paused) {
             player.audio.pause();
@@ -1800,8 +2928,10 @@ function playVoiceMessage(url, element) {
         }
     });
     
+    // Сохраняем плеер
     activeVoicePlayers[messageId] = { audio, element };
     
+    // Обновление прогресса
     audio.addEventListener('timeupdate', () => {
         const progress = audio.duration && !isNaN(audio.duration) ? (audio.currentTime / audio.duration) * 100 : 0;
         if (progressBar) {
@@ -1812,6 +2942,7 @@ function playVoiceMessage(url, element) {
         }
     });
     
+    // Обработка окончания
     audio.addEventListener('ended', () => {
         if (playButton) playButton.className = 'fas fa-play';
         if (progressBar) {
@@ -1823,14 +2954,17 @@ function playVoiceMessage(url, element) {
         delete activeVoicePlayers[messageId];
     });
     
+    // Обработка паузы
     audio.addEventListener('pause', () => {
         if (playButton) playButton.className = 'fas fa-play';
     });
     
+    // Обработка начала воспроизведения
     audio.addEventListener('play', () => {
         if (playButton) playButton.className = 'fas fa-pause';
     });
     
+    // Воспроизведение
     audio.play().catch(err => {
         console.error('❌ Ошибка воспроизведения:', err, url);
         if (playButton) playButton.className = 'fas fa-play';
@@ -1839,21 +2973,111 @@ function playVoiceMessage(url, element) {
             showNotification('Разрешите воспроизведение аудио в браузере', 'warning');
         } else if (err.name === 'NotSupportedError') {
             showNotification('Формат аудио не поддерживается', 'error');
-        } else {
+    } else {
             showNotification('Ошибка воспроизведения аудио', 'error');
         }
     });
 }
 
+// Перемотка голосового сообщения
+function seekVoiceMessage(element, event) {
+    const messageId = element.dataset.messageId;
+    const player = activeVoicePlayers[messageId];
+    
+    // Если плеер не запущен, запускаем его сначала
+    if (!player || !player.audio) {
+        const audioUrl = element.dataset.audioUrl;
+        if (audioUrl) {
+            playVoiceMessage(audioUrl, element);
+            // Ждем немного и повторяем попытку перемотки
+            setTimeout(() => {
+                seekVoiceMessage(element, event);
+            }, 100);
+        }
+        return;
+    }
+    
+    const waveform = element.querySelector('.voice-waveform');
+    if (!waveform) return;
+    
+    const rect = waveform.getBoundingClientRect();
+    const clickX = event.clientX - rect.left;
+    const percentage = Math.max(0, Math.min(100, (clickX / rect.width) * 100));
+    
+    if (player.audio.duration && !isNaN(player.audio.duration)) {
+        player.audio.currentTime = (percentage / 100) * player.audio.duration;
+    }
+}
+
+// Инициализация перемотки для голосовых сообщений
+function initVoiceSeek(element) {
+    const waveform = element.querySelector('.voice-waveform');
+    if (!waveform) return;
+    
+    waveform.style.cursor = 'pointer';
+    
+    waveform.addEventListener('click', function(e) {
+        e.stopPropagation();
+        seekVoiceMessage(element, e);
+    });
+    
+    // Поддержка перетаскивания для перемотки
+    let isDragging = false;
+    
+    waveform.addEventListener('mousedown', function(e) {
+        isDragging = true;
+        seekVoiceMessage(element, e);
+    });
+    
+    waveform.addEventListener('mousemove', function(e) {
+        if (isDragging) {
+            seekVoiceMessage(element, e);
+        }
+    });
+    
+    waveform.addEventListener('mouseup', function() {
+        isDragging = false;
+    });
+    
+    waveform.addEventListener('mouseleave', function() {
+        isDragging = false;
+    });
+    
+    // Touch события для мобильных
+    waveform.addEventListener('touchstart', function(e) {
+        e.stopPropagation();
+        isDragging = true;
+        const touch = e.touches[0];
+        const fakeEvent = { clientX: touch.clientX };
+        seekVoiceMessage(element, fakeEvent);
+    });
+    
+    waveform.addEventListener('touchmove', function(e) {
+        if (isDragging) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const fakeEvent = { clientX: touch.clientX };
+            seekVoiceMessage(element, fakeEvent);
+        }
+    });
+    
+    waveform.addEventListener('touchend', function() {
+        isDragging = false;
+    });
+}
+
+// Скачивание голосового сообщения
 function downloadVoiceMessage(event, url) {
     event.stopPropagation();
     if (url) {
+        // Extract filepath from S3 URL
         let filepath = '';
         if (url.includes('/telegram-chat-files/')) {
             filepath = url.split('/telegram-chat-files/')[1];
         } else if (url.includes('telegram-chat-files')) {
             filepath = url.split('telegram-chat-files/')[1];
         } else {
+            // If it's a blob URL or different format, try direct download
             const link = document.createElement('a');
             link.href = url;
             link.download = `voice_${Date.now()}.ogg`;
@@ -1864,6 +3088,7 @@ function downloadVoiceMessage(event, url) {
             return;
         }
         
+        // Use download endpoint
         const downloadUrl = `/api/s3/download/${filepath}`;
         const link = document.createElement('a');
         link.href = downloadUrl;
@@ -1875,71 +3100,143 @@ function downloadVoiceMessage(event, url) {
     }
 }
 
-// ===== КАНАЛЫ =====
-function switchChannel(channelId) {
-    // ИСПРАВЛЕНИЕ БАГА: Всегда можно вернуться в основной
-    if (channelId === 'main') {
-        currentChannel = 'main';
-    } else if (appData.channels[channelId]) {
-        currentChannel = channelId;
-    } else {
-        console.warn(`Канал ${channelId} не найден, переключаемся в основной`);
-        currentChannel = 'main';
+function downloadVoiceBlob(event, fileId) {
+    event.stopPropagation();
+    const fileInfo = attachedFiles.find(f => f.id === fileId);
+    if (!fileInfo) {
+        // Try to find in messages
+        const messages = appData.channels[currentChannel]?.messages || [];
+        for (const msg of messages) {
+            if (msg.files) {
+                const file = msg.files.find(f => f.id === fileId);
+                if (file && file.blob) {
+                    const url = URL.createObjectURL(file.blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'voice_message.webm';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    return;
+                }
+            }
+        }
+        return;
     }
     
-    // Обновляем заголовок
-    updateChannelUI();
-    
-    // Загружаем сообщения
-    loadMessages();
-    
-    // Обновляем активное состояние
-    updateChannelActiveState();
-    
-    // Закрываем сайдбар на мобильных
-    if (window.innerWidth < 768) {
-        closeSidebar();
+    if (fileInfo.blob) {
+        const url = URL.createObjectURL(fileInfo.blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'voice_message.webm';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     }
-    
-    // Прокручиваем вниз
-    scrollToBottom();
 }
 
-function updateChannelUI() {
-    const channel = appData.channels[currentChannel];
-    const chatTitle = document.getElementById('chat-title');
+window.downloadVoiceMessage = downloadVoiceMessage;
+window.downloadVoiceBlob = downloadVoiceBlob;
+
+// Автовоспроизведение при выборе сообщения
+function autoPlayVoiceOnSelect(messageId) {
+    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (!messageElement) return;
     
-    if (chatTitle) {
-        if (currentChannel === 'main') {
-            chatTitle.textContent = 'Основной чат';
-        } else if (channel) {
-            chatTitle.textContent = channel.name;
-        } else {
-            chatTitle.textContent = 'Неизвестный канал';
-        }
+    const voiceMessage = messageElement.querySelector('.voice-message');
+    if (voiceMessage && voiceMessage.dataset.audioUrl) {
+        playVoiceMessage(voiceMessage.dataset.audioUrl, voiceMessage);
     }
-    
-    updateOnlineCount();
 }
 
-function updateChannelActiveState() {
-    const channelItems = document.querySelectorAll('.channel-item');
-    channelItems.forEach(item => {
-        const itemChannel = item.dataset.channel;
-        if (itemChannel === currentChannel) {
-            item.classList.add('active');
-        } else {
-            item.classList.remove('active');
-        }
+// ===== EMOJI PICKER =====
+function initEmojiPicker() {
+    const emojiGrid = document.getElementById('emoji-grid');
+    const categories = document.querySelectorAll('.emoji-category');
+    
+    if (!emojiGrid || categories.length === 0) return;
+    
+    // Load default category
+    loadEmojis('smileys');
+    
+    // Category switcher
+    categories.forEach(category => {
+        category.addEventListener('click', function() {
+            categories.forEach(c => c.classList.remove('active'));
+            this.classList.add('active');
+            const categoryName = this.dataset.category;
+            loadEmojis(categoryName);
+        });
     });
+}
+
+function loadEmojis(category) {
+    const emojiGrid = document.getElementById('emoji-grid');
+    if (!emojiGrid) return;
     
-    // Всегда показываем основной канал активным если он выбран
-    const mainChannel = document.querySelector('[data-channel="main"]');
-    if (mainChannel && currentChannel === 'main') {
-        mainChannel.classList.add('active');
+    emojiGrid.innerHTML = '';
+    const emojis = EMOJI_CATEGORIES[category] || [];
+    
+    emojis.forEach(emoji => {
+        const button = document.createElement('button');
+        button.className = 'emoji-option';
+        button.textContent = emoji;
+        button.addEventListener('click', () => insertEmoji(emoji));
+        emojiGrid.appendChild(button);
+    });
+}
+
+function toggleEmojiPicker() {
+    const picker = document.getElementById('emoji-picker');
+    if (!picker) return;
+    
+    if (picker.style.display === 'none' || !picker.style.display) {
+        picker.style.display = 'flex';
+        
+        // Position picker above input
+        const inputArea = document.querySelector('.input-area');
+        if (inputArea) {
+            const rect = inputArea.getBoundingClientRect();
+            picker.style.bottom = `${window.innerHeight - rect.top + 10}px`;
+        }
+        
+        // Close on outside click
+        setTimeout(() => {
+            document.addEventListener('click', function closePicker(e) {
+                if (!picker.contains(e.target) && e.target.id !== 'btn-emoji') {
+                    picker.style.display = 'none';
+                    document.removeEventListener('click', closePicker);
+                }
+            });
+        }, 10);
+    } else {
+        picker.style.display = 'none';
     }
 }
 
+function insertEmoji(emoji) {
+    const input = document.getElementById('message-input');
+    if (input) {
+        const cursorPos = input.selectionStart;
+        const textBefore = input.value.substring(0, cursorPos);
+        const textAfter = input.value.substring(cursorPos);
+        
+        input.value = textBefore + emoji + textAfter;
+        input.selectionStart = input.selectionEnd = cursorPos + emoji.length;
+        
+        // Trigger input event for auto-resize
+        input.dispatchEvent(new Event('input'));
+        input.focus();
+        
+        // Close picker
+        const picker = document.getElementById('emoji-picker');
+        if (picker) picker.style.display = 'none';
+    }
+}
+
+// ===== CHANNEL MANAGEMENT =====
 function showCreateChannelModal() {
     showModal('create-channel-modal');
 }
@@ -1972,20 +3269,26 @@ async function createChannel() {
         pinned: []
     };
     
+    // Add to local cache
     appData.channels[channelId] = channel;
     
+    // Update UI
     addChannelToSidebar(channel);
     
+    // Save to S3
     await saveChannelToS3(channel);
     
+    // Close modal
     closeModal('create-channel-modal');
     
+    // Clear form
     nameInput.value = '';
     descInput.value = '';
     typeSelect.value = 'public';
     
     showNotification('Канал создан', 'success');
     
+    // Switch to new channel
     switchChannel(channelId);
 }
 
@@ -1993,6 +3296,7 @@ function addChannelToSidebar(channel) {
     const channelsList = document.getElementById('channels-sidebar-list');
     if (!channelsList) return;
     
+    // Check if already exists
     if (document.querySelector(`[data-channel="${channel.id}"]`)) {
         return;
     }
@@ -2015,21 +3319,1175 @@ function addChannelToSidebar(channel) {
     
     channelElement.addEventListener('click', (e) => {
         if (!e.target.closest('.btn-delete-channel')) {
-            switchChannel(channel.id);
-            closeSidebar();
+        switchChannel(channel.id);
+        closeSidebar();
         }
     });
     
     channelsList.appendChild(channelElement);
 }
 
-// ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
-function findMessageById(messageId) {
-    const channel = appData.channels[currentChannel];
-    if (!channel) return null;
+async function deleteChannel(channelId) {
+    if (!isMainAdmin) {
+        showNotification('Только главный админ может удалять каналы', 'error');
+        return;
+    }
     
-    return channel.messages.find(msg => msg.id === messageId);
+    if (!confirm('Вы уверены, что хотите удалить этот канал?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/s3/delete-channel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                channel_id: channelId,
+                user_id: currentUserId
+            })
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success') {
+                // Remove from UI
+                const channelElement = document.querySelector(`[data-channel="${channelId}"]`);
+                if (channelElement) {
+                    channelElement.remove();
+                }
+                
+                // Remove from appData
+                delete appData.channels[channelId];
+                
+                // Switch to main if deleted channel was active
+                if (currentChannel === channelId) {
+                    switchChannel('main');
+                }
+                
+                showNotification('Канал удален', 'success');
+            }
+        }
+    } catch (error) {
+        console.error('❌ Ошибка удаления канала:', error);
+        showNotification('Ошибка удаления канала', 'error');
+    }
 }
+
+window.deleteChannel = deleteChannel;
+
+function switchChannel(channelId) {
+    if (!appData.channels[channelId]) return;
+    
+    // Update current channel
+    currentChannel = channelId;
+    
+    // Update UI
+    updateChannelUI();
+    
+    // Load messages
+    loadMessages();
+    
+    // Update active state in sidebar
+    updateChannelActiveState();
+}
+
+function updateChannelUI() {
+    const channel = appData.channels[currentChannel];
+    if (!channel) return;
+    
+    // Update header
+    const chatTitle = document.getElementById('chat-title');
+    if (chatTitle) {
+        chatTitle.textContent = channel.name;
+    }
+    
+    // Update online count
+    updateOnlineCount();
+}
+
+function updateChannelActiveState() {
+    const channelItems = document.querySelectorAll('.channel-item');
+    channelItems.forEach(item => {
+        if (item.dataset.channel === currentChannel) {
+            item.classList.add('active');
+        } else {
+            item.classList.remove('active');
+        }
+    });
+}
+
+// ===== ADMIN FUNCTIONS =====
+function handleAdminAction(action) {
+    switch(action) {
+        case 'users':
+            showUserManagement();
+            break;
+        case 'roles':
+            showRoleManagement();
+            break;
+        case 'settings':
+            showAdminSettings();
+            break;
+        case 'stats':
+            showStatistics();
+            break;
+        default:
+            console.log('Unknown admin action:', action);
+    }
+}
+
+function showAdminSettings() {
+    // Settings are already in sidebar, just scroll to them
+    const settingsSection = document.querySelector('.sidebar-section:has(.settings-list)');
+    if (settingsSection) {
+        settingsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
+function showStatistics() {
+    const modal = document.getElementById('statistics-modal');
+    if (!modal) {
+        // Create statistics modal if doesn't exist
+        createStatisticsModal();
+        return;
+    }
+    showModal('statistics-modal');
+    loadStatistics();
+}
+
+function createStatisticsModal() {
+    const modal = document.createElement('div');
+    modal.id = 'statistics-modal';
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">Статистика</div>
+                <button class="btn-close-modal" data-modal="statistics-modal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="statistics-content">
+                    <div class="loading">Загрузка статистики...</div>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    showModal('statistics-modal');
+    loadStatistics();
+}
+
+function loadStatistics() {
+    const content = document.getElementById('statistics-content');
+    if (!content) return;
+    
+    // Calculate statistics
+    const totalMessages = Object.values(appData.channels).reduce((sum, ch) => sum + (ch.messages?.length || 0), 0);
+    const totalUsers = Object.keys(usersCache).length;
+    const totalChannels = Object.keys(appData.channels).length;
+    const totalFiles = Object.values(appData.channels).reduce((sum, ch) => {
+        return sum + (ch.messages?.reduce((s, m) => s + (m.files?.length || 0), 0) || 0);
+    }, 0);
+    
+    const onlineUsers = Object.values(usersCache).filter(u => u.is_online).length;
+    
+    content.innerHTML = `
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-comments"></i></div>
+                <div class="stat-value">${totalMessages}</div>
+                <div class="stat-label">Сообщений</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-users"></i></div>
+                <div class="stat-value">${totalUsers}</div>
+                <div class="stat-label">Пользователей</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-circle"></i></div>
+                <div class="stat-value">${onlineUsers}</div>
+                <div class="stat-label">Онлайн</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-hashtag"></i></div>
+                <div class="stat-value">${totalChannels}</div>
+                <div class="stat-label">Каналов</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-file"></i></div>
+                <div class="stat-value">${totalFiles}</div>
+                <div class="stat-label">Файлов</div>
+            </div>
+        </div>
+    `;
+}
+
+function showAdminSettings() {
+    // Settings are already in sidebar, just scroll to them
+    const settingsSection = document.querySelector('.sidebar-section:has(.settings-list)');
+    if (settingsSection) {
+        settingsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    closeSidebar();
+}
+
+// ===== USER MANAGEMENT =====
+function showUserManagement() {
+    if (!isAdmin && !isMainAdmin) {
+        showNotification('Только админы могут просматривать список участников', 'error');
+        return;
+    }
+    
+    const modal = document.getElementById('users-list-modal');
+    if (modal) {
+        modal.style.display = 'flex';
+        loadUsersList();
+    }
+}
+
+function loadUsersList() {
+    const usersList = document.getElementById('users-list');
+    if (!usersList) return;
+    
+    usersList.innerHTML = '';
+    
+    // Get all users from cache
+    const users = Object.values(usersCache);
+    
+    if (users.length === 0) {
+        usersList.innerHTML = '<div class="empty-state">Нет участников</div>';
+        return;
+    }
+    
+    // Sort users: admins first, then by name
+    users.sort((a, b) => {
+        const roleOrder = { 'main_admin': 0, 'admin': 1, 'moderator': 2, 'user': 3 };
+        const roleA = roleOrder[a.role] || 3;
+        const roleB = roleOrder[b.role] || 3;
+        if (roleA !== roleB) return roleA - roleB;
+        return (a.first_name || '').localeCompare(b.first_name || '');
+    });
+    
+    users.forEach(user => {
+        const userItem = createUserListItem(user);
+        usersList.appendChild(userItem);
+    });
+    
+    // Add search functionality
+    const searchInput = document.getElementById('users-search-input');
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            filterUsersList(e.target.value);
+        });
+    }
+}
+
+function createUserListItem(user) {
+    const userItem = document.createElement('div');
+    userItem.className = 'user-item';
+    userItem.dataset.userId = user.id;
+    
+    const userColor = stringToColor(user.id);
+    const userName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Пользователь';
+    const userRole = user.role || 'user';
+    const roleInfo = appData.roles[userRole] || appData.roles.user;
+    
+    const isMuted = mutedUsers.has(user.id.toString());
+    const isBanned = bannedUsers.has(user.id.toString());
+    
+    userItem.innerHTML = `
+        <div class="user-item-avatar">
+            ${getUserAvatar(user, userColor, userName)}
+        </div>
+        <div class="user-item-info">
+            <div class="user-item-name">${escapeHtml(userName)}</div>
+            <div class="user-item-meta">
+                <span class="user-role-badge" style="background-color: ${roleInfo.color}">
+                    ${roleInfo.name}
+                </span>
+                ${isMuted ? '<span class="user-status-badge muted"><i class="fas fa-volume-mute"></i> Заглушен</span>' : ''}
+                ${isBanned ? '<span class="user-status-badge banned"><i class="fas fa-ban"></i> Забанен</span>' : ''}
+            </div>
+        </div>
+        <button class="btn-user-action" onclick="showUserActions('${user.id}')">
+            <i class="fas fa-ellipsis-v"></i>
+        </button>
+    `;
+    
+    return userItem;
+}
+
+function filterUsersList(query) {
+    const usersList = document.getElementById('users-list');
+    if (!usersList) return;
+    
+    const userItems = usersList.querySelectorAll('.user-item');
+    const lowerQuery = query.toLowerCase();
+    
+    userItems.forEach(item => {
+        const userName = item.querySelector('.user-item-name')?.textContent.toLowerCase() || '';
+        if (userName.includes(lowerQuery)) {
+            item.style.display = 'flex';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+}
+
+let currentEditingUserId = null;
+
+function showUserActions(userId) {
+    if (!isAdmin && !isMainAdmin) {
+        showNotification('Только админы могут управлять пользователями', 'error');
+        return;
+    }
+    
+    currentEditingUserId = userId;
+    const user = usersCache[userId];
+    if (!user) return;
+    
+    const modal = document.getElementById('user-actions-modal');
+    const preview = document.getElementById('user-info-preview');
+    const roleSelect = document.getElementById('user-role-select');
+    const muteBtn = document.getElementById('btn-mute-user');
+    const unmuteBtn = document.getElementById('btn-unmute-user');
+    const banBtn = document.getElementById('btn-ban-user');
+    const unbanBtn = document.getElementById('btn-unban-user');
+    
+    if (!modal) return;
+    
+    // Update preview
+    const userColor = stringToColor(user.id);
+    const userName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Пользователь';
+    
+    if (preview) {
+        preview.innerHTML = `
+            <div class="user-preview-avatar">
+                ${getUserAvatar(user, userColor, userName)}
+            </div>
+            <div class="user-preview-name">${escapeHtml(userName)}</div>
+            <div class="user-preview-username">@${user.username || 'без имени'}</div>
+        `;
+    }
+    
+    // Set current role
+    if (roleSelect) {
+        roleSelect.value = user.role || 'user';
+    }
+    
+    // Update mute/ban buttons
+    const isMuted = mutedUsers.has(userId.toString());
+    const isBanned = bannedUsers.has(userId.toString());
+    
+    if (muteBtn) muteBtn.style.display = isMuted ? 'none' : 'block';
+    if (unmuteBtn) unmuteBtn.style.display = isMuted ? 'block' : 'none';
+    if (banBtn) banBtn.style.display = isBanned ? 'none' : 'block';
+    if (unbanBtn) unbanBtn.style.display = isBanned ? 'block' : 'none';
+    
+    modal.style.display = 'flex';
+}
+
+async function saveUserActions() {
+    if (!currentEditingUserId) return;
+    
+    const roleSelect = document.getElementById('user-role-select');
+    const newRole = roleSelect?.value || 'user';
+    
+    // Update role
+    await updateUserRole(currentEditingUserId, newRole);
+    
+    // Close modal
+    const modal = document.getElementById('user-actions-modal');
+    if (modal) modal.style.display = 'none';
+    
+    // Reload users list
+    loadUsersList();
+    
+    showNotification('Изменения сохранены', 'success');
+}
+
+async function updateUserRole(userId, role) {
+    if (!isMainAdmin && role === 'main_admin') {
+        showNotification('Только главный админ может назначать главных админов', 'error');
+        return;
+    }
+    
+    const user = usersCache[userId];
+    if (!user) return;
+    
+    user.role = role;
+    
+    // Update in S3
+    try {
+        const response = await fetch(API_CONFIG.endpoints.updateUser, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: userId,
+                role: role
+            })
+        });
+        
+        if (response.ok) {
+            console.log(`✅ Роль пользователя ${userId} обновлена на ${role}`);
+        }
+    } catch (error) {
+        console.error('❌ Ошибка обновления роли:', error);
+    }
+}
+
+function muteUser(userId) {
+    if (!isAdmin && !isMainAdmin) {
+        showNotification('Только админы могут заглушать пользователей', 'error');
+        return;
+    }
+    
+    mutedUsers.add(userId.toString());
+    showNotification('Пользователь заглушен', 'success');
+    saveUserActions();
+}
+
+function unmuteUser(userId) {
+    if (!isAdmin && !isMainAdmin) {
+        showNotification('Только админы могут разглушать пользователей', 'error');
+        return;
+    }
+    
+    mutedUsers.delete(userId.toString());
+    showNotification('Пользователь разглушен', 'success');
+    saveUserActions();
+}
+
+function banUser(userId) {
+    if (!isAdmin && !isMainAdmin) {
+        showNotification('Только админы могут банить пользователей', 'error');
+        return;
+    }
+    
+    if (userId === currentUserId) {
+        showNotification('Нельзя забанить самого себя', 'error');
+        return;
+    }
+    
+    bannedUsers.add(userId.toString());
+    showNotification('Пользователь забанен', 'success');
+    saveUserActions();
+}
+
+function unbanUser(userId) {
+    if (!isAdmin && !isMainAdmin) {
+        showNotification('Только админы могут разбанивать пользователей', 'error');
+        return;
+    }
+    
+    bannedUsers.delete(userId.toString());
+    showNotification('Пользователь разбанен', 'success');
+    saveUserActions();
+}
+
+// Make functions global for onclick handlers
+window.showUserActions = showUserActions;
+window.muteUser = muteUser;
+window.unmuteUser = unmuteUser;
+window.banUser = banUser;
+window.unbanUser = unbanUser;
+
+function showRoleManagement() {
+    showModal('manage-roles-modal');
+    loadRoles();
+}
+
+function showAdminSettings() {
+    // Implementation for admin settings
+    showNotification('Настройки администратора', 'info');
+}
+
+function showStatistics() {
+    // Implementation for statistics
+    showNotification('Статистика', 'info');
+}
+
+function loadRoles() {
+    const rolesList = document.getElementById('roles-list');
+    if (!rolesList) return;
+    
+    rolesList.innerHTML = '';
+    
+    Object.values(appData.roles).forEach(role => {
+        const roleElement = document.createElement('div');
+        roleElement.className = 'role-item';
+        roleElement.innerHTML = `
+            <div class="role-info">
+                <div class="role-color" style="background-color: ${role.color}"></div>
+                <div class="role-name">${role.name}</div>
+            </div>
+            <div class="role-actions">
+                <button class="btn-edit-role" data-role="${role.id}">
+                    <i class="fas fa-edit"></i>
+                </button>
+                ${role.id !== 'user' ? `
+                    <button class="btn-delete-role" data-role="${role.id}">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                ` : ''}
+            </div>
+        `;
+        
+        rolesList.appendChild(roleElement);
+    });
+    
+    // Add event listeners
+    document.querySelectorAll('.btn-edit-role').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const roleId = this.dataset.role;
+            editRole(roleId);
+        });
+    });
+    
+    document.querySelectorAll('.btn-delete-role').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const roleId = this.dataset.role;
+            deleteRole(roleId);
+        });
+    });
+}
+
+function editRole(roleId) {
+    const role = appData.roles[roleId];
+    if (!role) return;
+    
+    const newName = prompt('Введите новое название роли:', role.name);
+    if (newName && newName !== role.name) {
+        role.name = newName;
+        saveRoleToS3(role);
+        loadRoles();
+        showNotification('Роль обновлена', 'success');
+    }
+}
+
+function deleteRole(roleId) {
+    if (roleId === 'user' || roleId === 'main_admin') {
+        showNotification('Эту роль нельзя удалить', 'error');
+        return;
+    }
+    
+    if (confirm(`Удалить роль "${appData.roles[roleId]?.name}"?`)) {
+        delete appData.roles[roleId];
+        saveRolesToS3();
+        loadRoles();
+        showNotification('Роль удалена', 'success');
+    }
+}
+
+// ===== MODAL FUNCTIONS =====
+function showModal(modalId) {
+    const modal = document.getElementById(modalId);
+    const overlay = document.getElementById('overlay');
+    
+    if (modal && overlay) {
+        modal.classList.add('active');
+        overlay.classList.add('active');
+        
+        // Close on overlay click
+        overlay.addEventListener('click', function closeModalOnOverlay() {
+            modal.classList.remove('active');
+            overlay.classList.remove('active');
+            overlay.removeEventListener('click', closeModalOnOverlay);
+        });
+    }
+}
+
+function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    const overlay = document.getElementById('overlay');
+    
+    if (modal) modal.classList.remove('active');
+    if (overlay) overlay.classList.remove('active');
+}
+
+// ===== MEDIA PREVIEW =====
+function showImagePreview(imageUrl) {
+    const modal = document.getElementById('image-preview-modal');
+    const image = document.getElementById('preview-image');
+    
+    if (modal && image) {
+        showModal('image-preview-modal');
+        
+        // Show loading
+        image.src = '';
+        image.classList.add('loading');
+        
+        // Load image
+        const img = new Image();
+        img.onload = function() {
+            image.src = imageUrl;
+            image.classList.remove('loading');
+            
+            // Show compression info if available
+            const compressionInfo = document.getElementById('compression-info');
+            if (compressionInfo) {
+                const cachedPreview = imagePreviews[imageUrl];
+                if (cachedPreview) {
+                    compressionInfo.innerHTML = `<i class="fas fa-compress-alt"></i> Используется превью`;
+                } else {
+                    compressionInfo.innerHTML = '';
+                }
+            }
+        };
+        
+        img.onerror = function() {
+            image.classList.remove('loading');
+            image.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300"><rect width="400" height="300" fill="#f0f0f0"/><text x="200" y="150" text-anchor="middle" fill="#999">Ошибка загрузки</text></svg>';
+        };
+        
+        img.src = imageUrl;
+        
+        modal.classList.add('active');
+        
+        // Close on background click
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal || e.target.closest('.btn-close-preview')) {
+                modal.classList.remove('active');
+            }
+        });
+    }
+}
+
+function closeImagePreview() {
+    const modal = document.getElementById('image-preview-modal');
+    if (modal) modal.classList.remove('active');
+}
+
+function showVideoPlayer(videoUrl) {
+    const modal = document.getElementById('video-player-modal');
+    const video = document.getElementById('preview-video');
+    
+    if (modal && video) {
+        video.src = videoUrl;
+        showModal('video-player-modal');
+        
+        // Close on background click
+        const closeOnClick = (e) => {
+            if (e.target === modal || e.target.closest('.btn-close-preview')) {
+                video.pause();
+                closeModal('video-player-modal');
+                modal.removeEventListener('click', closeOnClick);
+            }
+        };
+        modal.addEventListener('click', closeOnClick);
+    }
+}
+
+function closeVideoPlayer() {
+    const modal = document.getElementById('video-player-modal');
+    const video = document.getElementById('preview-video');
+    
+    if (modal) modal.classList.remove('active');
+    if (video) video.pause();
+}
+
+function downloadImage() {
+    const image = document.getElementById('preview-image');
+    if (!image || !image.src) return;
+    
+    const link = document.createElement('a');
+    link.href = image.src;
+    link.download = `image_${Date.now()}.jpg`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    showNotification('Изображение скачивается', 'info');
+}
+
+function shareImage() {
+    const image = document.getElementById('preview-image');
+    if (!image || !image.src) return;
+    
+    if (navigator.share) {
+        navigator.share({
+            title: 'Изображение из чата',
+            text: 'Посмотрите это изображение',
+            url: image.src
+        }).catch(error => {
+            console.log('Ошибка при sharing:', error);
+        });
+    } else {
+        // Fallback: copy to clipboard or show share dialog
+        copyToClipboard(image.src);
+        showNotification('Ссылка на изображение скопирована', 'success');
+    }
+}
+
+// ===== DATA MANAGEMENT =====
+async function loadAllData() {
+    try {
+        // Load users
+        await loadUsers();
+        
+        // Load channels
+        await loadChannels();
+        
+        // Load roles
+        await loadRolesFromS3();
+        
+        console.log('✅ Все данные загружены');
+        
+    } catch (error) {
+        console.error('❌ Ошибка загрузки данных:', error);
+        showNotification('Ошибка загрузки данных', 'error');
+    }
+}
+
+// Load user role from S3
+async function loadUserRole() {
+    try {
+        // Check if main admin first (ID: 8089114323)
+        if (currentUserId === '8089114323') {
+            isMainAdmin = true;
+            isAdmin = true;
+            currentUser.role = 'main_admin';
+            console.log('👑 Главный админ установлен');
+            
+            // Show admin section
+            const adminSection = document.getElementById('admin-section');
+            if (adminSection) adminSection.style.display = 'block';
+            
+            return;
+        }
+        
+        const response = await fetch(`${API_CONFIG.endpoints.getUsers}?user_id=${currentUserId}`);
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success' && data.user) {
+                const userRole = data.user.role || 'user';
+                currentUser.role = userRole;
+                
+                // Set admin flags
+                isAdmin = userRole === 'admin' || userRole === 'main_admin' || userRole === 'moderator';
+                isMainAdmin = userRole === 'main_admin';
+                
+                // Show admin section if admin
+                if (isAdmin || isMainAdmin) {
+                    const adminSection = document.getElementById('admin-section');
+                    if (adminSection) adminSection.style.display = 'block';
+                }
+                
+                console.log(`👤 Роль пользователя: ${userRole}`);
+            }
+        }
+    } catch (error) {
+        console.error('❌ Ошибка загрузки роли:', error);
+        // Default role
+        currentUser.role = 'user';
+        isAdmin = false;
+        isMainAdmin = false;
+    }
+}
+
+async function loadUsers() {
+    try {
+        const response = await fetch(API_CONFIG.endpoints.getUsers);
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success') {
+                usersCache = data.users || {};
+                
+                // Update current user with photo_url if available
+                if (usersCache[currentUserId] && usersCache[currentUserId].photo_url) {
+                    currentUser.photo_url = usersCache[currentUserId].photo_url;
+                }
+                
+                console.log(`👥 Загружено ${Object.keys(usersCache).length} пользователей`);
+            }
+        }
+    } catch (error) {
+        console.error('❌ Ошибка загрузки пользователей:', error);
+        // Use demo users
+        usersCache = {
+            [currentUserId]: currentUser
+        };
+    }
+}
+
+async function loadChannels() {
+    try {
+        // Load from S3
+        const response = await fetch('/api/s3/get-channels');
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success' && data.channels) {
+                // Add channels to appData
+                Object.assign(appData.channels, data.channels);
+                
+                // Add to sidebar
+                Object.values(data.channels).forEach(channel => {
+                    if (channel.id !== 'main') {
+                        addChannelToSidebar(channel);
+                    }
+                });
+                
+                console.log('✅ Каналы загружены:', Object.keys(data.channels).length);
+            }
+            return;
+        }
+        
+        // Fallback to old method
+        const oldResponse = await fetch(`${API_CONFIG.endpoints.getMessages}?type=channels`);
+        if (oldResponse.ok) {
+            const data = await oldResponse.json();
+            if (data.status === 'success' && data.channels) {
+                channelsCache = data.channels;
+                
+                // Merge with appData
+                Object.assign(appData.channels, channelsCache);
+                
+                // Update sidebar
+                updateChannelsSidebar();
+                
+                console.log(`📺 Загружено ${Object.keys(channelsCache).length} каналов`);
+            }
+        }
+    } catch (error) {
+        console.error('❌ Ошибка загрузки каналов:', error);
+    }
+}
+
+async function loadMessages() {
+    try {
+        // Load messages from S3 using section parameter
+        const section = currentSection || 'main';
+        const response = await fetch(`${API_CONFIG.endpoints.getMessages}?section=${section}`);
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success') {
+                const messages = data.messages || [];
+                
+                // Filter messages by current channel if needed
+                const channelMessages = messages.filter(msg => 
+                    !msg.channel || msg.channel === currentChannel || currentChannel === 'main'
+                );
+                
+                // Update messages
+                if (appData.channels[currentChannel]) {
+                    appData.channels[currentChannel].messages = channelMessages;
+                } else {
+                    appData.channels[currentChannel] = {
+                        id: currentChannel,
+                        name: currentChannel,
+                        type: 'public',
+                        messages: channelMessages,
+                        pinned: []
+                    };
+                }
+                
+                lastUpdateTime = Date.now();
+                
+                console.log(`📨 Загружено ${channelMessages.length} сообщений из ${messages.length} всего`);
+                
+                // Update display
+                updateMessagesDisplay();
+                
+                return true;
+            }
+        }
+        return false;
+        
+    } catch (error) {
+        console.error(`❌ Ошибка загрузки сообщений:`, error);
+        return false;
+    }
+}
+
+async function loadRolesFromS3() {
+    try {
+        const response = await fetch(`${API_CONFIG.endpoints.getUsers}?type=roles`);
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success' && data.roles) {
+                Object.assign(appData.roles, data.roles);
+                console.log(`👑 Загружено ${Object.keys(data.roles).length} ролей`);
+            }
+        }
+    } catch (error) {
+        console.error('❌ Ошибка загрузки ролей:', error);
+    }
+}
+
+function updateMessagesDisplay() {
+    const container = document.getElementById('messages-wrapper');
+    if (!container) return;
+    
+    const messages = appData.channels[currentChannel]?.messages || [];
+    
+    // Clear container
+    container.innerHTML = '';
+    
+    if (messages.length === 0) {
+        const emptyChat = document.getElementById('empty-chat');
+        if (emptyChat) {
+            container.appendChild(emptyChat);
+            emptyChat.style.display = 'flex';
+        }
+        return;
+    }
+    
+    // Hide empty chat message
+    const emptyChat = document.getElementById('empty-chat');
+    if (emptyChat) emptyChat.style.display = 'none';
+    
+    // Add all messages with lazy loading
+    messages.forEach(msg => {
+        const element = createMessageElement(msg);
+        container.appendChild(element);
+    });
+    
+    // Initialize lazy loading for new images
+    if (observer) {
+        setTimeout(() => {
+            document.querySelectorAll('img[data-src], img[data-poster], .lazy-image[data-full-src]').forEach(img => {
+                observer.observe(img);
+            });
+        }, 100);
+    }
+    
+    // Update unread count
+    updateUnreadCount();
+    
+    // Scroll to bottom
+    scrollToBottom();
+}
+
+// ===== UNREAD MESSAGES =====
+function updateUnreadCount() {
+    if (!lastReadMessageId) {
+        // First time - mark all as read
+        const messages = appData.channels[currentChannel]?.messages || [];
+        if (messages.length > 0) {
+            lastReadMessageId = messages[messages.length - 1].id;
+            unreadCount = 0;
+        }
+        return;
+    }
+    
+    const messages = appData.channels[currentChannel]?.messages || [];
+    const lastReadIndex = messages.findIndex(m => m.id === lastReadMessageId);
+    
+    if (lastReadIndex === -1 || lastReadIndex === messages.length - 1) {
+        unreadCount = 0;
+    } else {
+        unreadCount = messages.length - lastReadIndex - 1;
+    }
+    
+    // Update badge
+    const badge = document.getElementById('unread-badge');
+    const countEl = document.getElementById('unread-count');
+    
+    if (badge && countEl) {
+        if (unreadCount > 0) {
+            badge.style.display = 'flex';
+            countEl.textContent = unreadCount;
+        } else {
+            badge.style.display = 'none';
+        }
+    }
+}
+
+function scrollToUnread() {
+    if (!lastReadMessageId) {
+        scrollToBottom();
+        return;
+    }
+    
+    const messageElement = document.querySelector(`[data-message-id="${lastReadMessageId}"]`);
+    if (messageElement) {
+        messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // Mark as read
+        const messages = appData.channels[currentChannel]?.messages || [];
+        const lastIndex = messages.length - 1;
+        if (lastIndex >= 0) {
+            lastReadMessageId = messages[lastIndex].id;
+            unreadCount = 0;
+            updateUnreadCount();
+        }
+    } else {
+        scrollToBottom();
+    }
+}
+
+// ===== SECTIONS/TOPICS =====
+function checkSectionPermission(sectionId) {
+    const section = sections[sectionId] || sections['main'];
+    if (!section) return true; // Default section allows writing
+    
+    // Admins can always write
+    if (isAdmin || isMainAdmin) return true;
+    
+    // Check section permissions
+    if (section.readOnly && !isAdmin) {
+        return false; // Read-only for non-admins
+    }
+    
+    return true;
+}
+
+async function loadSectionsFromS3() {
+    try {
+        const response = await fetch('/api/s3/get-sections');
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success' && data.sections) {
+                sections = data.sections;
+            }
+        }
+    } catch (error) {
+        console.error('❌ Ошибка загрузки разделов:', error);
+    }
+    
+    // Ensure main section exists
+    if (!sections['main']) {
+        sections['main'] = {
+            id: 'main',
+            name: 'Основной',
+            readOnly: false,
+            description: 'Основной раздел для общения'
+        };
+    }
+    
+    updateSectionsDisplay();
+}
+
+function updateSectionsDisplay() {
+    const sectionsList = document.getElementById('sections-list');
+    const btnAddSection = document.getElementById('btn-add-section');
+    
+    if (!sectionsList) return;
+    
+    // Show add button only for admins
+    if (btnAddSection) {
+        btnAddSection.style.display = (isAdmin || isMainAdmin) ? 'inline-flex' : 'none';
+    }
+    
+    sectionsList.innerHTML = '';
+    
+    Object.values(sections).forEach(section => {
+        if (section.id === 'main') return; // Skip main, it's in channels
+        
+        const sectionItem = document.createElement('div');
+        sectionItem.className = `section-item ${currentSection === section.id ? 'active' : ''}`;
+        sectionItem.dataset.sectionId = section.id;
+        
+        sectionItem.innerHTML = `
+            <div class="section-icon">
+                <i class="fas fa-folder${section.readOnly ? '-open' : ''}"></i>
+            </div>
+            <div class="section-info">
+                <div class="section-name">${escapeHtml(section.name)}</div>
+                ${section.readOnly ? '<div class="section-badge read-only">Только чтение</div>' : ''}
+            </div>
+            ${(isAdmin || isMainAdmin) ? `
+                <button class="btn-section-action" onclick="editSection('${section.id}')" title="Редактировать">
+                    <i class="fas fa-edit"></i>
+                </button>
+            ` : ''}
+        `;
+        
+        sectionItem.addEventListener('click', (e) => {
+            if (!e.target.closest('.btn-section-action')) {
+                switchSection(section.id);
+            }
+        });
+        
+        sectionsList.appendChild(sectionItem);
+    });
+}
+
+function switchSection(sectionId) {
+    currentSection = sectionId;
+    
+    // Update active state
+    document.querySelectorAll('.section-item').forEach(item => {
+        item.classList.toggle('active', item.dataset.sectionId === sectionId);
+    });
+    
+    // Load messages for this section
+    loadMessages();
+    
+    // Update header
+    const section = sections[sectionId];
+    if (section) {
+        document.getElementById('chat-title').textContent = section.name;
+    }
+}
+
+function createSection(name, description = '', readOnly = false) {
+    if (!isAdmin && !isMainAdmin) {
+        showNotification('Только админы могут создавать разделы', 'error');
+        return;
+    }
+    
+    const sectionId = 'section_' + Date.now();
+    const section = {
+        id: sectionId,
+        name: name,
+        description: description,
+        readOnly: readOnly,
+        created_by: currentUserId,
+        created_at: Date.now()
+    };
+    
+    sections[sectionId] = section;
+    
+    // Save to S3
+    saveSectionsToS3();
+    
+    updateSectionsDisplay();
+    showNotification('Раздел создан', 'success');
+}
+
+function editSection(sectionId) {
+    const section = sections[sectionId];
+    if (!section) return;
+    
+    const newName = prompt('Название раздела:', section.name);
+    if (!newName) return;
+    
+    const newDescription = prompt('Описание:', section.description || '');
+    const readOnly = confirm('Только чтение для не-админов?');
+    
+    section.name = newName;
+    section.description = newDescription;
+    section.readOnly = readOnly;
+    
+    // Save to S3
+    saveSectionsToS3();
+    
+    updateSectionsDisplay();
+    showNotification('Раздел обновлен', 'success');
+}
+
+async function saveSectionsToS3() {
+    try {
+        const response = await fetch('/api/s3/save-sections', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                sections: sections
+            })
+        });
+        
+        if (response.ok) {
+            console.log('✅ Разделы сохранены в S3');
+        }
+    } catch (error) {
+        console.error('❌ Ошибка сохранения разделов:', error);
+    }
+}
+
+window.editSection = editSection;
 
 function canEditMessage(message) {
     const isOwnMessage = message.user_id === currentUserId;
@@ -2039,6 +4497,379 @@ function canEditMessage(message) {
 function canDeleteMessage(message) {
     const isOwnMessage = message.user_id === currentUserId;
     return isOwnMessage || isAdmin || isMainAdmin;
+}
+
+// ===== PINNED MESSAGES =====
+async function pinMessage(messageId) {
+    if (!isAdmin && !isMainAdmin) {
+        showNotification('Только админы могут закреплять сообщения', 'error');
+        return;
+    }
+    
+    const message = findMessageById(messageId);
+    if (!message) return;
+    
+    message.pinned = true;
+    message.pinned_at = Date.now();
+    message.pinned_by = currentUserId;
+    
+    // Add to pinned list
+    if (!pinnedMessagesList.find(m => m.id === messageId)) {
+        pinnedMessagesList.push(message);
+    }
+    
+    // Save to S3
+    await updateMessageInS3(message);
+    
+    showNotification('Сообщение закреплено', 'success');
+    updateMessagesDisplay();
+}
+
+async function unpinMessage(messageId) {
+    if (!isAdmin && !isMainAdmin) {
+        showNotification('Только админы могут откреплять сообщения', 'error');
+        return;
+    }
+    
+    const message = findMessageById(messageId);
+    if (!message) return;
+    
+    message.pinned = false;
+    message.pinned_at = null;
+    message.pinned_by = null;
+    
+    // Remove from pinned list
+    pinnedMessagesList = pinnedMessagesList.filter(m => m.id !== messageId);
+    
+    // Save to S3
+    await updateMessageInS3(message);
+    
+    showNotification('Сообщение откреплено', 'success');
+    updateMessagesDisplay();
+}
+
+function updateChannelsSidebar() {
+    const channelsList = document.getElementById('channels-sidebar-list');
+    if (!channelsList) return;
+    
+    // Clear existing channels (except main)
+    const existingChannels = channelsList.querySelectorAll('.channel-item:not([data-channel="main"])');
+    existingChannels.forEach(channel => channel.remove());
+    
+    // Add channels
+    Object.values(appData.channels).forEach(channel => {
+        if (channel.id !== 'main') {
+            addChannelToSidebar(channel);
+        }
+    });
+    
+    // Update active state
+    updateChannelActiveState();
+}
+
+// ===== S3 INTEGRATION =====
+async function checkS3Connection() {
+    try {
+        const response = await fetch(API_CONFIG.endpoints.checkS3, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            s3Status = data.connected ? '✅ Работает' : '❌ Ошибка';
+            updateS3Status(s3Status, data.connected ? 'success' : 'error');
+            return data.connected;
+        }
+        return false;
+    } catch (error) {
+        s3Status = '❌ Нет подключения';
+        updateS3Status(s3Status, 'error');
+        return false;
+    }
+}
+
+async function saveMessageToS3(message) {
+    try {
+        const response = await fetch(API_CONFIG.endpoints.saveMessage, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(message)
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            return data.status === 'success';
+        }
+        return false;
+    } catch (error) {
+        console.error('❌ Ошибка сохранения сообщения:', error);
+        return false;
+    }
+}
+
+async function updateMessageInS3(message) {
+    try {
+        const response = await fetch(API_CONFIG.endpoints.saveMessage, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(message)
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            console.log('✅ Реакция сохранена в S3:', message.id);
+            return true;
+        } else {
+            console.error('❌ Ошибка сохранения реакции:', response.statusText);
+            // Сохраняем локально как резерв
+            if (typeof saveMessageLocally === 'function') {
+                saveMessageLocally(message);
+            }
+            return false;
+        }
+    } catch (error) {
+        console.error('❌ Ошибка сохранения реакции:', error);
+        // Сохраняем локально как резерв
+        if (typeof saveMessageLocally === 'function') {
+            saveMessageLocally(message);
+        }
+        return false;
+    }
+}
+
+async function saveChannelToS3(channel) {
+    try {
+        const response = await fetch(API_CONFIG.endpoints.createChannel, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(channel)
+        });
+        
+        return response.ok;
+    } catch (error) {
+        console.error('❌ Ошибка сохранения канала:', error);
+        return false;
+    }
+}
+
+async function saveRoleToS3(role) {
+    try {
+        const response = await fetch(API_CONFIG.endpoints.createRole, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(role)
+        });
+        
+        return response.ok;
+    } catch (error) {
+        console.error('❌ Ошибка сохранения роли:', error);
+        return false;
+    }
+}
+
+async function saveRolesToS3() {
+    try {
+        const response = await fetch(API_CONFIG.endpoints.updateRole, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ roles: appData.roles })
+        });
+        
+        return response.ok;
+    } catch (error) {
+        console.error('❌ Ошибка сохранения ролей:', error);
+        return false;
+    }
+}
+
+async function uploadVoiceMessage(file, duration) {
+    return new Promise((resolve, reject) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('user_id', currentUserId);
+        formData.append('duration', duration.toString());
+        
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', API_CONFIG.endpoints.uploadVoice, true);
+        
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    if (response.status === 'success') {
+                        resolve({
+                            url: response.file_url,
+                            s3_key: response.filename,
+                            duration: response.duration
+                        });
+                    } else {
+                        reject(new Error(response.message || 'Upload failed'));
+                    }
+                } catch (e) {
+                    reject(new Error('Invalid response'));
+                }
+            } else {
+                reject(new Error(`Upload failed: ${xhr.status}`));
+            }
+        };
+        
+        xhr.onerror = () => reject(new Error('Network error'));
+        xhr.send(formData);
+    });
+}
+
+async function uploadFile(file, type) {
+    return new Promise((resolve, reject) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('user_id', currentUserId);
+        formData.append('type', type);
+        
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', API_CONFIG.endpoints.uploadFile, true);
+        
+        xhr.onload = function() {
+            try {
+                const response = JSON.parse(xhr.responseText);
+                if (xhr.status === 200 && response.status === 'success') {
+                    resolve({
+                        url: response.file_url,
+                        s3_key: response.s3_key,
+                        thumbnail: response.thumbnail_url,
+                        duration: response.duration
+                    });
+                } else {
+                    reject(new Error(response.message || 'Upload failed'));
+                }
+            } catch (error) {
+                reject(new Error('Invalid response'));
+            }
+        };
+        
+        xhr.onerror = function() {
+            reject(new Error('Network error'));
+        };
+        
+        xhr.send(formData);
+    });
+}
+
+// ===== SYNC FUNCTIONS =====
+function startAutoSync() {
+    if (syncInterval) clearInterval(syncInterval);
+    
+    syncInterval = setInterval(async () => {
+        if (isSyncing) return;
+        
+        isSyncing = true;
+        
+        try {
+            // Update user online status
+            await updateUserOnlineStatus();
+            
+            // Load new messages
+            await loadMessages();
+            
+            // Update online count
+            updateOnlineCount();
+            
+            // Sync users
+            await syncUsers();
+            
+        } catch (error) {
+            console.error('❌ Ошибка синхронизации:', error);
+        } finally {
+            isSyncing = false;
+        }
+    }, 5000); // Sync every 5 seconds
+}
+
+async function updateUserOnlineStatus() {
+    try {
+        await fetch(API_CONFIG.endpoints.updateUser, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: currentUserId,
+                is_online: true,
+                last_seen: Date.now()
+            })
+        });
+    } catch (error) {
+        console.error('❌ Ошибка обновления статуса:', error);
+    }
+}
+
+async function syncUsers() {
+    try {
+        const response = await fetch(API_CONFIG.endpoints.getUsers);
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success') {
+                Object.assign(usersCache, data.users);
+                updateOnlineCount();
+            }
+        }
+    } catch (error) {
+        console.error('❌ Ошибка синхронизации пользователей:', error);
+    }
+}
+
+function updateOnlineCount() {
+    // Mark current user as online
+    if (currentUserId && usersCache[currentUserId]) {
+        usersCache[currentUserId].is_online = true;
+        usersCache[currentUserId].last_seen = Date.now();
+    }
+    
+    // Count online users (active in last 5 minutes)
+    const now = Date.now();
+    const fiveMinutes = 5 * 60 * 1000;
+    const onlineCount = Object.values(usersCache).filter(u => {
+        if (u.is_online) return true;
+        if (u.last_seen && (now - u.last_seen) < fiveMinutes) return true;
+        return false;
+    }).length;
+    
+    const totalCount = Math.max(Object.keys(usersCache).length, 1);
+    
+    const onlineElement = document.getElementById('online-count');
+    const sidebarOnlineElement = document.getElementById('sidebar-online-count');
+    
+    if (onlineElement) {
+        onlineElement.textContent = Math.max(onlineCount, 1);
+    }
+    if (sidebarOnlineElement) {
+        sidebarOnlineElement.textContent = `${Math.max(onlineCount, 1)}/${totalCount}`;
+    }
+}
+
+// ===== UTILITY FUNCTIONS =====
+function findMessageById(messageId) {
+    const channel = appData.channels[currentChannel];
+    if (!channel) return null;
+    
+    return channel.messages.find(msg => msg.id === messageId);
+}
+
+function updateUserInfo() {
+    const userName = document.getElementById('user-name');
+    const userAvatar = document.getElementById('user-avatar');
+    const userAvatarText = document.getElementById('user-avatar-text');
+    const profileName = document.getElementById('profile-name');
+    const profileId = document.getElementById('profile-id');
+    const profileRole = document.getElementById('profile-role');
+    
+    if (userName) userName.textContent = currentUser.first_name || 'Гость';
+    if (userAvatarText) userAvatarText.textContent = (currentUser.first_name || 'U').charAt(0).toUpperCase();
+    if (userAvatar) userAvatar.style.backgroundColor = stringToColor(currentUserId);
+    
+    if (profileName) profileName.textContent = currentUser.first_name || 'Гость';
+    if (profileId) profileId.textContent = currentUserId;
+    if (profileRole) profileRole.textContent = isMainAdmin ? 'Главный админ' : isAdmin ? 'Администратор' : 'Пользователь';
 }
 
 function scrollToBottom() {
@@ -2051,6 +4882,37 @@ function scrollToBottom() {
     }
 }
 
+// Инициализация кнопки скролла
+function initScrollButton() {
+    const container = document.getElementById('messages-container');
+    const btnScrollDown = document.getElementById('btn-scroll-down');
+    
+    if (!container || !btnScrollDown) return;
+    
+    function checkScrollButton() {
+        const scrollTop = container.scrollTop;
+        const scrollHeight = container.scrollHeight;
+        const clientHeight = container.clientHeight;
+        const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+        
+        // Показываем кнопку, если пользователь прокрутил вверх более чем на 200px
+        if (distanceFromBottom > 200) {
+            btnScrollDown.style.display = 'flex';
+            setTimeout(() => {
+                btnScrollDown.style.opacity = '1';
+            }, 10);
+        } else {
+            btnScrollDown.style.opacity = '0';
+            setTimeout(() => {
+                btnScrollDown.style.display = 'none';
+            }, 300);
+        }
+    }
+    
+    container.addEventListener('scroll', checkScrollButton);
+    checkScrollButton();
+}
+
 function scrollToBottomIfNeeded() {
     const container = document.getElementById('messages-container');
     if (!container) return;
@@ -2060,6 +4922,7 @@ function scrollToBottomIfNeeded() {
     const clientHeight = container.clientHeight;
     const distanceFromBottom = scrollHeight - scrollPosition - clientHeight;
     
+    // If user is within 100px of bottom, scroll to bottom
     if (distanceFromBottom < 100) {
         scrollToBottom();
     }
@@ -2086,6 +4949,7 @@ function formatDuration(seconds) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
+// Get user avatar HTML (photo_url from Telegram or fallback)
 function getUserAvatar(user, userColor, userName) {
     if (user && user.photo_url) {
         return `<img src="${user.photo_url}" alt="${userName}" class="avatar-image" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div class="avatar-initial" style="background-color: ${userColor}; display: none; align-items: center; justify-content: center; width: 100%; height: 100%; border-radius: 50%; color: white; font-weight: 600; font-size: 14px;">${userName.charAt(0).toUpperCase()}</div>`;
@@ -2164,77 +5028,767 @@ function showNotification(message, type = 'info') {
     }, 3000);
 }
 
-function playSound(type) {
-    const soundsEnabled = localStorage.getItem('soundsEnabled') !== 'false';
-    if (!soundsEnabled) return;
-    
-    // Простой звук через AudioContext
-    try {
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
-        
-        oscillator.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-        
-        let frequency = 440;
-        let duration = 0.1;
-        
-        switch(type) {
-            case 'send':
-                frequency = 523.25;
-                break;
-            case 'notification':
-                frequency = 659.25;
-                duration = 0.2;
-                break;
-            case 'reaction':
-                frequency = 349.23;
-                duration = 0.15;
-                break;
-        }
-        
-        oscillator.frequency.value = frequency;
-        oscillator.type = 'sine';
-        
-        gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
-        
-        oscillator.start(audioContext.currentTime);
-        oscillator.stop(audioContext.currentTime + duration);
-    } catch (e) {
-        console.log('Audio play failed:', e);
+function updateS3Status(text, type = 'info') {
+    const statusElement = document.getElementById('s3-status');
+    if (statusElement) {
+        statusElement.textContent = text;
+        statusElement.className = `settings-status ${type}`;
     }
 }
 
-// ===== ЭКСПОРТ ФУНКЦИЙ В ГЛОБАЛЬНУЮ ОБЛАСТЬ =====
-window.addReaction = addReaction;
-window.showMirrorConstructor = showMirrorConstructor;
-window.createMirror = createMirror;
-window.selectMessage = selectMessage;
-window.clearSelection = clearSelection;
-window.downloadVoiceMessage = downloadVoiceMessage;
-window.scrollToBottom = scrollToBottom;
-window.showImagePreview = showImagePreview;
-window.handleMessageAction = handleMessageAction;
-window.addQuickReaction = function(emoji) {
-    const menu = document.getElementById('quick-reactions-menu');
-    if (!menu) return;
+function showUploadProgress(show, text = 'Загрузка...') {
+    const progress = document.getElementById('upload-progress');
+    const uploadText = document.getElementById('upload-text');
     
-    const messageId = menu.dataset.messageId;
-    if (messageId) {
-        addReaction(messageId, emoji);
+    if (progress) progress.style.display = show ? 'flex' : 'none';
+    if (uploadText && text) uploadText.textContent = text;
+}
+
+function updateUploadProgress(percent) {
+    const progressBar = document.getElementById('progress-bar-fill');
+    const progressText = document.getElementById('progress-text');
+    
+    if (progressBar) progressBar.style.width = `${percent}%`;
+    if (progressText) progressText.textContent = `${percent}%`;
+}
+
+function playSound(type) {
+    const soundsEnabled = localStorage.getItem('sounds_enabled') !== 'false';
+    if (!soundsEnabled) return;
+    
+    const audio = document.getElementById('audio-player');
+    if (!audio) return;
+    
+    audio.currentTime = 0;
+    audio.play().catch(e => console.log('Audio play failed:', e));
+}
+
+function copyToClipboard(text) {
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(() => {
+            showNotification('Скопировано в буфер', 'success');
+        });
+    } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        showNotification('Скопировано в буфер', 'success');
+    }
+}
+
+function downloadFile(url, filename) {
+    // Extract filepath from S3 URL
+    let filepath = '';
+    if (url.includes('/telegram-chat-files/')) {
+        filepath = url.split('/telegram-chat-files/')[1];
+    } else if (url.includes(S3_BUCKET)) {
+        filepath = url.split(`${S3_BUCKET}/`)[1];
+    } else {
+        // If it's already a relative path or different format, use as is
+        filepath = url;
     }
     
-    menu.style.display = 'none';
-};
+    // Use download endpoint
+    const downloadUrl = `/api/s3/download/${filepath}`;
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = filename || 'file';
+    link.target = '_blank';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
 
-// ===== ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ =====
+function showMoreMenu() {
+    showNotification('Меню', 'info');
+}
+
+function closeAllMenus(e) {
+    const menus = ['attach-menu', 'emoji-picker', 'message-actions-menu', 'forward-menu'];
+    
+    menus.forEach(menuId => {
+        const menu = document.getElementById(menuId);
+        if (menu && menu.style.display !== 'none') {
+            const triggerId = menuId === 'attach-menu' ? 'btn-attach' : 
+                            menuId === 'emoji-picker' ? 'btn-emoji' : null;
+            const trigger = triggerId ? document.getElementById(triggerId) : null;
+            
+            if (e && (
+                menu.contains(e.target) || 
+                (trigger && trigger.contains(e.target))
+            )) {
+                return;
+            }
+            
+            menu.style.display = 'none';
+        }
+    });
+}
+
+// ===== REACTION FUNCTIONS =====
+function toggleReaction(messageId, emoji) {
+    const message = findMessageById(messageId);
+    if (!message) return;
+    
+    if (!message.reactions) message.reactions = {};
+    if (!message.reactions[emoji]) message.reactions[emoji] = [];
+    
+    const userIndex = message.reactions[emoji].indexOf(currentUserId);
+    
+    if (userIndex > -1) {
+        // Remove reaction
+        message.reactions[emoji].splice(userIndex, 1);
+        if (message.reactions[emoji].length === 0) {
+            delete message.reactions[emoji];
+        }
+    } else {
+        // Add reaction
+        message.reactions[emoji].push(currentUserId);
+    }
+    
+    // Update in S3
+    updateMessageInS3(message);
+    
+    // Update UI
+    updateMessageReactions(message.id);
+    
+    // Play sound if enabled
+    if (localStorage.getItem('soundsEnabled') !== 'false') {
+    playSound('reaction');
+    }
+}
+
+function updateMessageReactions(message) {
+    const messageElement = document.querySelector(`[data-message-id="${message.id}"]`);
+    if (!messageElement) return;
+    
+    const reactionsContainer = messageElement.querySelector('.message-reactions');
+    if (!reactionsContainer) {
+        // Create reactions container if it doesn't exist
+        const messageContent = messageElement.querySelector('.message-content');
+        if (messageContent) {
+            const newReactionsContainer = document.createElement('div');
+            newReactionsContainer.className = 'message-reactions';
+            messageContent.appendChild(newReactionsContainer);
+            updateReactionsHTML(newReactionsContainer, message);
+        }
+    } else {
+        updateReactionsHTML(reactionsContainer, message);
+    }
+}
+
+function updateReactionsHTML(container, message) {
+    if (!message.reactions || Object.keys(message.reactions).length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+    
+    const reactionsHTML = Object.entries(message.reactions)
+        .map(([emoji, users]) => {
+            const count = users.length;
+            const hasReacted = users.includes(currentUserId);
+            return `
+                <div class="reaction ${hasReacted ? 'user-reacted' : ''}" 
+                     data-emoji="${emoji}"
+                     onclick="toggleReaction('${message.id}', '${emoji}')">
+                    <span class="reaction-emoji">${emoji}</span>
+                    <span class="reaction-count">${count}</span>
+                </div>
+            `;
+        })
+        .join('');
+    
+    container.innerHTML = reactionsHTML;
+}
+
+// ===== COMPRESSION FUNCTIONS =====
+async function compressImage(file, quality = 0.7, maxWidth = 1600) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const img = new Image();
+            img.onload = function() {
+                let width = img.width;
+                let height = img.height;
+                
+                if (width > maxWidth) {
+                    height = Math.round((height * maxWidth) / width);
+                    width = maxWidth;
+                }
+                
+                let finalQuality = quality;
+                if (file.size > 5 * 1024 * 1024) {
+                    finalQuality = 0.6;
+                } else if (file.size > 2 * 1024 * 1024) {
+                    finalQuality = 0.65;
+                }
+                
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                
+                const ctx = canvas.getContext('2d');
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                
+                ctx.drawImage(img, 0, 0, width, height);
+                
+                const compressedDataUrl = canvas.toDataURL('image/jpeg', finalQuality);
+                
+                canvas.toBlob(function(blob) {
+                    resolve({
+                        blob: blob,
+                        dataUrl: compressedDataUrl,
+                        width: width,
+                        height: height,
+                        size: blob.size,
+                        compressed: true,
+                        originalSize: file.size
+                    });
+                }, 'image/jpeg', finalQuality);
+            };
+            
+            img.onerror = reject;
+            img.src = e.target.result;
+        };
+        
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+async function compressVideo(file, maxBitrate = 1500000, maxWidth = 1280) {
+    return new Promise((resolve, reject) => {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        video.muted = true;
+        
+        video.onloadedmetadata = async function() {
+            const originalWidth = video.videoWidth;
+            const originalHeight = video.videoHeight;
+            const duration = video.duration;
+            const originalSize = file.size;
+            
+            let width = originalWidth;
+            let height = originalHeight;
+            
+            if (width > maxWidth) {
+                height = Math.round((height * maxWidth) / width);
+                width = maxWidth;
+            }
+            
+            if (originalSize > 10 * 1024 * 1024 && MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
+                try {
+                    const compressedBlob = await compressVideoWithMediaRecorder(video, width, height, maxBitrate);
+                    if (compressedBlob && compressedBlob.size < originalSize * 0.9) {
+                        resolve({
+                            originalWidth,
+                            originalHeight,
+                            targetWidth: width,
+                            targetHeight: height,
+                            duration,
+                            compressed: true,
+                            compressedBlob: compressedBlob,
+                            size: compressedBlob.size,
+                            originalSize: originalSize,
+                            maxBitrate
+                        });
+                        return;
+                    }
+                } catch (error) {
+                    console.warn('Видео сжатие через MediaRecorder не удалось:', error);
+                }
+            }
+            
+            resolve({
+                originalWidth,
+                originalHeight,
+                targetWidth: width,
+                targetHeight: height,
+                duration,
+                compressed: false,
+                size: originalSize,
+                maxBitrate
+            });
+        };
+        
+        video.onerror = reject;
+        video.src = URL.createObjectURL(file);
+    });
+}
+
+async function compressVideoWithMediaRecorder(videoElement, targetWidth, targetHeight, maxBitrate) {
+    return new Promise((resolve, reject) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext('2d');
+        
+        const stream = canvas.captureStream(30);
+        const options = {
+            mimeType: 'video/webm;codecs=vp9',
+            videoBitsPerSecond: maxBitrate
+        };
+        
+        if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+            options.mimeType = 'video/webm;codecs=vp8';
+            if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                options.mimeType = 'video/webm';
+            }
+        }
+        
+        const mediaRecorder = new MediaRecorder(stream, options);
+        const chunks = [];
+        
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) {
+                chunks.push(e.data);
+            }
+        };
+        
+        mediaRecorder.onstop = () => {
+            const blob = new Blob(chunks, { type: options.mimeType });
+            resolve(blob);
+        };
+        
+        mediaRecorder.onerror = reject;
+        
+        videoElement.currentTime = 0;
+        videoElement.play();
+        
+        const drawFrame = () => {
+            if (videoElement.ended || videoElement.paused) {
+                mediaRecorder.stop();
+                return;
+            }
+            
+            ctx.drawImage(videoElement, 0, 0, targetWidth, targetHeight);
+            requestAnimationFrame(drawFrame);
+        };
+        
+        videoElement.onplay = () => {
+            mediaRecorder.start();
+            drawFrame();
+        };
+        
+        setTimeout(() => {
+            if (mediaRecorder.state !== 'inactive') {
+                videoElement.pause();
+                mediaRecorder.stop();
+            }
+        }, videoElement.duration * 1000 + 1000);
+    });
+}
+
+// ===== LAZY LOADING FUNCTIONS =====
+function initLazyLoading() {
+    if ('IntersectionObserver' in window) {
+        observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const img = entry.target;
+                    
+                    // Load image
+                    if (img.dataset.src) {
+                        img.src = img.dataset.src;
+                        img.removeAttribute('data-src');
+                        
+                        // Load full quality image after preview
+                        if (img.dataset.fullSrc) {
+                            setTimeout(() => {
+                                const fullImg = new Image();
+                                fullImg.onload = function() {
+                                    img.src = this.src;
+                                };
+                                fullImg.src = img.dataset.fullSrc;
+                            }, 1000);
+                        }
+                    }
+                    
+                    // Load video thumbnail
+                    if (img.dataset.poster) {
+                        img.src = img.dataset.poster;
+                        img.removeAttribute('data-poster');
+                    }
+                    
+                    observer.unobserve(img);
+                }
+            });
+        }, {
+            root: null,
+            rootMargin: '50px',
+            threshold: 0.1
+        });
+        
+        // Start observing images
+        setTimeout(() => {
+            document.querySelectorAll('img[data-src], img[data-poster]').forEach(img => {
+                observer.observe(img);
+            });
+        }, 100);
+    }
+}
+
+function observeImage(img) {
+    if (observer && (img.dataset.src || img.dataset.poster)) {
+        observer.observe(img);
+    }
+}
+
+// ===== PREVIEW FUNCTIONS =====
+async function createImagePreview(file, maxWidth = 400, quality = 0.6) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const img = new Image();
+            img.onload = function() {
+                let width = img.width;
+                let height = img.height;
+                
+                if (width > maxWidth) {
+                    height = Math.round((height * maxWidth) / width);
+                    width = maxWidth;
+                }
+                
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+                
+                const previewDataUrl = canvas.toDataURL('image/jpeg', quality);
+                
+                resolve({
+                    dataUrl: previewDataUrl,
+                    width: width,
+                    height: height,
+                    isPreview: true
+                });
+            };
+            
+            img.onerror = reject;
+            img.src = e.target.result;
+        };
+        
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+async function createVideoPreview(file, maxWidth = 400) {
+    return new Promise((resolve, reject) => {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        
+        video.onloadedmetadata = function() {
+            this.currentTime = Math.min(1, this.duration * 0.1);
+            
+            this.onseeked = function() {
+                const canvas = document.createElement('canvas');
+                let width = this.videoWidth;
+                let height = this.videoHeight;
+                
+                if (width > maxWidth) {
+                    height = Math.round((height * maxWidth) / width);
+                    width = maxWidth;
+                }
+                
+                canvas.width = width;
+                canvas.height = height;
+                
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(this, 0, 0, width, height);
+                
+                const previewDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+                
+                resolve({
+                    dataUrl: previewDataUrl,
+                    width: width,
+                    height: height,
+                    duration: this.duration,
+                    isPreview: true
+                });
+                
+                URL.revokeObjectURL(this.src);
+            };
+        };
+        
+        video.onerror = reject;
+        video.src = URL.createObjectURL(file);
+    });
+}
+
+// ===== POLL FUNCTIONS =====
+function createPoll() {
+    const question = prompt('Введите вопрос для опроса:');
+    if (!question) return;
+    
+    const options = [];
+    let option;
+    let optionCount = 0;
+    
+    while (optionCount < 10) {
+        option = prompt(`Введите вариант ответа ${optionCount + 1} (оставьте пустым для завершения):`);
+        if (!option) break;
+        options.push({
+            id: `opt_${Date.now()}_${optionCount}`,
+            text: option,
+            votes: 0,
+            voters: []
+        });
+        optionCount++;
+    }
+    
+    if (options.length < 2) {
+        showNotification('Нужно хотя бы 2 варианта ответа', 'error');
+        return;
+    }
+    
+    const poll = {
+        id: `poll_${Date.now()}`,
+        question: question,
+        options: options,
+        multiple: confirm('Разрешить выбор нескольких вариантов?'),
+        total_votes: 0,
+        is_closed: false
+    };
+    
+    // Send poll as message
+    const messageId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    
+    const message = {
+        id: messageId,
+        user_id: currentUserId,
+        user: currentUser,
+        content: `📊 ${question}`,
+        poll: poll,
+        timestamp: Date.now(),
+        channel: currentChannel,
+        is_local: true
+    };
+    
+    // Add to local cache
+    if (!appData.channels[currentChannel]) {
+        appData.channels[currentChannel] = {
+            id: currentChannel,
+            name: currentChannel,
+            type: 'public',
+            messages: [],
+            pinned: []
+        };
+    }
+    
+    appData.channels[currentChannel].messages.push(message);
+    
+    // Update UI
+    appendPollMessage(message);
+    
+    // Save to S3
+    saveMessageToS3(message);
+    
+    showNotification('Опрос создан', 'success');
+}
+
+function appendPollMessage(message) {
+    const container = document.getElementById('messages-wrapper');
+    if (!container) return;
+    
+    const emptyChat = document.getElementById('empty-chat');
+    if (emptyChat) emptyChat.style.display = 'none';
+    
+    const messageElement = createPollElement(message);
+    container.appendChild(messageElement);
+    
+    scrollToBottomIfNeeded();
+}
+
+function createPollElement(message) {
+    const isOutgoing = message.user_id == currentUserId;
+    const user = usersCache[message.user_id] || message.user || {};
+    const userName = user.first_name || 'Пользователь';
+    const userColor = stringToColor(message.user_id);
+    
+    const time = new Date(message.timestamp).toLocaleTimeString('ru-RU', { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+    });
+    
+    const poll = message.poll;
+    const totalVotes = poll.total_votes;
+    
+    const pollHTML = poll.options.map(option => {
+        const percentage = totalVotes > 0 ? (option.votes / totalVotes * 100) : 0;
+        const hasVoted = option.voters.includes(currentUserId);
+        
+        return `
+            <div class="poll-option ${hasVoted ? 'poll-option-voted' : ''}" 
+                 data-poll-id="${poll.id}" 
+                 data-option-id="${option.id}"
+                 onclick="voteInPoll('${poll.id}', '${option.id}')">
+                <div class="poll-option-text">${escapeHtml(option.text)}</div>
+                <div class="poll-option-bar">
+                    <div class="poll-option-fill" style="width: ${percentage}%"></div>
+                </div>
+                <div class="poll-option-stats">
+                    <span class="poll-percentage">${percentage.toFixed(1)}%</span>
+                    <span class="poll-votes">(${option.votes})</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+    
+    const messageElement = document.createElement('div');
+    messageElement.className = `message ${isOutgoing ? 'outgoing' : 'incoming'}`;
+    messageElement.dataset.messageId = message.id;
+    messageElement.innerHTML = `
+        ${!isOutgoing ? `
+            <div class="message-avatar">
+                ${getUserAvatar(user, userColor, userName)}
+            </div>
+        ` : ''}
+        
+        <div class="message-content">
+            ${!isOutgoing ? `
+                <div class="message-header">
+                    <div class="message-sender">${userName}</div>
+                    <div class="message-time">${time}</div>
+                </div>
+            ` : ''}
+            
+            <div class="message-poll">
+                <div class="poll-question">📊 ${escapeHtml(poll.question)}</div>
+                ${pollHTML}
+                <div class="poll-footer">
+                    <span class="poll-total-votes">Всего голосов: ${totalVotes}</span>
+                    ${isAdmin ? `
+                        <button class="poll-close-btn" onclick="closePoll('${poll.id}')">
+                            Закрыть опрос
+                        </button>
+                    ` : ''}
+                </div>
+            </div>
+            
+            ${isOutgoing ? `
+                <div class="message-status">
+                    <div class="message-time">${time}</div>
+                    <i class="fas fa-check"></i>
+                </div>
+            ` : ''}
+        </div>
+    `;
+    
+    return messageElement;
+}
+
+function voteInPoll(pollId, optionId) {
+    const channel = appData.channels[currentChannel];
+    if (!channel) return;
+    
+    const message = channel.messages.find(msg => msg.poll && msg.poll.id === pollId);
+    if (!message || !message.poll) return;
+    
+    const poll = message.poll;
+    
+    if (poll.is_closed) {
+        showNotification('Опрос закрыт', 'error');
+        return;
+    }
+    
+    const option = poll.options.find(opt => opt.id === optionId);
+    if (!option) return;
+    
+    const hasVoted = option.voters.includes(currentUserId);
+    
+    if (poll.multiple) {
+        if (hasVoted) {
+            const index = option.voters.indexOf(currentUserId);
+            option.voters.splice(index, 1);
+            option.votes--;
+            poll.total_votes--;
+        } else {
+            option.voters.push(currentUserId);
+            option.votes++;
+            poll.total_votes++;
+        }
+    } else {
+        poll.options.forEach(opt => {
+            const index = opt.voters.indexOf(currentUserId);
+            if (index > -1) {
+                opt.voters.splice(index, 1);
+                opt.votes--;
+                poll.total_votes--;
+            }
+        });
+        
+        if (!hasVoted) {
+            option.voters.push(currentUserId);
+            option.votes++;
+            poll.total_votes++;
+        }
+    }
+    
+    updateMessageInS3(message);
+    updatePollDisplay(message);
+    
+    showNotification('Голос учтен', 'success');
+}
+
+function closePoll(pollId) {
+    if (!isAdmin) {
+        showNotification('Только администраторы могут закрывать опросы', 'error');
+        return;
+    }
+    
+    const channel = appData.channels[currentChannel];
+    if (!channel) return;
+    
+    const message = channel.messages.find(msg => msg.poll && msg.poll.id === pollId);
+    if (!message || !message.poll) return;
+    
+    message.poll.is_closed = true;
+    updateMessageInS3(message);
+    updatePollDisplay(message);
+    
+    showNotification('Опрос закрыт', 'success');
+}
+
+function updatePollDisplay(message) {
+    const messageElement = document.querySelector(`[data-message-id="${message.id}"]`);
+    if (messageElement) {
+        const newElement = createPollElement(message);
+        messageElement.replaceWith(newElement);
+    }
+}
+
+// ===== GLOBAL EXPORTS =====
+window.copyToClipboard = copyToClipboard;
+window.downloadFile = downloadFile;
+window.removeAttachment = removeAttachment;
+window.clearAttachments = clearAttachments;
+window.toggleReaction = toggleReaction;
+window.voteInPoll = voteInPoll;
+window.closePoll = closePoll;
+window.showImagePreview = showImagePreview;
+window.handleMessageAction = handleMessageAction;
+window.addQuickReaction = addQuickReaction;
+window.downloadVoiceMessage = downloadVoiceMessage;
+window.scrollToBottom = scrollToBottom;
+window.sendMessageWithFiles = sendMessageWithFiles;
+
+// ===== INITIALIZATION =====
 document.addEventListener('DOMContentLoaded', function() {
     adjustViewport();
     
     window.addEventListener('resize', adjustViewport);
     window.addEventListener('orientationchange', adjustViewport);
+    
+    document.addEventListener('touchmove', function(e) {
+        if (e.scale !== 1) e.preventDefault();
+    }, { passive: false });
     
     setTimeout(() => {
         if (typeof initApp === 'function') {
