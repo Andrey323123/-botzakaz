@@ -5763,7 +5763,598 @@ function updatePollDisplay(message) {
         messageElement.replaceWith(newElement);
     }
 }
+// ===== ОБРАБОТКА ПОЛНОЙ КЛАВИАТУРЫ =====
+document.addEventListener('keydown', function(e) {
+    // ESC - закрыть все меню
+    if (e.key === 'Escape') {
+        closeAllMenus();
+    }
+    
+    // Ctrl+F - поиск
+    if (e.ctrlKey && e.key === 'f') {
+        e.preventDefault();
+        toggleSearch();
+    }
+    
+    // Ctrl+Enter - отправить сообщение
+    if (e.ctrlKey && e.key === 'Enter') {
+        e.preventDefault();
+        sendMessage();
+    }
+    
+    // Ctrl+K - создать канал
+    if (e.ctrlKey && e.key === 'k') {
+        e.preventDefault();
+        showCreateChannelModal();
+    }
+    
+    // Ctrl+L - очистить чат
+    if (e.ctrlKey && e.key === 'l') {
+        e.preventDefault();
+        clearChat();
+    }
+});
 
+// ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
+function clearChat() {
+    if (confirm('Очистить все сообщения в этом канале?')) {
+        const channel = appData.channels[currentChannel];
+        if (channel) {
+            channel.messages = [];
+            updateMessagesDisplay();
+            showNotification('Чат очищен', 'success');
+        }
+    }
+}
+
+function createSection() {
+    if (!isAdmin && !isMainAdmin) {
+        showNotification('Только администраторы могут создавать разделы', 'error');
+        return;
+    }
+    
+    const name = prompt('Название нового раздела:');
+    if (!name) return;
+    
+    const description = prompt('Описание раздела (необязательно):', '');
+    const readOnly = confirm('Сделать раздел только для чтения?');
+    
+    createSection(name, description, readOnly);
+}
+
+function markAllAsRead() {
+    const messages = appData.channels[currentChannel]?.messages || [];
+    if (messages.length > 0) {
+        lastReadMessageId = messages[messages.length - 1].id;
+        unreadCount = 0;
+        updateUnreadCount();
+        showNotification('Все сообщения прочитаны', 'success');
+    }
+}
+
+// ===== РЕАКЦИИ НА СООБЩЕНИЯХ =====
+function addReaction(messageId, emoji) {
+    const message = findMessageById(messageId);
+    if (!message) return;
+    
+    if (!message.reactions) message.reactions = {};
+    if (!message.reactions[emoji]) message.reactions[emoji] = [];
+    
+    const userIndex = message.reactions[emoji].indexOf(currentUserId);
+    
+    if (userIndex > -1) {
+        // Удаляем реакцию
+        message.reactions[emoji].splice(userIndex, 1);
+        if (message.reactions[emoji].length === 0) {
+            delete message.reactions[emoji];
+        }
+    } else {
+        // Добавляем реакцию
+        message.reactions[emoji].push(currentUserId);
+    }
+    
+    // Сохраняем в S3
+    updateMessageInS3(message);
+    
+    // Обновляем UI
+    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (messageElement) {
+        const reactionsContainer = messageElement.querySelector('.message-reactions');
+        if (reactionsContainer) {
+            updateReactionsHTML(reactionsContainer, message);
+        } else {
+            // Создаем контейнер для реакций
+            const messageContent = messageElement.querySelector('.message-content');
+            if (messageContent) {
+                const newContainer = document.createElement('div');
+                newContainer.className = 'message-reactions';
+                messageContent.appendChild(newContainer);
+                updateReactionsHTML(newContainer, message);
+            }
+        }
+    }
+    
+    playSound('reaction');
+}
+
+function updateReactionsHTML(container, message) {
+    if (!message.reactions || Object.keys(message.reactions).length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+    
+    const reactions = Object.entries(message.reactions)
+        .sort((a, b) => b[1].length - a[1].length) // Сортируем по популярности
+        .map(([emoji, users]) => {
+            const count = users.length;
+            const hasReacted = users.includes(currentUserId);
+            return `
+                <div class="reaction ${hasReacted ? 'user-reacted' : ''}" 
+                     onclick="addReaction('${message.id}', '${emoji}')">
+                    <span class="reaction-emoji">${emoji}</span>
+                    <span class="reaction-count">${count}</span>
+                </div>
+            `;
+        })
+        .join('');
+    
+    container.innerHTML = reactions;
+}
+
+// ===== ГОЛОСОВЫЕ СООБЩЕНИЯ =====
+let isRecording = false;
+let audioContext = null;
+let analyser = null;
+let microphone = null;
+
+async function startVoiceRecording() {
+    try {
+        if (isRecording) {
+            stopVoiceRecording();
+            return;
+        }
+        
+        // Останавливаем другие аудио
+        Object.values(activeVoicePlayers).forEach(player => {
+            if (player.audio) player.audio.pause();
+        });
+        
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            showNotification('Ваш браузер не поддерживает запись голоса', 'error');
+            return;
+        }
+        
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        });
+        
+        // Создаем MediaRecorder
+        const options = { mimeType: 'audio/webm' };
+        mediaRecorder = new MediaRecorder(stream, options);
+        audioChunks = [];
+        
+        // Обработчики событий
+        mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+                audioChunks.push(event.data);
+            }
+        };
+        
+        mediaRecorder.onstop = async () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            const duration = recordingStartTime ? Math.round((Date.now() - recordingStartTime) / 1000) : 0;
+            
+            // Создаем голосовое сообщение
+            const voiceInfo = {
+                id: 'voice_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+                blob: audioBlob,
+                file: audioBlob,
+                name: 'Голосовое сообщение',
+                type: 'voice',
+                size: audioBlob.size,
+                mimeType: 'audio/webm',
+                duration: duration,
+                isLocal: true
+            };
+            
+            // Добавляем к сообщению
+            attachedFiles.push(voiceInfo);
+            showFilePreview(voiceInfo);
+            
+            // Останавливаем микрофон
+            stream.getTracks().forEach(track => track.stop());
+            
+            // Скрываем интерфейс записи
+            hideVoiceRecorder();
+            
+            // Сбрасываем состояние
+            isRecording = false;
+            clearInterval(recordingTimer);
+            recordingTimer = null;
+            
+            // Активируем кнопку отправки
+            document.getElementById('btn-send').disabled = false;
+        };
+        
+        // Начинаем запись
+        mediaRecorder.start(100);
+        recordingStartTime = Date.now();
+        isRecording = true;
+        
+        // Показываем интерфейс записи
+        showVoiceRecorder();
+        
+        // Запускаем таймер
+        startRecordingTimer();
+        
+        // Автоматическая остановка через 1 минуту
+        setTimeout(() => {
+            if (isRecording) {
+                stopVoiceRecording();
+            }
+        }, 60000);
+        
+    } catch (error) {
+        console.error('Ошибка записи голоса:', error);
+        showNotification('Ошибка доступа к микрофону', 'error');
+        isRecording = false;
+    }
+}
+
+function stopVoiceRecording() {
+    if (mediaRecorder && isRecording) {
+        mediaRecorder.stop();
+    }
+}
+
+// ===== ПЕРЕСЫЛКА СООБЩЕНИЙ =====
+function forwardMessage(messageId, targetChannelId) {
+    const message = findMessageById(messageId);
+    if (!message) return;
+    
+    // Создаем копию сообщения для пересылки
+    const forwardedMessage = {
+        ...message,
+        id: 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+        forwarded_from: message.id,
+        forwarded_by: currentUserId,
+        timestamp: Date.now(),
+        channel: targetChannelId,
+        is_forwarded: true
+    };
+    
+    // Сохраняем в S3
+    saveMessageToS3(forwardedMessage);
+    
+    // Добавляем в локальный кэш
+    if (!appData.channels[targetChannelId]) {
+        appData.channels[targetChannelId] = {
+            id: targetChannelId,
+            name: targetChannelId,
+            type: 'public',
+            messages: [],
+            pinned: []
+        };
+    }
+    
+    appData.channels[targetChannelId].messages.push(forwardedMessage);
+    
+    // Показываем уведомление
+    const channelName = appData.channels[targetChannelId]?.name || targetChannelId;
+    showNotification(`Сообщение переслано в ${channelName}`, 'success');
+}
+
+// ===== ЗАКРЕПЛЕНИЕ СООБЩЕНИЙ =====
+async function pinMessage(messageId) {
+    if (!isAdmin && !isMainAdmin) {
+        showNotification('Только администраторы могут закреплять сообщения', 'error');
+        return;
+    }
+    
+    const message = findMessageById(messageId);
+    if (!message) return;
+    
+    message.pinned = true;
+    message.pinned_at = Date.now();
+    message.pinned_by = currentUserId;
+    
+    // Добавляем в список закрепленных
+    if (!pinnedMessagesList.find(m => m.id === messageId)) {
+        pinnedMessagesList.push(message);
+    }
+    
+    // Сохраняем в S3
+    await updateMessageInS3(message);
+    
+    showNotification('Сообщение закреплено', 'success');
+}
+
+async function unpinMessage(messageId) {
+    if (!isAdmin && !isMainAdmin) {
+        showNotification('Только администраторы могут откреплять сообщения', 'error');
+        return;
+    }
+    
+    const message = findMessageById(messageId);
+    if (!message) return;
+    
+    message.pinned = false;
+    message.pinned_at = null;
+    message.pinned_by = null;
+    
+    // Удаляем из списка закрепленных
+    pinnedMessagesList = pinnedMessagesList.filter(m => m.id !== messageId);
+    
+    // Сохраняем в S3
+    await updateMessageInS3(message);
+    
+    showNotification('Сообщение откреплено', 'success');
+}
+
+// ===== ОПРОСЫ =====
+function createPoll() {
+    const question = prompt('Вопрос опроса:');
+    if (!question) return;
+    
+    const options = [];
+    let option;
+    
+    for (let i = 0; i < 10; i++) {
+        option = prompt(`Вариант ответа ${i + 1} (оставьте пустым для завершения):`);
+        if (!option) break;
+        options.push({
+            text: option,
+            votes: 0,
+            voters: []
+        });
+    }
+    
+    if (options.length < 2) {
+        showNotification('Нужно хотя бы 2 варианта ответа', 'error');
+        return;
+    }
+    
+    const poll = {
+        id: 'poll_' + Date.now(),
+        question: question,
+        options: options,
+        multiple: confirm('Разрешить выбор нескольких вариантов?'),
+        total_votes: 0,
+        is_closed: false
+    };
+    
+    // Создаем сообщение с опросом
+    const message = {
+        id: 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+        user_id: currentUserId,
+        user: currentUser,
+        content: `📊 Опрос: ${question}`,
+        poll: poll,
+        timestamp: Date.now(),
+        channel: currentChannel,
+        section: currentSection,
+        is_local: true
+    };
+    
+    // Добавляем в чат
+    if (!appData.channels[currentChannel]) {
+        appData.channels[currentChannel] = {
+            id: currentChannel,
+            name: currentChannel,
+            type: 'public',
+            messages: [],
+            pinned: []
+        };
+    }
+    
+    appData.channels[currentChannel].messages.push(message);
+    appendMessage(message);
+    
+    // Сохраняем в S3
+    saveMessageToS3(message);
+    
+    showNotification('Опрос создан', 'success');
+}
+
+// ===== ВЫДЕЛЕНИЕ СООБЩЕНИЙ =====
+function selectMessage(messageId) {
+    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (!messageElement) return;
+    
+    if (selectedMessages.has(messageId)) {
+        selectedMessages.delete(messageId);
+        messageElement.classList.remove('selected');
+    } else {
+        selectedMessages.add(messageId);
+        messageElement.classList.add('selected');
+    }
+    
+    updateSelectionUI();
+}
+
+function updateSelectionUI() {
+    const selectionBar = document.getElementById('selection-bar');
+    if (!selectionBar) {
+        createSelectionBar();
+    } else {
+        selectionBar.style.display = selectedMessages.size > 0 ? 'flex' : 'none';
+        
+        const countElement = selectionBar.querySelector('.selected-count');
+        if (countElement) {
+            countElement.textContent = selectedMessages.size;
+        }
+    }
+}
+
+function createSelectionBar() {
+    const selectionBar = document.createElement('div');
+    selectionBar.id = 'selection-bar';
+    selectionBar.className = 'selection-bar';
+    selectionBar.innerHTML = `
+        <div class="selection-info">
+            <span class="selected-count">${selectedMessages.size}</span> выбрано
+        </div>
+        <div class="selection-actions">
+            <button class="btn-selection-action" onclick="forwardSelectedMessages()">
+                <i class="fas fa-share"></i>
+                Переслать
+            </button>
+            <button class="btn-selection-action" onclick="deleteSelectedMessages()">
+                <i class="fas fa-trash"></i>
+                Удалить
+            </button>
+            <button class="btn-selection-action" onclick="clearSelection()">
+                <i class="fas fa-times"></i>
+                Отмена
+            </button>
+        </div>
+    `;
+    
+    document.querySelector('.messages-container').appendChild(selectionBar);
+    selectionBar.style.display = 'flex';
+}
+
+function clearSelection() {
+    selectedMessages.forEach(msgId => {
+        const element = document.querySelector(`[data-message-id="${msgId}"]`);
+        if (element) element.classList.remove('selected');
+    });
+    selectedMessages.clear();
+    
+    const selectionBar = document.getElementById('selection-bar');
+    if (selectionBar) selectionBar.style.display = 'none';
+}
+
+function forwardSelectedMessages() {
+    if (selectedMessages.size === 0) return;
+    
+    // Показать меню выбора канала для пересылки
+    showForwardMenu(Array.from(selectedMessages));
+}
+
+function deleteSelectedMessages() {
+    if (selectedMessages.size === 0) return;
+    
+    if (confirm(`Удалить ${selectedMessages.size} сообщений?`)) {
+        selectedMessages.forEach(msgId => {
+            deleteMessage(msgId);
+        });
+        clearSelection();
+    }
+}
+
+// ===== АДМИНИСТРАТИВНЫЕ ФУНКЦИИ =====
+function showUserManagement() {
+    if (!isAdmin && !isMainAdmin) {
+        showNotification('Только администраторы могут управлять пользователями', 'error');
+        return;
+    }
+    
+    const modal = document.getElementById('users-list-modal');
+    if (modal) {
+        modal.style.display = 'flex';
+        loadUsersList();
+    } else {
+        createUserManagementModal();
+    }
+}
+
+function createUserManagementModal() {
+    // Создание модального окна управления пользователями
+    const modal = document.createElement('div');
+    modal.id = 'users-list-modal';
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">Управление пользователями</div>
+                <button class="btn-close-modal" onclick="closeModal('users-list-modal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="users-search">
+                    <input type="text" id="users-search-input" placeholder="Поиск пользователей..." class="search-input">
+                </div>
+                <div class="users-list" id="users-list">
+                    <div class="loading">Загрузка пользователей...</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-modal-secondary" onclick="closeModal('users-list-modal')">Закрыть</button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    showUserManagement();
+}
+
+// ===== ФУНКЦИЯ ДЛЯ ЗВУКОВ =====
+function playSound(type) {
+    const soundsEnabled = localStorage.getItem('soundsEnabled') !== 'false';
+    if (!soundsEnabled) return;
+    
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    
+    // Создаем разные звуки для разных действий
+    let frequency = 440; // Hz
+    let duration = 0.1; // seconds
+    
+    switch(type) {
+        case 'send':
+            frequency = 523.25; // C5
+            duration = 0.1;
+            break;
+        case 'notification':
+            frequency = 659.25; // E5
+            duration = 0.2;
+            break;
+        case 'reaction':
+            frequency = 349.23; // F4
+            duration = 0.15;
+            break;
+        case 'error':
+            frequency = 220; // A3
+            duration = 0.3;
+            break;
+    }
+    
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    oscillator.frequency.value = frequency;
+    oscillator.type = 'sine';
+    
+    gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+    
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + duration);
+}
+
+// ===== ДОБАВИТЕ В КОНЕЦ ФАЙЛА =====
+// Экспортируем функции в глобальную область видимости
+window.addReaction = addReaction;
+window.pinMessage = pinMessage;
+window.unpinMessage = unpinMessage;
+window.forwardMessage = forwardMessage;
+window.selectMessage = selectMessage;
+window.clearSelection = clearSelection;
+window.showUserManagement = showUserManagement;
+window.startVoiceRecording = startVoiceRecording;
+window.stopVoiceRecording = stopVoiceRecording;
+window.createPoll = createPoll;
+window.createSection = createSection;
+window.markAllAsRead = markAllAsRead;
+window.clearChat = clearChat;
 // ===== GLOBAL EXPORTS =====
 window.copyToClipboard = copyToClipboard;
 window.downloadFile = downloadFile;
