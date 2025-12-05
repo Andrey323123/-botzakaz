@@ -26,10 +26,11 @@ logging.basicConfig(
 flask_logger = logging.getLogger('flask_app')
 
 # ===== КОНФИГУРАЦИЯ SELECTEL S3 =====
+# ⚠️ ЗАМЕНИТЕ НА ВАШИ РЕАЛЬНЫЕ КЛЮЧИ!
 S3_ENDPOINT = "https://s3.ru-3.storage.selcloud.ru"
 S3_BUCKET = "telegram-chat-files"
-S3_ACCESS_KEY = os.getenv('S3_ACCESS_KEY', '25d16365251e45ec9b678de28dafd86b')
-S3_SECRET_KEY = os.getenv('S3_SECRET_KEY', 'cc56887e78d14bdbae867638726a816b')
+S3_ACCESS_KEY = os.getenv('S3_ACCESS_KEY', 'ВАШ_ACCESS_KEY_ЗДЕСЬ')  # ⚠️ ЗАМЕНИТЕ
+S3_SECRET_KEY = os.getenv('S3_SECRET_KEY', 'ВАШ_SECRET_KEY_ЗДЕСЬ')  # ⚠️ ЗАМЕНИТЕ
 
 # Инициализация клиента S3
 s3_client = None
@@ -351,14 +352,20 @@ def proxy_upload_to_s3():
         flask_logger.error(f"❌ Ошибка прокси загрузки файла: {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+# ===== КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Сохранение сообщений =====
 @flask_app.route('/api/s3/save-message', methods=['POST'])
 def save_message_to_s3():
-    """Сохранить сообщение в S3 через бэкенд"""
+    """Сохранить сообщение в S3 через бэкенд - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
     try:
         data = request.json
         
         if not data:
             return jsonify({'status': 'error', 'message': 'No data provided'}), 400
+        
+        # ВАЖНО: Используем ID из фронтенда, а не генерируем новый!
+        message_id = data.get('id')
+        if not message_id:
+            message_id = str(uuid.uuid4())
         
         user_id = data.get('user_id')
         content = data.get('content', '')
@@ -368,40 +375,50 @@ def save_message_to_s3():
         if not user_id:
             return jsonify({'status': 'error', 'message': 'User ID required'}), 400
         
-        # Создаем объект сообщения (используем переданный ID или генерируем новый)
-        message_id = data.get('id') or str(uuid.uuid4())
+        # Создаем объект сообщения с ВСЕМИ данными
         message = {
-            'id': message_id,
+            'id': message_id,  # Используем тот же ID, что и на фронтенде
             'user_id': str(user_id),
             'user': data.get('user', {}),
             'content': content,
             'timestamp': data.get('timestamp') or datetime.now().isoformat(),
             'section': section,
             'channel': data.get('channel', 'main'),
-            'files': files,
+            'files': files,  # Уже должны быть загружены и содержать URL
             'reactions': data.get('reactions', {}),
             'reply_to': data.get('reply_to'),
             'edited': data.get('edited', False),
             'deleted': data.get('deleted', False),
-            'pinned': data.get('pinned', False)
+            'pinned': data.get('pinned', False),
+            'status': 'sent'  # Добавляем статус
         }
         
         # Определяем путь в S3
         s3_path = f"data/messages_{section}.json"
         
         try:
+            if not s3_client:
+                return jsonify({'status': 'error', 'message': 'S3 client not initialized'}), 500
+            
             # Пытаемся загрузить существующие сообщения
-            existing_data = {}
+            existing_data = {'messages': []}
             try:
                 obj = s3_client.get_object(Bucket=S3_BUCKET, Key=s3_path)
                 existing_data = json.loads(obj['Body'].read().decode('utf-8'))
-            except:
+                if 'messages' not in existing_data:
+                    existing_data['messages'] = []
+            except Exception as e:
+                # Файл не существует или ошибка чтения
                 existing_data = {'messages': []}
+                flask_logger.info(f"📝 Создан новый файл сообщений: {s3_path}")
+            
+            # Удаляем старую версию этого сообщения (если есть)
+            existing_data['messages'] = [
+                msg for msg in existing_data['messages'] 
+                if msg.get('id') != message_id
+            ]
             
             # Добавляем новое сообщение
-            if 'messages' not in existing_data:
-                existing_data['messages'] = []
-            
             existing_data['messages'].append(message)
             
             # Сохраняем обратно в S3
@@ -412,8 +429,10 @@ def save_message_to_s3():
                 ContentType='application/json'
             )
             
-            # Также обновляем пользователя в users.json
+            # Обновляем информацию о пользователе
             update_user_in_s3(user_id, data.get('user', {}))
+            
+            flask_logger.info(f"✅ Сообщение сохранено в S3: {message_id}")
             
             return jsonify({
                 'status': 'success',
@@ -433,6 +452,130 @@ def save_message_to_s3():
         flask_logger.error(f"❌ Ошибка сохранения сообщения: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+# Новая функция: сохранение сообщения с файлами
+@flask_app.route('/api/s3/save-message-with-files', methods=['POST'])
+def save_message_with_files():
+    """Сохранить сообщение вместе с файлами - атомарная операция"""
+    try:
+        # Проверяем, есть ли файлы в запросе
+        if request.files:
+            # Есть файлы, нужно сначала загрузить их
+            files_data = []
+            
+            # Обрабатываем файлы
+            for file_key in request.files:
+                file = request.files[file_key]
+                user_id = request.form.get('user_id')
+                file_type = request.form.get(f'{file_key}_type', 'file')
+                
+                # Загружаем файл в S3
+                file_data = file.read()
+                filename = secure_filename(file.filename)
+                ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else 'bin'
+                unique_filename = f"{uuid.uuid4()}.{ext}"
+                filepath = f"uploads/{file_type}/{user_id}/{unique_filename}"
+                
+                file_url = upload_to_s3(
+                    file_data,
+                    filepath,
+                    content_type=file.content_type
+                )
+                
+                files_data.append({
+                    'url': file_url,
+                    'name': filename,
+                    'type': file_type,
+                    'size': len(file_data)
+                })
+            
+            # Получаем данные сообщения
+            message_data = json.loads(request.form.get('message_data', '{}'))
+            message_data['files'] = files_data
+            
+            # Сохраняем сообщение
+            return save_message_to_s3_internal(message_data)
+            
+        else:
+            # Нет файлов, просто сохраняем сообщение
+            data = request.json
+            return save_message_to_s3_internal(data)
+            
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка сохранения сообщения с файлами: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+def save_message_to_s3_internal(data):
+    """Внутренняя функция сохранения сообщения"""
+    try:
+        # Аналогично save_message_to_s3, но для внутреннего использования
+        message_id = data.get('id') or str(uuid.uuid4())
+        user_id = data.get('user_id')
+        section = data.get('section', 'main')
+        
+        if not user_id:
+            return jsonify({'status': 'error', 'message': 'User ID required'}), 400
+        
+        message = {
+            'id': message_id,
+            'user_id': str(user_id),
+            'user': data.get('user', {}),
+            'content': data.get('content', ''),
+            'timestamp': data.get('timestamp') or datetime.now().isoformat(),
+            'section': section,
+            'channel': data.get('channel', 'main'),
+            'files': data.get('files', []),
+            'reactions': data.get('reactions', {}),
+            'reply_to': data.get('reply_to'),
+            'edited': data.get('edited', False),
+            'deleted': data.get('deleted', False),
+            'pinned': data.get('pinned', False),
+            'status': 'sent'
+        }
+        
+        s3_path = f"data/messages_{section}.json"
+        
+        if not s3_client:
+            return jsonify({'status': 'error', 'message': 'S3 client not initialized'}), 500
+        
+        # Загружаем существующие сообщения
+        existing_data = {'messages': []}
+        try:
+            obj = s3_client.get_object(Bucket=S3_BUCKET, Key=s3_path)
+            existing_data = json.loads(obj['Body'].read().decode('utf-8'))
+            if 'messages' not in existing_data:
+                existing_data['messages'] = []
+        except:
+            existing_data = {'messages': []}
+        
+        # Удаляем старое сообщение (если есть)
+        existing_data['messages'] = [
+            msg for msg in existing_data['messages'] 
+            if msg.get('id') != message_id
+        ]
+        
+        # Добавляем новое
+        existing_data['messages'].append(message)
+        
+        # Сохраняем
+        s3_client.put_object(
+            Bucket=S3_BUCKET,
+            Key=s3_path,
+            Body=json.dumps(existing_data, indent=2).encode('utf-8'),
+            ContentType='application/json'
+        )
+        
+        update_user_in_s3(user_id, data.get('user', {}))
+        
+        return jsonify({
+            'status': 'success',
+            'message_id': message_id,
+            'message': 'Сообщение сохранено'
+        })
+        
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка сохранения сообщения: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 def update_user_in_s3(user_id, user_data):
     """Обновить информацию о пользователе в S3"""
     try:
@@ -441,16 +584,18 @@ def update_user_in_s3(user_id, user_data):
         
         s3_path = "data/users.json"
         
+        if not s3_client:
+            return
+        
         # Загружаем существующих пользователей
-        existing_users = {}
+        existing_users = {'users': {}}
         try:
             obj = s3_client.get_object(Bucket=S3_BUCKET, Key=s3_path)
             existing_users = json.loads(obj['Body'].read().decode('utf-8'))
+            if 'users' not in existing_users:
+                existing_users['users'] = {}
         except:
             existing_users = {'users': {}}
-        
-        if 'users' not in existing_users:
-            existing_users['users'] = {}
         
         # Обновляем пользователя
         user_id_str = str(user_id)
@@ -488,6 +633,15 @@ def get_messages_from_s3():
         section = request.args.get('section', 'main')
         s3_path = f"data/messages_{section}.json"
         
+        if not s3_client:
+            return jsonify({
+                'status': 'success',
+                'messages': [],
+                'section': section,
+                'total': 0,
+                'message': 'S3 client not available'
+            })
+        
         try:
             obj = s3_client.get_object(Bucket=S3_BUCKET, Key=s3_path)
             data = json.loads(obj['Body'].read().decode('utf-8'))
@@ -516,6 +670,14 @@ def get_users_from_s3():
     """Получить список пользователей из S3"""
     try:
         s3_path = "data/users.json"
+        
+        if not s3_client:
+            return jsonify({
+                'status': 'success',
+                'users': {},
+                'total': 0,
+                'message': 'S3 client not available'
+            })
         
         try:
             obj = s3_client.get_object(Bucket=S3_BUCKET, Key=s3_path)
@@ -753,6 +915,9 @@ def create_mirror():
         s3_path = f"data/mirrors/{mirror_id}.json"
         
         try:
+            if not s3_client:
+                return jsonify({'status': 'error', 'message': 'S3 client not initialized'}), 500
+            
             s3_client.put_object(
                 Bucket=S3_BUCKET,
                 Key=s3_path,
@@ -794,6 +959,9 @@ def list_mirrors():
         # List mirrors from S3
         mirrors = []
         try:
+            if not s3_client:
+                return jsonify({'status': 'error', 'message': 'S3 client not initialized'}), 500
+            
             prefix = "data/mirrors/"
             response = s3_client.list_objects_v2(Bucket=S3_BUCKET, Prefix=prefix)
             
@@ -829,6 +997,9 @@ def save_sections():
         s3_path = "data/sections.json"
         
         try:
+            if not s3_client:
+                return jsonify({'status': 'error', 'message': 'S3 client not initialized'}), 500
+            
             s3_client.put_object(
                 Bucket=S3_BUCKET,
                 Key=s3_path,
@@ -859,6 +1030,12 @@ def get_sections():
     """Получить разделы/топики из S3"""
     try:
         s3_path = "data/sections.json"
+        
+        if not s3_client:
+            return jsonify({
+                'status': 'success',
+                'sections': {}
+            })
         
         try:
             obj = s3_client.get_object(Bucket=S3_BUCKET, Key=s3_path)
@@ -896,6 +1073,9 @@ def create_channel():
         s3_path = f"data/channels/{channel['id']}.json"
         
         try:
+            if not s3_client:
+                return jsonify({'status': 'error', 'message': 'S3 client not initialized'}), 500
+            
             s3_client.put_object(
                 Bucket=S3_BUCKET,
                 Key=s3_path,
@@ -928,6 +1108,9 @@ def get_channels():
     try:
         channels = {}
         try:
+            if not s3_client:
+                return jsonify({'status': 'success', 'channels': {}})
+            
             prefix = "data/channels/"
             response = s3_client.list_objects_v2(Bucket=S3_BUCKET, Prefix=prefix)
             
@@ -967,6 +1150,9 @@ def delete_channel():
         s3_path = f"data/channels/{channel_id}.json"
         
         try:
+            if not s3_client:
+                return jsonify({'status': 'error', 'message': 'S3 client not initialized'}), 500
+            
             s3_client.delete_object(Bucket=S3_BUCKET, Key=s3_path)
             
             flask_logger.info(f"✅ Канал удален: {channel_id}")
@@ -987,13 +1173,150 @@ def delete_channel():
         flask_logger.error(f"❌ Ошибка удаления канала: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+# ===== НОВЫЙ ENDPOINT: АТОМАРНОЕ СОХРАНЕНИЕ =====
+@flask_app.route('/api/s3/save-message-atomic', methods=['POST'])
+def save_message_atomic():
+    """Атомарное сохранение сообщения: сначала загружаем файлы, потом сохраняем сообщение"""
+    try:
+        data = request.json
+        
+        if not data:
+            return jsonify({'status': 'error', 'message': 'No data provided'}), 400
+        
+        # Используем ID из фронтенда
+        message_id = data.get('id')
+        if not message_id:
+            message_id = str(uuid.uuid4())
+        
+        user_id = data.get('user_id')
+        content = data.get('content', '')
+        files = data.get('files', [])
+        
+        if not user_id:
+            return jsonify({'status': 'error', 'message': 'User ID required'}), 400
+        
+        # Шаг 1: Загружаем файлы (если есть локальные)
+        uploaded_files = []
+        if files and len(files) > 0:
+            for file_info in files:
+                if file_info.get('isLocal') and file_info.get('fileData'):
+                    # Файл нужно загрузить
+                    try:
+                        # Декодируем base64
+                        import base64
+                        file_data = base64.b64decode(file_info['fileData'])
+                        
+                        # Определяем тип файла
+                        file_type = file_info.get('type', 'file')
+                        filename = file_info.get('name', 'file')
+                        ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else 'bin'
+                        
+                        unique_filename = f"{uuid.uuid4()}.{ext}"
+                        filepath = f"uploads/{file_type}/{user_id}/{unique_filename}"
+                        
+                        # Определяем Content-Type
+                        content_type = file_info.get('mimeType', 'application/octet-stream')
+                        
+                        # Загружаем в S3
+                        file_url = upload_to_s3(
+                            file_data,
+                            filepath,
+                            content_type=content_type
+                        )
+                        
+                        uploaded_files.append({
+                            'url': file_url,
+                            'name': filename,
+                            'type': file_type,
+                            'size': len(file_data),
+                            'mimeType': content_type
+                        })
+                        
+                        flask_logger.info(f"✅ Файл загружен: {filename}")
+                        
+                    except Exception as file_error:
+                        flask_logger.error(f"❌ Ошибка загрузки файла: {file_error}")
+                        # Продолжаем без этого файла
+                else:
+                    # Файл уже загружен
+                    uploaded_files.append(file_info)
+        
+        # Шаг 2: Создаем сообщение
+        message = {
+            'id': message_id,
+            'user_id': str(user_id),
+            'user': data.get('user', {}),
+            'content': content,
+            'timestamp': data.get('timestamp') or datetime.now().isoformat(),
+            'section': data.get('section', 'main'),
+            'channel': data.get('channel', 'main'),
+            'files': uploaded_files,
+            'reactions': data.get('reactions', {}),
+            'reply_to': data.get('reply_to'),
+            'edited': data.get('edited', False),
+            'deleted': data.get('deleted', False),
+            'pinned': data.get('pinned', False),
+            'status': 'sent'
+        }
+        
+        # Шаг 3: Сохраняем сообщение в S3
+        s3_path = f"data/messages_{message['section']}.json"
+        
+        if not s3_client:
+            return jsonify({'status': 'error', 'message': 'S3 client not initialized'}), 500
+        
+        # Загружаем существующие сообщения
+        existing_data = {'messages': []}
+        try:
+            obj = s3_client.get_object(Bucket=S3_BUCKET, Key=s3_path)
+            existing_data = json.loads(obj['Body'].read().decode('utf-8'))
+            if 'messages' not in existing_data:
+                existing_data['messages'] = []
+        except:
+            existing_data = {'messages': []}
+        
+        # Удаляем старое сообщение (если есть)
+        existing_data['messages'] = [
+            msg for msg in existing_data['messages'] 
+            if msg.get('id') != message_id
+        ]
+        
+        # Добавляем новое
+        existing_data['messages'].append(message)
+        
+        # Сохраняем
+        s3_client.put_object(
+            Bucket=S3_BUCKET,
+            Key=s3_path,
+            Body=json.dumps(existing_data, indent=2).encode('utf-8'),
+            ContentType='application/json'
+        )
+        
+        # Обновляем пользователя
+        update_user_in_s3(user_id, data.get('user', {}))
+        
+        flask_logger.info(f"✅ Сообщение сохранено атомарно: {message_id}")
+        
+        return jsonify({
+            'status': 'success',
+            'message_id': message_id,
+            'files': uploaded_files,
+            'message': 'Сообщение и файлы успешно сохранены'
+        })
+        
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка атомарного сохранения: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 # Экспортируем app для gunicorn
 app = flask_app
 
 # ===== TELEGRAM BOT =====
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+# ⚠️ ЗАМЕНИТЕ НА ВАШ РЕАЛЬНЫЙ ТОКЕН БОТА!
+BOT_TOKEN = os.getenv("BOT_TOKEN", "ВАШ_ТОКЕН_БОТА_ЗДЕСЬ")  # ⚠️ ЗАМЕНИТЕ
+
 if not BOT_TOKEN:
     logger.error("❌ BOT_TOKEN не найден!")
     exit(1)
