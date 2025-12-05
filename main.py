@@ -12,6 +12,7 @@ from flask import Flask, jsonify, request, send_from_directory
 import uuid
 from datetime import datetime
 import json
+import re
 from werkzeug.utils import secure_filename
 from sqlalchemy import create_engine
 
@@ -632,6 +633,229 @@ def proxy_audio_from_s3(filepath):
         
     except Exception as e:
         flask_logger.error(f"❌ Ошибка получения аудио из S3: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# ===== STICKERS & GIFS ENDPOINTS =====
+@flask_app.route('/api/telegram/get-sticker-sets', methods=['POST'])
+def get_sticker_sets():
+    """Получить наборы стикеров из Telegram"""
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        
+        if not user_id:
+            return jsonify({'status': 'error', 'message': 'User ID required'}), 400
+        
+        # Try to get sticker sets from Telegram Bot API
+        # For now, return empty list (should be implemented with bot.get_sticker_set)
+        return jsonify({
+            'status': 'success',
+            'sticker_sets': []
+        })
+        
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка получения стикеров: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@flask_app.route('/api/gifs/trending', methods=['GET'])
+def get_trending_gifs():
+    """Получить популярные GIF"""
+    try:
+        # Placeholder - should integrate with Giphy API or similar
+        return jsonify({
+            'status': 'success',
+            'gifs': []
+        })
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка получения GIF: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@flask_app.route('/api/gifs/search', methods=['GET'])
+def search_gifs():
+    """Поиск GIF"""
+    try:
+        query = request.args.get('q', '')
+        
+        if not query:
+            return jsonify({'status': 'error', 'message': 'Query required'}), 400
+        
+        # Placeholder - should integrate with Giphy API or similar
+        return jsonify({
+            'status': 'success',
+            'gifs': []
+        })
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка поиска GIF: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# ===== MIRRORS ENDPOINTS =====
+@flask_app.route('/api/mirrors/create', methods=['POST'])
+def create_mirror():
+    """Создать зеркало приложения"""
+    try:
+        data = request.json
+        
+        name = data.get('name')
+        token = data.get('token')
+        domain = data.get('domain', '')
+        is_public = data.get('public', False)
+        created_by = data.get('created_by')
+        
+        if not name or not token:
+            return jsonify({'status': 'error', 'message': 'Name and token required'}), 400
+        
+        # Validate token format
+        if not re.match(r'^\d+:[A-Za-z0-9_-]+$', token):
+            return jsonify({'status': 'error', 'message': 'Invalid token format'}), 400
+        
+        # Generate mirror ID
+        mirror_id = str(uuid.uuid4())
+        
+        # Save mirror configuration to S3
+        mirror_config = {
+            'id': mirror_id,
+            'name': name,
+            'token': token,
+            'domain': domain,
+            'public': is_public,
+            'created_by': created_by,
+            'created_at': datetime.now().isoformat(),
+            'status': 'active'
+        }
+        
+        s3_path = f"data/mirrors/{mirror_id}.json"
+        
+        try:
+            s3_client.put_object(
+                Bucket=S3_BUCKET,
+                Key=s3_path,
+                Body=json.dumps(mirror_config, indent=2).encode('utf-8'),
+                ContentType='application/json'
+            )
+            
+            mirror_url = f"{domain}/mirror/{mirror_id}" if domain else f"/mirror/{mirror_id}"
+            
+            flask_logger.info(f"✅ Зеркало создано: {mirror_id}")
+            
+            return jsonify({
+                'status': 'success',
+                'mirror_id': mirror_id,
+                'mirror_url': mirror_url,
+                'message': 'Зеркало успешно создано'
+            })
+            
+        except Exception as s3_error:
+            flask_logger.error(f"❌ Ошибка сохранения зеркала в S3: {s3_error}")
+            return jsonify({
+                'status': 'error',
+                'message': f'S3 save error: {str(s3_error)}'
+            }), 500
+        
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка создания зеркала: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@flask_app.route('/api/mirrors/list', methods=['GET'])
+def list_mirrors():
+    """Получить список зеркал пользователя"""
+    try:
+        user_id = request.args.get('user_id')
+        
+        if not user_id:
+            return jsonify({'status': 'error', 'message': 'User ID required'}), 400
+        
+        # List mirrors from S3
+        mirrors = []
+        try:
+            prefix = "data/mirrors/"
+            response = s3_client.list_objects_v2(Bucket=S3_BUCKET, Prefix=prefix)
+            
+            if 'Contents' in response:
+                for obj in response['Contents']:
+                    if obj['Key'].endswith('.json'):
+                        mirror_obj = s3_client.get_object(Bucket=S3_BUCKET, Key=obj['Key'])
+                        mirror_data = json.loads(mirror_obj['Body'].read().decode('utf-8'))
+                        
+                        # Filter by user if not public
+                        if mirror_data.get('created_by') == user_id or mirror_data.get('public'):
+                            mirrors.append(mirror_data)
+        except Exception as s3_error:
+            flask_logger.error(f"❌ Ошибка получения зеркал из S3: {s3_error}")
+        
+        return jsonify({
+            'status': 'success',
+            'mirrors': mirrors
+        })
+        
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка получения списка зеркал: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# ===== SECTIONS ENDPOINTS =====
+@flask_app.route('/api/s3/save-sections', methods=['POST'])
+def save_sections():
+    """Сохранить разделы/топики в S3"""
+    try:
+        data = request.json
+        sections_data = data.get('sections', {})
+        
+        s3_path = "data/sections.json"
+        
+        try:
+            s3_client.put_object(
+                Bucket=S3_BUCKET,
+                Key=s3_path,
+                Body=json.dumps(sections_data, indent=2).encode('utf-8'),
+                ContentType='application/json'
+            )
+            
+            flask_logger.info(f"✅ Разделы сохранены в S3")
+            
+            return jsonify({
+                'status': 'success',
+                'message': 'Разделы сохранены'
+            })
+            
+        except Exception as s3_error:
+            flask_logger.error(f"❌ Ошибка сохранения разделов в S3: {s3_error}")
+            return jsonify({
+                'status': 'error',
+                'message': f'S3 save error: {str(s3_error)}'
+            }), 500
+        
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка сохранения разделов: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@flask_app.route('/api/s3/get-sections', methods=['GET'])
+def get_sections():
+    """Получить разделы/топики из S3"""
+    try:
+        s3_path = "data/sections.json"
+        
+        try:
+            obj = s3_client.get_object(Bucket=S3_BUCKET, Key=s3_path)
+            sections_data = json.loads(obj['Body'].read().decode('utf-8'))
+            
+            return jsonify({
+                'status': 'success',
+                'sections': sections_data
+            })
+        except s3_client.exceptions.NoSuchKey:
+            # No sections yet, return empty
+            return jsonify({
+                'status': 'success',
+                'sections': {}
+            })
+        except Exception as s3_error:
+            flask_logger.error(f"❌ Ошибка получения разделов из S3: {s3_error}")
+            return jsonify({
+                'status': 'error',
+                'message': f'S3 get error: {str(s3_error)}'
+            }), 500
+        
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка получения разделов: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 # Экспортируем app для gunicorn
