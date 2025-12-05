@@ -437,6 +437,28 @@ function initUI() {
     if (btnAddChannel) btnAddChannel.addEventListener('click', showCreateChannelModal);
     if (btnCreateChannel) btnCreateChannel.addEventListener('click', createChannel);
     
+    // Add role button
+    const btnAddRole = document.getElementById('btn-add-role');
+    if (btnAddRole) {
+        btnAddRole.addEventListener('click', () => {
+            const roleName = prompt('Название роли:');
+            if (!roleName) return;
+            
+            const roleId = roleName.toLowerCase().replace(/\s+/g, '_');
+            const role = {
+                id: roleId,
+                name: roleName,
+                permissions: ['send_messages', 'send_files', 'react_messages'],
+                color: '#3390ec'
+            };
+            
+            appData.roles[roleId] = role;
+            saveRoleToS3(role);
+            loadRoles();
+            showNotification('Роль добавлена', 'success');
+        });
+    }
+    
     // Admin functionality
     const adminItems = document.querySelectorAll('.admin-item');
     adminItems.forEach(item => {
@@ -1668,7 +1690,8 @@ function createMessageElement(message) {
     // Files with lazy loading and previews
     if (message.files && message.files.length > 0) {
         filesHTML = message.files.map(file => {
-            if (file.type === 'photo') {
+            // Handle GIFs (marked as photo but with isGif flag)
+            if (file.type === 'photo' || file.type === 'gif' || file.isGif) {
                 // Use preview if available
                 const previewUrl = file.previewDataUrl || file.dataUrl || file.url;
                 const fullUrl = file.url || file.dataUrl;
@@ -1677,11 +1700,12 @@ function createMessageElement(message) {
                     <div class="message-media">
                         <img src="${previewUrl}" 
                              alt="${escapeHtml(file.name || 'Изображение')}" 
-                             class="message-image lazy-image"
+                             class="message-image lazy-image ${file.isGif ? 'gif-image' : ''}"
                              ${fullUrl && fullUrl !== previewUrl ? `data-full-src="${fullUrl}"` : ''}
                              loading="lazy"
                              onclick="showImagePreview('${fullUrl}')">
                         ${file.compressed ? '<div class="compression-badge" title="Изображение сжато"><i class="fas fa-compress-alt"></i></div>' : ''}
+                        ${file.isGif ? '<div class="gif-badge" title="GIF"><i class="fas fa-film"></i></div>' : ''}
                     </div>
                 `;
             } else if (file.type === 'video') {
@@ -2241,14 +2265,16 @@ function displayGifs(gifs) {
 }
 
 function selectGif(gifUrl) {
-    // Add GIF as attachment
+    // Add GIF as attachment - treat as photo to ensure it's saved
     const gifInfo = {
-        id: 'gif_' + Date.now(),
-        type: 'gif',
+        id: 'gif_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+        type: 'photo', // Treat as photo to ensure upload and save
         url: gifUrl,
         name: 'GIF',
+        size: 0,
         isLocal: false,
-        uploaded: true
+        uploaded: true,
+        isGif: true // Mark as GIF for display
     };
     
     attachedFiles.push(gifInfo);
@@ -2269,9 +2295,38 @@ window.selectGif = selectGif;
 // ===== MIRROR CONSTRUCTOR =====
 function showMirrorConstructor() {
     const modal = document.getElementById('mirror-constructor-modal');
+    const overlay = document.getElementById('overlay');
+    
     if (modal) {
         modal.style.display = 'flex';
+        if (overlay) overlay.style.display = 'block';
+        
+        // Close on overlay click
+        const closeOnOverlay = (e) => {
+            if (e.target === overlay || e.target === modal) {
+                closeMirrorConstructor();
+                overlay.removeEventListener('click', closeOnOverlay);
+            }
+        };
+        overlay.addEventListener('click', closeOnOverlay);
+        
+        // Close on ESC key
+        const closeOnEsc = (e) => {
+            if (e.key === 'Escape') {
+                closeMirrorConstructor();
+                document.removeEventListener('keydown', closeOnEsc);
+            }
+        };
+        document.addEventListener('keydown', closeOnEsc);
     }
+}
+
+function closeMirrorConstructor() {
+    const modal = document.getElementById('mirror-constructor-modal');
+    const overlay = document.getElementById('overlay');
+    
+    if (modal) modal.style.display = 'none';
+    if (overlay) overlay.style.display = 'none';
 }
 
 async function createMirror() {
@@ -3304,6 +3359,11 @@ function addChannelToSidebar(channel) {
     const channelsList = document.getElementById('channels-sidebar-list');
     if (!channelsList) return;
     
+    // Check if already exists
+    if (document.querySelector(`[data-channel="${channel.id}"]`)) {
+        return;
+    }
+    
     const channelElement = document.createElement('div');
     channelElement.className = 'channel-item';
     channelElement.dataset.channel = channel.id;
@@ -3312,16 +3372,71 @@ function addChannelToSidebar(channel) {
             <i class="fas fa-hashtag"></i>
         </div>
         <div class="channel-name">${escapeHtml(channel.name)}</div>
+        ${(isMainAdmin && channel.id !== 'main') ? `
+            <button class="btn-delete-channel" onclick="deleteChannel('${channel.id}')" title="Удалить канал">
+                <i class="fas fa-times"></i>
+            </button>
+        ` : ''}
         <div class="unread-badge" style="display: none;">0</div>
     `;
     
-    channelElement.addEventListener('click', () => {
-        switchChannel(channel.id);
-        closeSidebar();
+    channelElement.addEventListener('click', (e) => {
+        if (!e.target.closest('.btn-delete-channel')) {
+            switchChannel(channel.id);
+            closeSidebar();
+        }
     });
     
     channelsList.appendChild(channelElement);
 }
+
+async function deleteChannel(channelId) {
+    if (!isMainAdmin) {
+        showNotification('Только главный админ может удалять каналы', 'error');
+        return;
+    }
+    
+    if (!confirm('Вы уверены, что хотите удалить этот канал?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/s3/delete-channel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                channel_id: channelId,
+                user_id: currentUserId
+            })
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === 'success') {
+                // Remove from UI
+                const channelElement = document.querySelector(`[data-channel="${channelId}"]`);
+                if (channelElement) {
+                    channelElement.remove();
+                }
+                
+                // Remove from appData
+                delete appData.channels[channelId];
+                
+                // Switch to main if deleted channel was active
+                if (currentChannel === channelId) {
+                    switchChannel('main');
+                }
+                
+                showNotification('Канал удален', 'success');
+            }
+        }
+    } catch (error) {
+        console.error('❌ Ошибка удаления канала:', error);
+        showNotification('Ошибка удаления канала', 'error');
+    }
+}
+
+window.deleteChannel = deleteChannel;
 
 function switchChannel(channelId) {
     if (!appData.channels[channelId]) return;
@@ -3962,9 +4077,29 @@ async function loadUsers() {
 async function loadChannels() {
     try {
         // Load from S3
-        const response = await fetch(`${API_CONFIG.endpoints.getMessages}?type=channels`);
+        const response = await fetch('/api/s3/get-channels');
         if (response.ok) {
             const data = await response.json();
+            if (data.status === 'success' && data.channels) {
+                // Add channels to appData
+                Object.assign(appData.channels, data.channels);
+                
+                // Add to sidebar
+                Object.values(data.channels).forEach(channel => {
+                    if (channel.id !== 'main') {
+                        addChannelToSidebar(channel);
+                    }
+                });
+                
+                console.log('✅ Каналы загружены:', Object.keys(data.channels).length);
+            }
+            return;
+        }
+        
+        // Fallback to old method
+        const oldResponse = await fetch(`${API_CONFIG.endpoints.getMessages}?type=channels`);
+        if (oldResponse.ok) {
+            const data = await oldResponse.json();
             if (data.status === 'success' && data.channels) {
                 channelsCache = data.channels;
                 
