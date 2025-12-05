@@ -40,25 +40,36 @@ S3_CONFIG = {
     'secret_key': os.getenv('S3_SECRET_KEY')
 }
 
-# Инициализация S3 клиента
+# Инициализация S3 клиента - глобальная переменная
 s3_client = None
-try:
-    # Проверяем наличие обязательных ключей
-    if not S3_CONFIG['access_key'] or not S3_CONFIG['secret_key']:
-        flask_logger.warning("⚠️ S3 ключи не найдены в переменных окружения")
-        flask_logger.warning("⚠️ Загрузка файлов в S3 будет недоступна")
-    else:
-        s3_client = boto3.client(
-            's3',
-            endpoint_url=S3_CONFIG['endpoint'],
-            aws_access_key_id=S3_CONFIG['access_key'],
-            aws_secret_access_key=S3_CONFIG['secret_key'],
-            config=Config(signature_version='s3v4', s3={'addressing_style': 'path'})
-        )
-        flask_logger.info("✅ S3 клиент инициализирован")
-except Exception as e:
-    flask_logger.error(f"❌ Ошибка инициализации S3 клиента: {e}", exc_info=True)
-    s3_client = None
+
+def init_s3_client():
+    """Инициализация S3 клиента"""
+    global s3_client  # Исправлено: global вынесен в отдельную функцию
+    try:
+        # Проверяем наличие обязательных ключей
+        if not S3_CONFIG['access_key'] or not S3_CONFIG['secret_key']:
+            flask_logger.warning("⚠️ S3 ключи не найдены в переменных окружения")
+            flask_logger.warning("⚠️ Загрузка файлов в S3 будет недоступна")
+            s3_client = None
+            return False
+        else:
+            s3_client = boto3.client(
+                's3',
+                endpoint_url=S3_CONFIG['endpoint'],
+                aws_access_key_id=S3_CONFIG['access_key'],
+                aws_secret_access_key=S3_CONFIG['secret_key'],
+                config=Config(signature_version='s3v4', s3={'addressing_style': 'path'})
+            )
+            flask_logger.info("✅ S3 клиент инициализирован")
+            return True
+    except Exception as e:
+        flask_logger.error(f"❌ Ошибка инициализации S3 клиента: {e}", exc_info=True)
+        s3_client = None
+        return False
+
+# Инициализируем S3 клиент при старте
+init_s3_client()
 
 # Путь к веб-приложению
 WEBAPP_DIR = os.path.join(os.path.dirname(__file__), 'bot/webapp')
@@ -88,6 +99,7 @@ def generate_s3_url(filepath):
 
 def test_s3_connection():
     """Проверка подключения к S3"""
+    global s3_client
     try:
         if not s3_client:
             return False, "S3 клиент не инициализирован (отсутствуют ключи доступа)"
@@ -100,9 +112,12 @@ def test_s3_connection():
 
 def upload_to_s3(file, filepath, content_type='application/octet-stream'):
     """Загрузка файла в S3"""
+    global s3_client
     try:
         if not s3_client:
-            raise Exception("S3 клиент не инициализирован. Проверьте наличие S3_ACCESS_KEY и S3_SECRET_KEY в переменных окружения")
+            # Попробуем переинициализировать клиент
+            if not init_s3_client():
+                raise Exception("S3 клиент не инициализирован. Проверьте наличие S3_ACCESS_KEY и S3_SECRET_KEY в переменных окружения")
         
         flask_logger.info(f"📤 Загрузка файла в S3: {filepath}")
         
@@ -126,29 +141,25 @@ def upload_to_s3(file, filepath, content_type='application/octet-stream'):
         try:
             flask_logger.info("🔄 Попытка повторного подключения к S3...")
             # Переинициализируем клиент
-            global s3_client
-            s3_client = boto3.client(
-                's3',
-                endpoint_url=S3_CONFIG['endpoint'],
-                aws_access_key_id=S3_CONFIG['access_key'],
-                aws_secret_access_key=S3_CONFIG['secret_key'],
-                config=Config(signature_version='s3v4', s3={'addressing_style': 'path'})
-            )
-            s3_client.put_object(
-                Bucket=S3_CONFIG['bucket'],
-                Key=filepath,
-                Body=file_data,
-                ContentType=content_type
-            )
-            file_url = generate_s3_url(filepath)
-            flask_logger.info(f"✅ Файл загружен после повторного подключения: {file_url}")
-            return file_url
+            if init_s3_client():
+                s3_client.put_object(
+                    Bucket=S3_CONFIG['bucket'],
+                    Key=filepath,
+                    Body=file_data,
+                    ContentType=content_type
+                )
+                file_url = generate_s3_url(filepath)
+                flask_logger.info(f"✅ Файл загружен после повторного подключения: {file_url}")
+                return file_url
+            else:
+                raise Exception("Не удалось повторно инициализировать S3 клиент")
         except Exception as e2:
             flask_logger.error(f"❌ Повторная попытка загрузки не удалась: {e2}", exc_info=True)
             raise
 
 def delete_from_s3(filepath):
     """Удаление файла из S3"""
+    global s3_client
     try:
         if not s3_client:
             return False
@@ -165,6 +176,7 @@ def delete_from_s3(filepath):
 
 def list_s3_files(prefix=''):
     """Получение списка файлов из S3"""
+    global s3_client
     try:
         if not s3_client:
             return []
