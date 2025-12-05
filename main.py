@@ -9,14 +9,12 @@ from aiogram.utils import executor
 import core.database as db
 from botocore.client import Config
 from flask import Flask, jsonify, request, send_from_directory
-from flask_cors import CORS
 import uuid
 from datetime import datetime
 import json
 from werkzeug.utils import secure_filename
 
 flask_app = Flask(__name__)
-CORS(flask_app)  # ВАЖНО: Разрешаем CORS для фронтенда
 
 # Настройка логирования
 logging.basicConfig(
@@ -45,39 +43,6 @@ try:
 except Exception as e:
     flask_logger.error(f"❌ Ошибка инициализации S3 клиента: {e}")
     s3_client = None
-
-# ===== НАСТРОЙКА CORS ДЛЯ S3 =====
-def setup_s3_cors():
-    """Настройка CORS политики в S3"""
-    try:
-        if not s3_client:
-            return False
-        
-        cors_configuration = {
-            'CORSRules': [
-                {
-                    'AllowedHeaders': ['*'],
-                    'AllowedMethods': ['GET', 'PUT', 'POST', 'DELETE', 'HEAD'],
-                    'AllowedOrigins': ['*'],  # Разрешаем все домены для теста
-                    'ExposeHeaders': ['ETag', 'Content-Type', 'Content-Length'],
-                    'MaxAgeSeconds': 3000
-                }
-            ]
-        }
-        
-        s3_client.put_bucket_cors(
-            Bucket=S3_BUCKET,
-            CORSConfiguration=cors_configuration
-        )
-        flask_logger.info("✅ CORS политика настроена для S3")
-        return True
-    except Exception as e:
-        flask_logger.error(f"❌ Ошибка настройки CORS: {e}")
-        return False
-
-# Настраиваем CORS при запуске
-if s3_client:
-    setup_s3_cors()
 
 # Путь к веб-приложению
 WEBAPP_DIR = 'bot/webapp'
@@ -127,6 +92,14 @@ def test_s3_connection():
         return False, f"❌ Ошибка подключения к S3: {str(e)}"
 
 # ===== FLASK ROUTES =====
+@flask_app.after_request
+def add_cors_headers(response):
+    """Добавляем CORS заголовки вручную"""
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    return response
+
 @flask_app.route('/')
 def index():
     return "Telegram Bot with Mini App is running! Use /start in Telegram"
@@ -175,57 +148,6 @@ def init_database():
         }), 500
 
 # ===== API ДЛЯ ФРОНТЕНДА =====
-@flask_app.route('/api/s3/upload-url', methods=['POST'])
-def get_s3_upload_url():
-    """Получить URL для загрузки файла в S3"""
-    try:
-        data = request.json
-        filename = data.get('filename')
-        content_type = data.get('content_type', 'application/octet-stream')
-        user_id = data.get('user_id')
-        file_type = data.get('file_type', 'document')
-        
-        if not filename or not user_id:
-            return jsonify({'status': 'error', 'message': 'Missing required fields'}), 400
-        
-        # Генерируем уникальный путь
-        ext = filename.split('.')[-1].lower() if '.' in filename else 'bin'
-        unique_filename = f"{uuid.uuid4()}.{ext}"
-        filepath = f"uploads/{file_type}/{user_id}/{unique_filename}"
-        
-        # Генерируем пре-подписанный URL для загрузки
-        try:
-            url = s3_client.generate_presigned_url(
-                'put_object',
-                Params={
-                    'Bucket': S3_BUCKET,
-                    'Key': filepath,
-                    'ContentType': content_type
-                },
-                ExpiresIn=3600
-            )
-            
-            file_url = generate_s3_url(filepath)
-            
-            return jsonify({
-                'status': 'success',
-                'upload_url': url,
-                'file_url': file_url,
-                'filepath': filepath,
-                'filename': unique_filename
-            })
-            
-        except Exception as s3_error:
-            flask_logger.error(f"❌ Ошибка генерации URL: {s3_error}")
-            return jsonify({
-                'status': 'error', 
-                'message': f'S3 error: {str(s3_error)}'
-            }), 500
-        
-    except Exception as e:
-        flask_logger.error(f"❌ Ошибка получения upload URL: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-
 @flask_app.route('/api/s3/proxy-upload', methods=['POST'])
 def proxy_upload_to_s3():
     """Прокси загрузка файла в S3 через бэкенд"""
