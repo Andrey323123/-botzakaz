@@ -420,12 +420,12 @@ function initUI() {
     if (btnCancelRecording) {
         btnCancelRecording.addEventListener('click', cancelVoiceRecording);
     }
-    if (btnSendVoice) {
-        btnSendVoice.addEventListener('click', stopVoiceRecording);
+    if (btnCancelRecording) {
+        btnCancelRecording.addEventListener('click', cancelVoiceRecording);
     }
-    
-    if (btnCancelRecording) btnCancelRecording.addEventListener('click', cancelVoiceRecording);
-    if (btnSendVoice) btnSendVoice.addEventListener('click', sendVoiceMessage);
+    if (btnSendVoice) {
+        btnSendVoice.addEventListener('click', sendVoiceMessage);
+    }
     
     // Create channel
     const btnAddChannel = document.getElementById('btn-add-channel');
@@ -1440,15 +1440,15 @@ async function sendMessageWithFiles() {
         if (response.ok) {
             const result = await response.json();
             updateMessageStatus(messageId, 'delivered');
-            showNotification('Сообщение отправлено', 'success');
+    showNotification('Сообщение отправлено', 'success');
         } else {
             throw new Error('Ошибка сохранения');
         }
     } catch (error) {
         console.error('❌ Ошибка отправки:', error);
-        updateMessageStatus(messageId, 'error');
+            updateMessageStatus(messageId, 'error');
         showNotification('Ошибка отправки', 'error');
-    }
+        }
     
     scrollToBottom();
     playSound('send');
@@ -1565,9 +1565,9 @@ function createMessageElement(message) {
                             <i class="fas fa-play"></i>
                         </button>
                         <div class="voice-waveform-container">
-                            <div class="voice-waveform">
-                                <div class="voice-progress" style="width: 0%"></div>
-                            </div>
+                        <div class="voice-waveform">
+                            <div class="voice-progress" style="width: 0%"></div>
+                        </div>
                             <div class="voice-current-time">0:00</div>
                         </div>
                         <div class="voice-duration">${formatDuration(file.duration || 0)}</div>
@@ -1931,7 +1931,7 @@ async function showStickerPicker() {
     const modal = document.getElementById('sticker-picker-modal');
     if (!modal) return;
     
-    modal.style.display = 'flex';
+    showModal('sticker-picker-modal');
     
     // Load stickers from Telegram Bot API
     await loadTelegramStickers();
@@ -2020,8 +2020,7 @@ function selectSticker(stickerUrl) {
     showFilePreview(stickerInfo);
     
     // Close modal
-    const modal = document.getElementById('sticker-picker-modal');
-    if (modal) modal.style.display = 'none';
+    closeModal('sticker-picker-modal');
     
     // Enable send button
     document.getElementById('btn-send').disabled = false;
@@ -2031,7 +2030,7 @@ async function showGifPicker() {
     const modal = document.getElementById('gif-picker-modal');
     if (!modal) return;
     
-    modal.style.display = 'flex';
+    showModal('gif-picker-modal');
     
     // Load popular GIFs
     await loadGifs();
@@ -2116,8 +2115,7 @@ function selectGif(gifUrl) {
     showFilePreview(gifInfo);
     
     // Close modal
-    const modal = document.getElementById('gif-picker-modal');
-    if (modal) modal.style.display = 'none';
+    closeModal('gif-picker-modal');
     
     // Enable send button
     document.getElementById('btn-send').disabled = false;
@@ -2716,13 +2714,13 @@ function playVoiceMessage(url, element) {
     // Если уже есть активный плеер для этого сообщения, используем его
     if (activeVoicePlayers[messageId]) {
         const audio = activeVoicePlayers[messageId].audio;
-        const playButton = element.querySelector('.voice-play-btn i');
-        const progressBar = element.querySelector('.voice-progress');
+    const playButton = element.querySelector('.voice-play-btn i');
+    const progressBar = element.querySelector('.voice-progress');
         const currentTimeEl = element.querySelector('.voice-current-time');
-        
+    
         if (audio.paused) {
             audio.play();
-            playButton.className = 'fas fa-pause';
+    playButton.className = 'fas fa-pause';
         } else {
             audio.pause();
             playButton.className = 'fas fa-play';
@@ -2885,7 +2883,7 @@ function playVoiceMessage(url, element) {
             showNotification('Разрешите воспроизведение аудио в браузере', 'warning');
         } else if (err.name === 'NotSupportedError') {
             showNotification('Формат аудио не поддерживается', 'error');
-        } else {
+    } else {
             showNotification('Ошибка воспроизведения аудио', 'error');
         }
     });
@@ -3211,8 +3209,8 @@ function addChannelToSidebar(channel) {
     
     channelElement.addEventListener('click', (e) => {
         if (!e.target.closest('.btn-delete-channel')) {
-            switchChannel(channel.id);
-            closeSidebar();
+        switchChannel(channel.id);
+        closeSidebar();
         }
     });
     
@@ -3805,6 +3803,8 @@ function showImagePreview(imageUrl) {
     const image = document.getElementById('preview-image');
     
     if (modal && image) {
+        showModal('image-preview-modal');
+        
         // Show loading
         image.src = '';
         image.classList.add('loading');
@@ -3856,15 +3856,17 @@ function showVideoPlayer(videoUrl) {
     
     if (modal && video) {
         video.src = videoUrl;
-        modal.classList.add('active');
+        showModal('video-player-modal');
         
         // Close on background click
-        modal.addEventListener('click', function(e) {
+        const closeOnClick = (e) => {
             if (e.target === modal || e.target.closest('.btn-close-preview')) {
                 video.pause();
-                modal.classList.remove('active');
+                closeModal('video-player-modal');
+                modal.removeEventListener('click', closeOnClick);
             }
-        });
+        };
+        modal.addEventListener('click', closeOnClick);
     }
 }
 
@@ -5032,7 +5034,7 @@ function toggleReaction(messageId, emoji) {
     
     // Play sound if enabled
     if (localStorage.getItem('soundsEnabled') !== 'false') {
-        playSound('reaction');
+    playSound('reaction');
     }
 }
 
