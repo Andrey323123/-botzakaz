@@ -29,8 +29,8 @@ flask_logger = logging.getLogger('flask_app')
 # ⚠️ ЗАМЕНИТЕ НА ВАШИ РЕАЛЬНЫЕ КЛЮЧИ!
 S3_ENDPOINT = "https://s3.ru-3.storage.selcloud.ru"
 S3_BUCKET = "telegram-chat-files"
-S3_ACCESS_KEY = os.getenv('S3_ACCESS_KEY', 'ВАШ_ACCESS_KEY_ЗДЕСЬ')  # ⚠️ ЗАМЕНИТЕ
-S3_SECRET_KEY = os.getenv('S3_SECRET_KEY', 'ВАШ_SECRET_KEY_ЗДЕСЬ')  # ⚠️ ЗАМЕНИТЕ
+S3_ACCESS_KEY = os.getenv('S3_ACCESS_KEY', '25d16365251e45ec9b678de28dafd86b')  # ⚠️ ЗАМЕНИТЕ
+S3_SECRET_KEY = os.getenv('S3_SECRET_KEY', 'cc56887e78d14bdbae867638726a816b')  # ⚠️ ЗАМЕНИТЕ
 
 # Инициализация клиента S3
 s3_client = None
